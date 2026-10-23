@@ -5,6 +5,8 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import Speech
+import Carbon
+import UniformTypeIdentifiers
 
 // MARK: - Paths and environment
 
@@ -366,12 +368,12 @@ final class Engine: @unchecked Sendable {
     }
 
     /// Sends one message; text streams through onText. Returns the stop reason or "error: …".
-    func prompt(_ text: String) async -> String {
+    func prompt(_ text: String, images: [String] = []) async -> String {
         lock.lock(); let sid = sessionID; lock.unlock()
         var id = sid
         if id == nil, await ensureStarted() == nil { lock.lock(); id = sessionID; lock.unlock() }
         guard let sid = id else { return "error: not started" }
-        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": text]]], timeout: 900)
+        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": text]] + images.map { ["type": "image", "data": $0, "mimeType": "image/jpeg"] }], timeout: 900)
         if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
         return "error: \(r["error"] ?? "no answer")"
@@ -1036,11 +1038,16 @@ final class Model: ObservableObject {
         if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
+    /// Pictures waiting to go with the next message (dragged, pasted, picked or dropped on the orb).
+    @Published var pictures: [Picture] = []
+
     func send(_ text: String) async {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !paused, !t.isEmpty, !thinking else { return }
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !paused, !thinking, !(t.isEmpty && pictures.isEmpty) else { return }
+        let pics = pictures; pictures = []
+        if t.isEmpty { t = pics.count == 1 ? "What's in this picture?" : "What's in these pictures?" }
         await ensureEngine()
-        me(t)
+        me(pics.isEmpty ? t : "🖼 \(pics.count == 1 ? "1 picture" : "\(pics.count) pictures")\n\(t)")
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true; working = nil
@@ -1049,7 +1056,7 @@ final class Model: ObservableObject {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let stop = await Engine.shared.prompt(t)
+        let stop = await Engine.shared.prompt(t, images: pics.map { $0.data.base64EncodedString() })
         try? await Task.sleep(for: .milliseconds(150))
         thinking = false; working = nil; saveBubbles()
         if idx < bubbles.count, bubbles[idx].text.isEmpty {
@@ -1350,6 +1357,248 @@ struct FloatScene: View {
 }
 
 
+
+// MARK: - Pictures (drag, paste, pick, or drop on the orb)
+
+struct Picture: Identifiable {
+    let id = UUID()
+    let name: String
+    let data: Data          // JPEG, at most 1600px on the long side
+    let thumb: NSImage
+
+    static func from(url: URL) -> Picture? {
+        guard let img = NSImage(contentsOf: url) else { return nil }
+        return from(image: img, name: url.lastPathComponent)
+    }
+    static func from(image: NSImage, name: String = "Picture") -> Picture? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height), k = min(1, 1600 / max(w, h))
+        let nw = max(1, Int(w * k)), nh = max(1, Int(h * k))
+        guard let ctx = CGContext(data: nil, width: nw, height: nh, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.setFillColor(.white); ctx.fill(CGRect(x: 0, y: 0, width: nw, height: nh))
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: nw, height: nh))
+        guard let out = ctx.makeImage(),
+              let jpg = NSBitmapImageRep(cgImage: out).representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return nil }
+        return Picture(name: name, data: jpg, thumb: NSImage(cgImage: out, size: NSSize(width: nw, height: nh)))
+    }
+    /// Pictures from the clipboard (a copied screenshot or image, or copied image files).
+    static func fromPasteboard(_ pb: NSPasteboard = .general) -> [Picture] {
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]) as? [URL], !urls.isEmpty {
+            return urls.compactMap { from(url: $0) }
+        }
+        if let imgs = pb.readObjects(forClasses: [NSImage.self]) as? [NSImage] { return imgs.compactMap { from(image: $0) } }
+        return []
+    }
+}
+
+@MainActor enum PictureIn {
+    static func add(_ p: [Picture]) {
+        guard !p.isEmpty else { return }
+        Model.shared.pictures.append(contentsOf: p.prefix(max(0, 6 - Model.shared.pictures.count)))
+    }
+    static func pick() {
+        let o = NSOpenPanel()
+        o.allowedContentTypes = [.image]; o.allowsMultipleSelection = true
+        o.message = "Pick pictures to show your assistant"
+        if o.runModal() == .OK { add(o.urls.compactMap { Picture.from(url: $0) }) }
+    }
+    static func drop(_ providers: [NSItemProvider]) -> Bool {
+        var any = false
+        for pr in providers {
+            if pr.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                any = true
+                _ = pr.loadObject(ofClass: URL.self) { u, _ in
+                    guard let u, let pic = Picture.from(url: u) else { return }
+                    DispatchQueue.main.async { add([pic]) }
+                }
+            } else if pr.canLoadObject(ofClass: NSImage.self) {
+                any = true
+                _ = pr.loadObject(ofClass: NSImage.self) { img, _ in
+                    guard let img = img as? NSImage, let pic = Picture.from(image: img) else { return }
+                    DispatchQueue.main.async { add([pic]) }
+                }
+            }
+        }
+        return any
+    }
+    /// ⌘V with a picture on the clipboard attaches it (text pastes stay normal).
+    static func installPaste() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, e.charactersIgnoringModifiers == "v",
+                  Model.shared.onboarded else { return e }
+            let pb = NSPasteboard.general
+            let hasText = pb.string(forType: .string) != nil && pb.availableType(from: [.png, .tiff, .fileURL]) == nil
+            if hasText { return e }
+            let pics = Picture.fromPasteboard(pb)
+            if pics.isEmpty { return e }
+            add(pics); return nil
+        }
+    }
+}
+
+struct PictureStrip: View {
+    @ObservedObject var m: Model
+    var body: some View {
+        if !m.pictures.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(m.pictures) { p in
+                    Image(nsImage: p.thumb).resizable().aspectRatio(contentMode: .fill)
+                        .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.15)))
+                        .overlay(alignment: .topTrailing) {
+                            Button { m.pictures.removeAll { $0.id == p.id } } label: {
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 16)).symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .black.opacity(0.6))
+                            }.buttonStyle(.plain).offset(x: 6, y: -6).help("Remove")
+                        }
+                }
+                Spacer()
+            }.padding(.horizontal, 6)
+        }
+    }
+}
+
+// MARK: - Push-to-talk key (any key combo or an extra mouse button, chosen by the user)
+
+struct TalkKey: Codable, Equatable {
+    var keyCode: UInt32? = nil     // keyboard
+    var mods: UInt32 = 0           // Carbon modifier mask
+    var mouse: Int? = nil          // extra mouse button number (2 = middle, 3/4 = side)
+    var label: String
+    static let standard = TalkKey(keyCode: UInt32(kVK_Space), mods: UInt32(optionKey), label: "⌥ Space")
+    static var current: TalkKey? {
+        get {
+            let d = UserDefaults.standard
+            if d.bool(forKey: "talkKeyOff") { return nil }
+            guard let raw = d.data(forKey: "talkKey"), let k = try? JSONDecoder().decode(TalkKey.self, from: raw) else { return .standard }
+            return k
+        }
+        set {
+            let d = UserDefaults.standard
+            if let k = newValue { d.set(false, forKey: "talkKeyOff"); d.set(try? JSONEncoder().encode(k), forKey: "talkKey") }
+            else { d.set(true, forKey: "talkKeyOff") }
+        }
+    }
+    static func carbonMods(_ f: NSEvent.ModifierFlags) -> UInt32 {
+        var m: UInt32 = 0
+        if f.contains(.command) { m |= UInt32(cmdKey) }
+        if f.contains(.option) { m |= UInt32(optionKey) }
+        if f.contains(.control) { m |= UInt32(controlKey) }
+        if f.contains(.shift) { m |= UInt32(shiftKey) }
+        return m
+    }
+    static func name(_ e: NSEvent) -> String {
+        let f = e.modifierFlags
+        var s = ""
+        if f.contains(.control) { s += "⌃" }; if f.contains(.option) { s += "⌥" }
+        if f.contains(.shift) { s += "⇧" }; if f.contains(.command) { s += "⌘" }
+        let special: [UInt16: String] = [49: "Space", 36: "Return", 48: "Tab", 51: "Delete", 53: "Esc",
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10",
+            103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19",
+            123: "←", 124: "→", 125: "↓", 126: "↑"]
+        let k = special[e.keyCode] ?? (e.charactersIgnoringModifiers ?? "?").uppercased()
+        return s.isEmpty ? k : s + " " + k
+    }
+    static func isFunctionKey(_ code: UInt16) -> Bool {
+        [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80].contains(code)
+    }
+}
+
+/// Listens for the chosen key or mouse button anywhere on the Mac. Holding it = holding the orb.
+@MainActor final class TalkKeys {
+    static let shared = TalkKeys()
+    private var hotRef: EventHotKeyRef?
+    private var handlerInstalled = false
+    private var mouseMonitors: [Any] = []
+    private var down = false
+    var paused = false   // while choosing a new key
+
+    func apply() {
+        if let r = hotRef { UnregisterEventHotKey(r); hotRef = nil }
+        mouseMonitors.forEach { NSEvent.removeMonitor($0) }; mouseMonitors = []
+        guard let k = TalkKey.current else { return }
+        if let code = k.keyCode {
+            if !handlerInstalled {
+                handlerInstalled = true
+                var types = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+                             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
+                InstallEventHandler(GetApplicationEventTarget(), { _, ev, _ in
+                    let pressed = GetEventKind(ev) == UInt32(kEventHotKeyPressed)
+                    DispatchQueue.main.async { pressed ? TalkKeys.shared.press() : TalkKeys.shared.release() }
+                    return noErr
+                }, 2, &types, nil, nil)
+            }
+            RegisterEventHotKey(code, k.mods, EventHotKeyID(signature: OSType(0x4F4E4554), id: 1), GetApplicationEventTarget(), 0, &hotRef)
+        } else if let b = k.mouse {
+            let handle: (NSEvent) -> Void = { e in
+                guard e.buttonNumber == b else { return }
+                e.type == .otherMouseDown ? TalkKeys.shared.press() : TalkKeys.shared.release()
+            }
+            if let g = NSEvent.addGlobalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp], handler: handle) { mouseMonitors.append(g) }
+            if let l = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp], handler: { e in handle(e); return e }) { mouseMonitors.append(l) }
+        }
+    }
+    func press() { guard !paused, !down else { return }; down = true; Floater.shared.keyTalkBegin() }
+    func release() { guard down else { return }; down = false; Floater.shared.keyTalkEnd() }
+}
+
+struct TalkKeySheet: View {
+    var done: () -> Void
+    @State var key: TalkKey? = TalkKey.current
+    @State var recording = false
+    @State var warn: String?
+    @State var monitor: Any?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Push to talk").font(.title2.weight(.semibold))
+            Text("Hold this key or button anywhere on your Mac, talk, then let go to send.").foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Text(recording ? "Press a key or a mouse button…" : (key?.label ?? "Off"))
+                    .font(.system(size: 18, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .frame(minWidth: 220, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(recording ? 0.14 : 0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(recording ? 0.4 : 0.12)))
+                Button(recording ? "Cancel" : "Change") { recording ? stop() : record() }
+            }
+            if let warn { Text(warn).foregroundStyle(.orange).font(.callout) }
+            Text("Good choices: a key like F5, a combo like ⌥ Space, or a side button on your mouse.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button("Turn off") { stop(); key = nil; TalkKey.current = nil; TalkKeys.shared.apply() }
+                Button("Use ⌥ Space") { stop(); key = .standard; TalkKey.current = .standard; TalkKeys.shared.apply() }
+                Spacer()
+                Button("Done") { stop(); done() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24).frame(width: 470)
+        .onDisappear { stop() }
+    }
+    func record() {
+        warn = nil; recording = true; TalkKeys.shared.paused = true
+        if let r = TalkKey.current, r.keyCode != nil { TalkKey.current = nil; TalkKeys.shared.apply(); TalkKey.current = r }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown]) { e in
+            if e.type == .otherMouseDown {
+                let n = e.buttonNumber
+                save(TalkKey(mouse: n, label: n == 2 ? "Middle mouse button" : "Mouse button \(n + 1)")); return nil
+            }
+            if e.keyCode == 53 { stop(); return nil }   // Esc cancels
+            let mods = TalkKey.carbonMods(e.modifierFlags)
+            if mods == 0 && !TalkKey.isFunctionKey(e.keyCode) {
+                warn = "That key is used for typing. Add ⌥, ⌃ or ⌘, or use an F key."; return nil
+            }
+            save(TalkKey(keyCode: UInt32(e.keyCode), mods: mods, label: TalkKey.name(e))); return nil
+        }
+    }
+    func save(_ k: TalkKey) { key = k; TalkKey.current = k; stop() }
+    func stop() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        recording = false; TalkKeys.shared.paused = false; TalkKeys.shared.apply()
+    }
+}
+
 // MARK: - Push to talk (speech → text on this Mac)
 
 /// Hears you while you hold the orb. Speech is turned into text on the Mac when it can be.
@@ -1518,6 +1767,14 @@ final class OrbHost: NSView {
         return hypot(q.x - bounds.midX, q.y - bounds.midY) < 46 ? self : nil
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func viewDidMoveToWindow() { registerForDraggedTypes([.fileURL, .png, .tiff]) }
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { .copy }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
+        let pics = Picture.fromPasteboard(s.draggingPasteboard)
+        guard !pics.isEmpty else { return false }
+        MainActor.assumeIsolated { PictureIn.add(pics); Floater.shared.gotPictures(pics.count) }
+        return true
+    }
     override func mouseDown(with e: NSEvent) {
         holdTimer?.invalidate()
         if e.clickCount >= 2 { Floater.shared.openMain(); return }
@@ -1565,7 +1822,7 @@ final class OrbHost: NSView {
             Task { @MainActor in self.show() }
         }
         nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in if !(self.mainWindow?.isMiniaturized ?? false) { self.hide() } }
+            Task { @MainActor in if !(self.mainWindow?.isMiniaturized ?? false) && !Listener.shared.listening && !self.keyTalk { self.hide() } }
         }
         // Hiding One (⌘H) would hide the orb too, so turn "hide" into "tuck the window away and show the orb".
         nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in
@@ -1669,6 +1926,35 @@ final class OrbHost: NSView {
         Listener.shared.begin()
     }
 
+    private var keyTalk = false
+    /// Push-to-talk key held: show the orb (even over One) and listen.
+    func keyTalkBegin() {
+        build(); placeCard()
+        orb?.orderFrontRegardless(); card?.orderFrontRegardless()
+        keyTalk = true
+        beginTalk()
+    }
+    func keyTalkEnd() {
+        Listener.shared.finish { heard in
+            guard !heard.isEmpty else {
+                if Listener.shared.problem == nil { self.note("I didn't catch that. Hold the key and talk, then let go.") }
+                self.tuckIfOneInFront(after: 4); return
+            }
+            Task { @MainActor in
+                await Model.shared.send(heard)
+                if NSApp.isActive { self.tuckIfOneInFront(after: 0) } else { self.showReply() }
+            }
+        }
+    }
+    private func tuckIfOneInFront(after s: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + s) {
+            if NSApp.isActive && !Listener.shared.listening && !Model.shared.thinking { self.keyTalk = false; self.hide() }
+        }
+    }
+    func gotPictures(_ n: Int) {
+        note(n == 1 ? "Got the picture. Hold me and say what to do with it." : "Got \(n) pictures. Hold me and say what to do with them.")
+    }
+
     func endTalk() {
         Listener.shared.finish { heard in
             guard !heard.isEmpty else {
@@ -1682,7 +1968,7 @@ final class OrbHost: NSView {
         }
     }
 
-    private func note(_ s: String) {
+    func note(_ s: String) {
         FloatUI.shared.note = s
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if FloatUI.shared.note == s { FloatUI.shared.note = nil } }
     }
@@ -2310,6 +2596,8 @@ struct HomeView: View {
     @ObservedObject var m: Model
     @State var draft = ""
     @State var folderSheet = false
+    @State var talkKeySheet = false
+    @State var dropping = false
     @FocusState var typing: Bool
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
@@ -2381,6 +2669,7 @@ struct HomeView: View {
             }
         }
         .toolbar {
+            ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
             ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }
             ToolbarItem {
@@ -2391,17 +2680,31 @@ struct HomeView: View {
         }
         .navigationTitle(m.name)
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
+        .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
+        .overlay {
+            if dropping {
+                RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                    .overlay(Text("Drop pictures here").font(.title3.weight(.medium)).padding(12).background(Capsule().fill(.ultraThinMaterial)))
+                    .padding(10).allowsHitTesting(false)
+            }
+        }
         .task { await m.ensureEngine() }
     }
     var askBox: some View {
+        VStack(spacing: 8) {
+        PictureStrip(m: m)
         HStack(spacing: 12) {
+            Button { PictureIn.pick() } label: { Image(systemName: "photo.on.rectangle.angled").font(.system(size: 20, weight: .light)) }
+                .buttonStyle(.plain).help("Add a picture (or drag one in, or paste it)").disabled(m.paused)
             TextField(lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…", text: $draft)
                 .textFieldStyle(.plain).font(.title3).focused($typing)
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
                 .onSubmit(go).disabled(m.paused)
             Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
+                .buttonStyle(.plain).disabled(m.paused || m.thinking || (draft.isEmpty && m.pictures.isEmpty))
+        }
         }
     }
     func go() { let t = draft; draft = ""; Task { await m.send(t) } }
@@ -2449,7 +2752,9 @@ struct AskCard: View {
 }
 
 final class OneDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { Floater.shared.setup() }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply() }
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         Floater.shared.openMain(); return true
     }

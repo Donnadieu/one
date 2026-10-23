@@ -1559,6 +1559,14 @@ final class OrbHost: NSView {
         nc.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.hide() }
         }
+        // Stage Manager turns the yellow button into "move to the side strip", which still counts as visible.
+        // So: whenever you're in another app, the orb is there; come back to One and it goes away.
+        nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in self.show() }
+        }
+        nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in if !(self.mainWindow?.isMiniaturized ?? false) { self.hide() } }
+        }
         // Hiding One (⌘H) would hide the orb too, so turn "hide" into "tuck the window away and show the orb".
         nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in
@@ -1574,7 +1582,8 @@ final class OrbHost: NSView {
         let p = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
         p.level = .floating; p.isFloatingPanel = true; p.hidesOnDeactivate = false
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // .auxiliary + .canJoinAllApplications: Stage Manager leaves the orb on screen instead of tucking it into One's stage.
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .auxiliary, .canJoinAllApplications]
         p.isReleasedWhenClosed = false
         return p
     }

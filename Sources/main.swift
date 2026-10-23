@@ -391,6 +391,30 @@ final class Model: ObservableObject {
     @Published var asks: [Ask] = []
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
+    @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser", "WhatsApp"].map { _ in "" }.filter { !$0.isEmpty }
+    @Published var connectOptions: [String] = ["Email", "Calendar", "News", "Files", "Browser", "WhatsApp"]
+
+    func toggleConnection(_ c: String) {
+        if let i = pickedConnections.firstIndex(of: c) { pickedConnections.remove(at: i) } else { pickedConnections.append(c) }
+    }
+    func addOwnConnection(_ c: String) {
+        let c = c.trimmingCharacters(in: .whitespaces); guard !c.isEmpty else { return }
+        if !connectOptions.contains(c) { connectOptions.append(c) }
+        if !pickedConnections.contains(c) { pickedConnections.append(c) }
+    }
+    func connectionsChosen() async {
+        let list = pickedConnections
+        if list.isEmpty { me("Not now"); await wrapUp(); return }
+        me(list.joined(separator: ", "))
+        list.filter { $0 != "Email" }.forEach(addConnection)
+        if list.contains("Email") {
+            step = .whichEmail
+            await say("Which email do you use? Pick all that apply. You can add as many accounts as you like.", voice: "whichEmail")
+        } else {
+            await say("Got it. I'll set each one up with you the first time we need it.")
+            await askPasswords()
+        }
+    }
     @Published var switchingAI = false
     @Published var speaking = false
 
@@ -493,7 +517,7 @@ final class Model: ObservableObject {
         let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
         me(n); userName = n; step = .connect
         await say("Nice to meet you, \(n).", voice: "niceToMeet")
-        await say("Want me to connect anything? People usually start with one of these. Or just tell me in your own words.", voice: "connect")
+        await say("Want me to connect anything? Pick as many as you like, or tell me in your own words.", voice: "connect")
     }
 
     func connect(_ what: String) async {
@@ -837,8 +861,21 @@ struct OnboardingView: View {
             field("Your name") { await m.nameUser($0) }
         case .connect:
             VStack(spacing: 12) {
-                HStack { ForEach(["Email", "Calendar", "News", "Not now"], id: \.self) { c in Chip(label: c) { Task { await m.connect(c) } } } }
-                field("Or tell me, like \"my bank\" or \"WhatsApp\"") { await m.connect($0) }
+                Text("Pick as many as you like").font(.caption).foregroundStyle(.secondary)
+                let opts = m.connectOptions
+                VStack(spacing: 8) {
+                    ForEach(Array(stride(from: 0, to: opts.count, by: 4)), id: \.self) { r in
+                        HStack { ForEach(opts[r..<min(r + 4, opts.count)], id: \.self) { c in
+                            Chip(label: c, selected: m.pickedConnections.contains(c)) { m.toggleConnection(c) }
+                        } }
+                    }
+                }
+                field("Or add your own, like \"my bank\"") { m.addOwnConnection($0) }
+                HStack(spacing: 16) {
+                    Button("Continue") { Task { await m.connectionsChosen() } }
+                        .buttonStyle(.borderedProminent).disabled(m.pickedConnections.isEmpty)
+                    Button("Not now") { m.pickedConnections = []; Task { await m.connectionsChosen() } }.buttonStyle(.link)
+                }
             }
         case .whichEmail:
             VStack(spacing: 12) {

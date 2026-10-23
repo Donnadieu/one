@@ -27,12 +27,14 @@
  "backupQuestion": "59d68956ccb89d5c9ce5f0e6acf9a3777ec09124",
  "backupOn": "71189190ff8ac94fa2e1c4d91351ec11ebc98cc3",
  "backupOff": "13a63d43b6cc48f9c9e98bc1cd7f01c49e81d667",
- "worldIntro": "0f19ff13c12324a14b9e736f1118e133160d74b9",
+ "worldIntro": "d79e0cc816c78de032138d35135ff6ac5edf6c0d",
  "tourFiles": "ff3e127d7e9a205680c542b108cec60e2d5f5561",
  "tourBrowser": "4745cb50f695e815b7e7fcda26933fd45210e8e3",
  "tourEmail": "bafd7d142d7a3bb00038c8c06015e89be07ec331",
  "tourCalendar": "02171609714294b30ecf094e350fb6fd92d16f16",
  "tourPhone": "684fd7376b25be7cf32447ef16d738395d546056",
  "tourPasswords": "859c202431e60cda4b2f7337ac0028ee231a329f",
- "worldPick": "360c2047c22b3ca83fef80b4bc91fd41b1e25c0f"
+ "worldPick": "200aff6e63086c70a08b24e31d5836f1e7acd879",
+ "tourWeb": "9bc29da13ac4956313c334a8ae19eb56a6b6a0a8",
+ "tourNews": "1f999c6223a691c207daf0946409b3775eb01d6d"
 }

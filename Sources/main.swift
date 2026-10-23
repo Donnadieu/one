@@ -2331,6 +2331,10 @@ struct NovaWithHelpers: View {
             let t = tl.date.timeIntervalSince(WorldLook.start)
             ZStack {
                 Orb(size: 92, active: m.thinking).opacity(m.openHelper == nil ? 1 : 0.5)
+                    .contentShape(Circle())
+                    .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
+                    .help(m.openHelper == nil ? "" : "Back to Nova")
+                    .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
                 ForEach(shown, id: \.element.id) { i, h in
                     let p = Self.slots[i]
                     Button { m.focusHelper(h.id) } label: {

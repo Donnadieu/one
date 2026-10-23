@@ -1162,7 +1162,7 @@ final class Model: ObservableObject {
         update(id) { $0.state = "working"; $0.reply = ""; $0.line = "Working on it…"; $0.finishedAway = false }
         let stop = await Engine.shared.promptSession(sid, text, images: images,
             onText: { s in Task { @MainActor in self.update(id) { $0.reply += s } } },
-            onTool: { s in Task { @MainActor in self.update(id) { $0.line = s } } })
+            onTool: { s in Task { @MainActor in self.update(id) { $0.line = Plain.step(s) } } })
         try? await Task.sleep(for: .milliseconds(150))
         let away = !NSApp.isActive
         update(id) { h in
@@ -1217,11 +1217,13 @@ final class Model: ObservableObject {
         let idx = bubbles.count - 1
         thinking = true; working = nil
         Engine.shared.onText = { s in Task { @MainActor in if idx < self.bubbles.count { self.bubbles[idx].text += s } } }
-        Engine.shared.onTool = { s in Task { @MainActor in self.working = s } }
+        Engine.shared.onTool = { s in Task { @MainActor in self.working = Plain.step(s) } }
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let stop = await Engine.shared.prompt(c.engine, images: c.images)
+        // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
+        let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer.)"
+        let stop = await Engine.shared.prompt(c.engine + note, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         thinking = false; working = nil
         if idx < bubbles.count {
@@ -1442,13 +1444,15 @@ struct FloatHint: View {
     let text: String
     var body: some View {
         Text(text)
+            .lineLimit(3).multilineTextAlignment(.leading)
             .font(.system(size: 11, weight: .regular))
             .foregroundStyle(WorldLook.cream.opacity(0.72))
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(Capsule().fill(Color(hex: 0x1E1E22, 0.92)))
             .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.10), lineWidth: 1))
             .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
-            .fixedSize()
+            .frame(maxWidth: 250, alignment: .trailing)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -2228,6 +2232,42 @@ final class OrbHost: NSView {
 }
 
 
+
+
+/// Turns the engine's technical step titles ("browser_exec: import time…") into plain words.
+enum Plain {
+    static func step(_ title: String) -> String {
+        let parts = title.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        let tool = parts.first ?? "", arg = parts.count > 1 ? parts[1] : ""
+        func file() -> String {
+            let a = arg.trimmingCharacters(in: CharacterSet(charactersIn: "\"'` "))
+            let n = (a.components(separatedBy: " ").first ?? a).split(separator: "/").last.map(String.init) ?? ""
+            return n.isEmpty ? "a file" : n
+        }
+        func cut(_ x: String, _ n: Int = 60) -> String { x.count > n ? String(x.prefix(n - 1)) + "…" : x }
+        // Browser steps start with a one-line comment that says what they do.
+        if let c = arg.range(of: "# ") {
+            let line = arg[c.upperBound...].split(separator: "\n").first.map(String.init) ?? ""
+            let clean = line.components(separatedBy: CharacterSet(charactersIn: "#;")).first?.trimmingCharacters(in: .whitespaces) ?? ""
+            if clean.count > 3, tool.hasPrefix("browser") { return cut(clean) + "…" }
+        }
+        switch tool {
+        case let t where t.hasPrefix("browser"): return "Using the browser…"
+        case "web_search": return arg.isEmpty ? "Searching the web…" : "Searching the web for “\(cut(arg.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")), 40))”…"
+        case "web_extract": return "Reading a web page…"
+        case "read_file": return "Reading \(cut(file(), 40))…"
+        case "write_file", "patch": return "Saving \(cut(file(), 40))…"
+        case "search_files": return "Looking through your files…"
+        case "vision_analyze": return "Looking at the picture…"
+        case "session_search": return "Remembering what we talked about…"
+        case "terminal", "execute_code": return "Working on your Mac…"
+        case "manage_connections": return "Checking your connections…"
+        case "text_to_speech": return "Getting my voice ready…"
+        case "todo", "todo_list": return "Planning the steps…"
+        default: return "Working on it…"
+        }
+    }
+}
 
 // MARK: - Helpers: Nova sends out a helper for each separate job; each is its own engine session.
 
@@ -3165,7 +3205,7 @@ struct HomeView: View {
                     Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).padding(.top, 18)
                     NovaWithHelpers(m: m)
                     if m.thinking && m.openHelper == nil {
-                        Text(m.working ?? "Working on it…").foregroundStyle(.secondary).transition(.opacity)
+                        Text(m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2).transition(.opacity)
                     }
                     if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
                         AwayCard(m: m, hs: away).transition(.opacity)
@@ -3394,6 +3434,7 @@ struct Entry {
                         ChoiceRow(choices: Choices.split("x\n[choices: Yes, go ahead | Not now | Change the plan]").choices) { _ in }
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
+                    ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
                     ("away", AnyView(AwayScene())),

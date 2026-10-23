@@ -916,8 +916,6 @@ let worldNodes: [Node] = [
     Node(id: "Passwords", symbol: "key", line: "I sign in for you with your password manager, only with your OK.", voice: "tourPasswords"),
     Node(id: "Web", symbol: "globe", line: "I search, compare and sum it up for you.", voice: nil),
     Node(id: "News", symbol: "newspaper", line: "I bring you the news you care about, every morning.", voice: nil),
-    Node(id: "Reminders", symbol: "bell", line: "I remind you, and I follow up.", voice: nil),
-    Node(id: "Notes", symbol: "note.text", line: "I keep your notes and find them again.", voice: nil),
 ]
 
 struct Orb: View {
@@ -941,18 +939,202 @@ struct Orb: View {
     }
 }
 
-struct NodeBubble: View {
-    let n: Node; let on: Bool
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: n.symbol).font(.system(size: 19, weight: .light))
-                .foregroundStyle(on ? Color.white : Color.primary.opacity(0.75))
-                .frame(width: 52, height: 52)
-                .background(Circle().fill(on ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(.ultraThinMaterial)))
-                .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.5))
-                .shadow(color: on ? Color.accentColor.opacity(0.65) : .clear, radius: 14)
-            Text(n.id).font(.caption).foregroundStyle(.secondary)
+// The world is its own night-sky scene: a living core, and everything One can reach floating on a sphere around it.
+
+extension Color {
+    init(hex: UInt32, _ a: Double = 1) {
+        self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255, opacity: a)
+    }
+}
+
+enum Sky {
+    static let deep = Color(hex: 0x05071A), mid = Color(hex: 0x0B1033), core = Color(hex: 0x7FB8FF)
+    static func tint(_ id: String) -> Color {
+        switch id {
+        case "Files": Color(hex: 0xFFD27A); case "Browser": Color(hex: 0x7AD7FF); case "Email": Color(hex: 0xFF9E9E)
+        case "Calendar": Color(hex: 0xFFB07A); case "Phone": Color(hex: 0x8DEDC0); case "Passwords": Color(hex: 0xD6C2FF)
+        case "Web": Color(hex: 0x9DB8FF); default: Color(hex: 0xEDEAF6)
         }
+    }
+}
+
+struct Placed { let node: Node; let pt: CGPoint; let depth: Double; let angle: Double }   // depth 0 = far, 1 = near
+
+enum WorldMath {
+    static let ringTilt = 0.50   // how flat the orbit looks (0 = edge-on, 1 = seen from above)
+    /// One orbit, evenly spaced, turning slowly. The bottom of the ring is nearest.
+    static func place(_ size: CGSize, _ t: Double) -> (CGPoint, CGFloat, CGFloat, [Placed]) {
+        let c = CGPoint(x: size.width / 2, y: size.height * 0.5)
+        let core = min(size.width, size.height) * 0.095
+        let R = min(size.width * 0.38, size.height * 0.56)
+        let n = Double(worldNodes.count)
+        let placed = worldNodes.enumerated().map { i, node -> Placed in
+            let a = Double(i) / n * 2 * .pi + t * 0.085
+            let z = sin(a)
+            let persp = 1 + 0.10 * z
+            return Placed(node: node, pt: CGPoint(x: c.x + cos(a) * R * persp, y: c.y + z * R * ringTilt * persp),
+                          depth: (z + 1) / 2, angle: a)
+        }
+        return (c, core, R, placed)
+    }
+}
+
+struct SkyBackground: View {
+    let t: Double
+    var body: some View {
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)),
+                     with: .radialGradient(Gradient(colors: [Color(hex: 0x10173F), Color(hex: 0x070A22), Color(hex: 0x03040F)]),
+                                           center: CGPoint(x: size.width / 2, y: size.height * 0.45), startRadius: 0, endRadius: max(size.width, size.height) * 0.75))
+            for (k, col) in [(0.0, Color(hex: 0x3B2C8F, 0.22)), (2.6, Color(hex: 0x0E5A7A, 0.18))] {
+                let x = size.width * (0.5 + 0.30 * sin(t * 0.02 + k)), y = size.height * (0.5 + 0.25 * cos(t * 0.017 + k))
+                let r = max(size.width, size.height) * 0.6
+                ctx.fill(Path(ellipseIn: CGRect(x: x - r / 2, y: y - r / 2, width: r, height: r)),
+                         with: .radialGradient(Gradient(colors: [col, .clear]), center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r / 2))
+            }
+            var g = UInt64(0x9E3779B97F4A7C15)
+            func rnd() -> Double { g = g &* 6364136223846793005 &+ 1442695040888963407; return Double(g >> 33) / Double(1 << 31) }
+            for _ in 0..<120 {
+                let x = rnd() * size.width, y = rnd() * size.height, s = 0.6 + rnd() * 1.1, ph = rnd() * 6.28, sp = 0.4 + rnd() * 0.8
+                let a = 0.15 + 0.45 * (0.5 + 0.5 * sin(t * sp + ph))
+                ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: s, height: s)), with: .color(.white.opacity(a)))
+            }
+        }
+    }
+}
+
+/// The assistant itself: a dark, matte world lit from inside, with a bright atmosphere at its edge.
+struct Core: View {
+    let t: Double; let r: CGFloat; let active: Bool
+    var body: some View {
+        Canvas { ctx, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let r = self.r * (1 + 0.025 * sin(t * (active ? 3.6 : 1.1)))
+            func circ(_ rad: CGFloat, _ p: CGPoint? = nil) -> Path {
+                let o = p ?? c; return Path(ellipseIn: CGRect(x: o.x - rad, y: o.y - rad, width: rad * 2, height: rad * 2))
+            }
+            // atmosphere
+            ctx.fill(circ(r * 2.4), with: .radialGradient(Gradient(colors: [.clear, Color(hex: 0x6FA8FF, active ? 0.30 : 0.20), Color(hex: 0x6A5CFF, 0.06), .clear]),
+                                                          center: c, startRadius: r * 0.7, endRadius: r * 2.4))
+            // body
+            ctx.fill(circ(r), with: .radialGradient(Gradient(colors: [Color(hex: 0x1B2A6B), Color(hex: 0x0C1240), Color(hex: 0x060920)]),
+                                                    center: CGPoint(x: c.x - r * 0.25, y: c.y - r * 0.3), startRadius: 0, endRadius: r * 1.3))
+            // inner light, slowly turning
+            var inner = ctx; inner.clip(to: circ(r))
+            for (k, col) in [(0.0, Color(hex: 0x7FD6FF)), (2.1, Color(hex: 0x8C7BFF)), (4.2, Color(hex: 0x4FE0C8))] {
+                let a = t * 0.35 + k
+                let p = CGPoint(x: c.x + cos(a) * r * 0.42, y: c.y + sin(a) * r * 0.30)
+                inner.fill(circ(r * 0.95, p), with: .radialGradient(Gradient(colors: [col.opacity(active ? 0.55 : 0.38), .clear]),
+                                                                  center: p, startRadius: 0, endRadius: r * 0.95))
+            }
+            // terminator shading + rim light (fresnel)
+            inner.fill(circ(r), with: .radialGradient(Gradient(colors: [.clear, .clear, Color.black.opacity(0.35)]),
+                                                      center: CGPoint(x: c.x - r * 0.3, y: c.y - r * 0.35), startRadius: 0, endRadius: r * 1.5))
+            ctx.stroke(circ(r - 0.75), with: .linearGradient(Gradient(colors: [Color(hex: 0xCDEBFF, 0.95), Color(hex: 0x8FB6FF, 0.35), Color(hex: 0x8FB6FF, 0.08)]),
+                                                             startPoint: CGPoint(x: c.x - r, y: c.y - r), endPoint: CGPoint(x: c.x + r, y: c.y + r)), lineWidth: 1.5)
+            ctx.stroke(circ(r + 3), with: .color(Color(hex: 0x9CCBFF, 0.12)), lineWidth: 5)
+        }
+    }
+}
+
+struct NodeBubble: View {
+    let n: Node; let on: Bool; let hover: Bool; let depth: Double; let labelOpacity: Double
+    var body: some View {
+        let tint = Sky.tint(n.id)
+        let k = (0.78 + 0.30 * depth) * (hover ? 1.08 : 1)
+        let above = depth < 0.5
+        let label = Text(n.id).font(.system(size: 12, weight: on ? .semibold : .medium, design: .rounded))
+            .foregroundStyle(.white.opacity(on ? 0.95 : 0.85)).fixedSize().opacity(labelOpacity)
+        VStack(spacing: 5) {
+            if above { label }
+            ZStack {
+                if on { Circle().fill(tint.opacity(0.30)).frame(width: 62, height: 62).blur(radius: 9) }
+                Circle()
+                    .fill(on ? AnyShapeStyle(LinearGradient(colors: [tint, tint.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                             : AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x1A2256), Color(hex: 0x0E1440)], startPoint: .top, endPoint: .bottom)))
+                    .frame(width: 50, height: 50)
+                    .overlay(Circle().stroke(.white.opacity(on ? 0.5 : (hover ? 0.5 : 0.18)), lineWidth: 1))
+                Image(systemName: n.symbol).font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(on ? Color(hex: 0x0A0F33) : .white.opacity(hover ? 0.95 : 0.8))
+            }.frame(width: 62, height: 62).scaleEffect(k)
+            if !above { label }
+        }
+        .opacity(0.62 + 0.38 * depth)
+        .animation(.easeOut(duration: 0.25), value: hover)
+        .animation(.easeOut(duration: 0.5), value: on)
+    }
+}
+
+/// A frozen frame of the world, so it can be drawn live or rendered to an image for checking.
+struct WorldScene: View {
+    let t: Double
+    let highlight: String?
+    let selected: Set<String>
+    var hover: String? = nil
+    var tap: (Node) -> Void = { _ in }
+    var onHover: (String?) -> Void = { _ in }
+
+    func lit(_ id: String) -> Bool { selected.contains(id) || highlight == id }
+
+    var body: some View {
+        GeometryReader { geo in
+            let (c, coreR, R, placed) = WorldMath.place(geo.size, t)
+            let back = placed.filter { $0.depth < 0.5 }.sorted { $0.depth < $1.depth }
+            let front = placed.filter { $0.depth >= 0.5 }.sorted { $0.depth < $1.depth }
+            ZStack {
+                SkyBackground(t: t)
+                Canvas { ctx, _ in orbit(ctx, c, R, front: false); threads(ctx, c, coreR, back) }
+                ForEach(back, id: \.node.id) { bubble($0, c, coreR) }
+                Core(t: t, r: coreR, active: highlight != nil).frame(width: coreR * 5, height: coreR * 5).position(c).allowsHitTesting(false)
+                Canvas { ctx, _ in orbit(ctx, c, R, front: true); threads(ctx, c, coreR, front) }.allowsHitTesting(false)
+                ForEach(front, id: \.node.id) { bubble($0, c, coreR) }
+            }
+        }
+    }
+
+    /// Half of the orbit line: the far half is drawn behind the core, the near half in front.
+    func orbit(_ ctx: GraphicsContext, _ c: CGPoint, _ R: CGFloat, front: Bool) {
+        var path = Path()
+        let steps = 90
+        for k in 0...steps {
+            let a = (front ? 0 : Double.pi) + Double(k) / Double(steps) * .pi
+            let z = sin(a), persp = 1 + 0.10 * z
+            let pt = CGPoint(x: c.x + cos(a) * R * persp, y: c.y + z * R * WorldMath.ringTilt * persp)
+            if k == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        ctx.stroke(path, with: .color(.white.opacity(front ? 0.16 : 0.08)), lineWidth: 1)
+    }
+
+    /// Threads of light from the core to everything connected, each with a spark travelling out.
+    func threads(_ ctx: GraphicsContext, _ c: CGPoint, _ coreR: CGFloat, _ nodes: [Placed]) {
+        for p in nodes where lit(p.node.id) {
+            let dx = p.pt.x - c.x, dy = p.pt.y - c.y
+            let len = max((dx * dx + dy * dy).squareRoot(), 1)
+            let ux = dx / len, uy = dy / len
+            let nodeR: CGFloat = 25 * (0.74 + 0.36 * CGFloat(p.depth)) + 4
+            guard len > coreR + nodeR + 6, !(p.depth < 0.5 && abs(dx) < coreR * 1.7) else { continue }
+            let from = CGPoint(x: c.x + ux * (coreR + 3), y: c.y + uy * (coreR + 3))
+            let to = CGPoint(x: p.pt.x - ux * nodeR, y: p.pt.y - uy * nodeR)
+            var path = Path(); path.move(to: from); path.addLine(to: to)
+            let tint = Sky.tint(p.node.id)
+            ctx.stroke(path, with: .color(tint.opacity(0.10)), lineWidth: 5)
+            ctx.stroke(path, with: .linearGradient(Gradient(colors: [tint.opacity(0.25), tint.opacity(0.9)]), startPoint: from, endPoint: to), lineWidth: 1.2)
+            let u = CGFloat((t * 0.5 + Double(p.node.id.count) * 0.17).truncatingRemainder(dividingBy: 1))
+            let q = CGPoint(x: from.x + (to.x - from.x) * u, y: from.y + (to.y - from.y) * u)
+            ctx.fill(Path(ellipseIn: CGRect(x: q.x - 2.2, y: q.y - 2.2, width: 4.4, height: 4.4)), with: .color(.white.opacity(0.95)))
+        }
+    }
+
+    func bubble(_ p: Placed, _ c: CGPoint, _ coreR: CGFloat) -> some View {
+        let isBack = p.depth < 0.5
+        // A far node passing behind the core hides its label so text never sits on the core.
+        let near = max(0, 1 - abs(p.pt.x - c.x) / (coreR * 1.7))
+        return NodeBubble(n: p.node, on: lit(p.node.id), hover: hover == p.node.id, depth: p.depth,
+                          labelOpacity: 1)
+            .opacity(isBack ? 1 - near * 0.85 : 1)
+            .position(x: p.pt.x, y: p.pt.y + (isBack ? -10 : 10))
+            .onTapGesture { tap(p.node) }
+            .onHover { onHover($0 ? p.node.id : nil) }
     }
 }
 
@@ -961,38 +1143,12 @@ struct WorldView: View {
     let selected: Set<String>
     let tap: (Node) -> Void
     @State private var start = Date()
+    @State private var hover: String?
     var body: some View {
-        GeometryReader { geo in
-            TimelineView(.animation) { tl in
-                let t = tl.date.timeIntervalSince(start)
-                let c = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-                let R = min(geo.size.width * 0.42, geo.size.height * 1.05)
-                let pts: [(Node, CGPoint, Double)] = worldNodes.enumerated().map { i, n in
-                    let a = Double(i) / Double(worldNodes.count) * 2 * .pi + t * 0.10
-                    let ring = i % 2 == 0 ? 1.0 : 0.74
-                    let z = sin(a)
-                    let pt = CGPoint(x: c.x + cos(a) * R * ring, y: c.y + z * R * 0.30 * ring + (i % 2 == 0 ? -10 : 12))
-                    return (n, pt, (z + 1) / 2)
-                }
-                ZStack {
-                    Canvas { ctx, _ in
-                        for (n, pt, d) in pts where selected.contains(n.id) || highlight == n.id {
-                            var path = Path(); path.move(to: c); path.addLine(to: pt)
-                            ctx.stroke(path, with: .color(Color.accentColor.opacity(0.2 + 0.5 * d)), lineWidth: 1.4)
-                        }
-                    }
-                    ForEach(pts.filter { $0.2 < 0.5 }, id: \.0.id) { n, pt, d in bubble(n, pt, d) }
-                    Orb(size: 96, active: highlight != nil).position(c)
-                    ForEach(pts.filter { $0.2 >= 0.5 }, id: \.0.id) { n, pt, d in bubble(n, pt, d) }
-                }
-            }
+        TimelineView(.animation) { tl in
+            WorldScene(t: tl.date.timeIntervalSince(start) + 4, highlight: highlight, selected: selected, hover: hover,
+                       tap: tap, onHover: { hover = $0 })
         }
-    }
-    func bubble(_ n: Node, _ pt: CGPoint, _ d: Double) -> some View {
-        NodeBubble(n: n, on: selected.contains(n.id) || highlight == n.id)
-            .scaleEffect(0.68 + 0.42 * d).opacity(0.4 + 0.6 * d)
-            .position(pt)
-            .onTapGesture { tap(n) }
     }
 }
 
@@ -1000,25 +1156,36 @@ struct WorldStage: View {
     @ObservedObject var m: Model
     @State var folderSheet = false
     var body: some View {
-        VStack(spacing: 0) {
-            Text(m.worldCaption).font(.system(size: 22, weight: .medium))
-                .multilineTextAlignment(.center).frame(maxWidth: 480, minHeight: 80).padding(.top, 28)
-                .id(m.worldCaption).transition(.opacity.combined(with: .offset(y: 8)))
-                .animation(.easeOut(duration: 0.8), value: m.worldCaption)
+        ZStack {
             WorldView(highlight: m.tourNode, selected: Set(m.pickedConnections)) { n in
                 guard !m.touring else { return }
                 m.worldCaption = n.line
                 if n.id == "Files" { folderSheet = true } else { m.toggleConnection(n.id) }
+            }.ignoresSafeArea()
+            VStack {
+                Text(m.worldCaption).font(.system(size: 23, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white).shadow(color: .black.opacity(0.6), radius: 10)
+                    .multilineTextAlignment(.center).frame(maxWidth: 460, minHeight: 70).padding(.top, 30)
+                    .id(m.worldCaption).transition(.opacity.combined(with: .offset(y: 8)))
+                    .animation(.easeOut(duration: 0.8), value: m.worldCaption)
+                Spacer()
+                ZStack {
+                    Button("Skip the tour") { m.skipTour = true }.buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(0.55)).opacity(m.touring ? 1 : 0)
+                    HStack(spacing: 18) {
+                        Button { Task { await m.connectionsChosen() } } label: {
+                            Text(m.pickedConnections.isEmpty ? "Tap what you'd like" : "Connect \(m.pickedConnections.count)")
+                                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Sky.deep)
+                                .padding(.horizontal, 26).padding(.vertical, 11)
+                                .background(Capsule().fill(.white.opacity(m.pickedConnections.isEmpty ? 0.35 : 0.95)))
+                        }.buttonStyle(.plain).disabled(m.pickedConnections.isEmpty)
+                        Button("Not now") { m.pickedConnections = []; Task { await m.connectionsChosen() } }
+                            .buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
+                    }.opacity(m.touring ? 0 : 1).allowsHitTesting(!m.touring)
+                }.padding(.bottom, 30).animation(.easeOut(duration: 0.8), value: m.touring)
             }
-            ZStack {
-                Button("Skip the tour") { m.skipTour = true }.buttonStyle(.link).opacity(m.touring ? 0.7 : 0)
-                HStack(spacing: 16) {
-                    Button("Continue") { Task { await m.connectionsChosen() } }
-                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(m.pickedConnections.isEmpty)
-                    Button("Not now") { m.pickedConnections = []; Task { await m.connectionsChosen() } }.buttonStyle(.link)
-                }.opacity(m.touring ? 0 : 1).allowsHitTesting(!m.touring)
-            }.padding(24).animation(.easeOut(duration: 0.8), value: m.touring)
         }
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .task { await m.runTour() }
     }
@@ -1517,6 +1684,24 @@ struct Entry {
 
     static func main() {
         let args = CommandLine.arguments
+        if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
+            let out = args[k + 1]
+            MainActor.assumeIsolated {
+                let views: [(String, AnyView)] = [
+                    ("tour", AnyView(WorldScene(t: 7, highlight: "Browser", selected: []))),
+                    ("later", AnyView(WorldScene(t: 31, highlight: nil, selected: ["Email", "Phone", "Web"]))),
+                    ("picked", AnyView(WorldScene(t: 19, highlight: nil, selected: ["Email", "Files", "Calendar", "Phone"], hover: "News"))),
+                ]
+                for (name, v) in views {
+                    let r = ImageRenderer(content: v.frame(width: 620, height: 640)); r.scale = 2
+                    if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                       let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")
+                    }
+                }
+            }
+            exit(0)
+        }
         if args.contains("--reset") {
             if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
             print("reset onboarding"); exit(0)

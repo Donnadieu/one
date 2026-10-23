@@ -1,388 +1,589 @@
-// One — a one-button personal assistant (test build).
-// Setup is a conversation; sign-in uses the user's own AI subscription.
+// One — a one-button personal assistant (test build 0.2).
+// The face is this app. The engine is Hermes, run privately for One via ACP.
+// Setup is a conversation the assistant leads. The user never sees a terminal.
 import SwiftUI
 import AppKit
-import Network
-import CryptoKit
-import Security
 
-// MARK: - Providers
+// MARK: - Paths and environment
 
-enum Provider: String, CaseIterable, Identifiable {
-    case claude, chatgpt, openrouter
-    var id: String { rawValue }
-    var title: String {
-        switch self { case .claude: "Claude"; case .chatgpt: "ChatGPT"; case .openrouter: "OpenRouter" }
-    }
-    var subtitle: String {
-        switch self {
-        case .claude: "Use your Claude Pro or Max plan"
-        case .chatgpt: "Use your ChatGPT Plus or Pro plan"
-        case .openrouter: "Pay as you go. Any model."
-        }
-    }
-    var symbol: String {
-        switch self { case .claude: "sparkle"; case .chatgpt: "bubble.left.and.bubble.right"; case .openrouter: "arrow.triangle.branch" }
-    }
-}
-
-enum Status: Equatable {
-    case checking, connected(String), notSignedIn, notInstalled, failed(String)
-    var label: String {
-        switch self {
-        case .checking: "Checking…"
-        case .connected(let s): s
-        case .notSignedIn: "Not connected"
-        case .notInstalled: "Not on this Mac yet"
-        case .failed(let s): s
-        }
-    }
-    var isConnected: Bool { if case .connected = self { return true }; return false }
-}
-
-// MARK: - Running commands (never shown to the user)
-
-final class Box: @unchecked Sendable { var data = Data() }
-
-final class Runner: @unchecked Sendable {
-    static let shared = Runner()
-    private let lock = NSLock()
-    private var current: Process?
-
-    static var workDir: URL {
+enum Env {
+    nonisolated(unsafe) static var selfTest = false
+    static var support: URL {
         let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("One", isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
-
-    static var env: [String: String] {
+    /// One's own Hermes home: separate from any Hermes the user already runs.
+    static var hermesHome: URL {
+        let u = support.appendingPathComponent(selfTest ? "selftest-hermes" : "hermes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }
+    static var hermesPath: String? {
+        let h = NSHomeDirectory()
+        return ["\(h)/.local/bin/hermes", "/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+    static func vars() -> [String: String] {
         var e = ProcessInfo.processInfo.environment
         let h = NSHomeDirectory()
-        e["PATH"] = "\(h)/.local/bin:\(h)/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        // Use the subscription sign-in, never a stray API key from the shell.
-        for k in ["ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENAI_API_KEY"] { e.removeValue(forKey: k) }
+        e["PATH"] = "\(h)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        e["HERMES_HOME"] = hermesHome.path
+        e["PYTHONUNBUFFERED"] = "1"; e["NO_COLOR"] = "1"; e["TERM"] = "dumb"
+        for k in ["ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] {
+            e.removeValue(forKey: k)
+        }
+        if !selfTest { e.removeValue(forKey: "OPENROUTER_API_KEY") }
         return e
     }
+}
 
-    static func which(_ tool: String) -> Bool {
-        let h = NSHomeDirectory()
-        for d in ["\(h)/.local/bin", "\(h)/.npm-global/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
-            if FileManager.default.isExecutableFile(atPath: "\(d)/\(tool)") { return true }
-        }
-        return false
-    }
+final class Box<T>: @unchecked Sendable { var v: T; init(_ v: T) { self.v = v } }
 
-    func run(_ args: [String], timeout: TimeInterval = 180) async -> (code: Int32, out: String, err: String) {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global().async {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                p.arguments = args
-                p.environment = Runner.env
-                p.currentDirectoryURL = Runner.workDir
-                let o = Pipe(), e = Pipe()
-                p.standardOutput = o; p.standardError = e; p.standardInput = FileHandle.nullDevice
-                do { try p.run() } catch {
-                    cont.resume(returning: (-1, "", error.localizedDescription)); return
-                }
-                self.lock.lock(); self.current = p; self.lock.unlock()
-                let ob = Box(), eb = Box(), g = DispatchGroup()
-                g.enter(); DispatchQueue.global().async { ob.data = o.fileHandleForReading.readDataToEndOfFile(); g.leave() }
-                g.enter(); DispatchQueue.global().async { eb.data = e.fileHandleForReading.readDataToEndOfFile(); g.leave() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
-                p.waitUntilExit(); g.wait()
-                self.lock.lock(); if self.current === p { self.current = nil }; self.lock.unlock()
-                cont.resume(returning: (p.terminationStatus,
-                                        String(decoding: ob.data, as: UTF8.self),
-                                        String(decoding: eb.data, as: UTF8.self)))
-            }
+/// Runs a short Hermes command (status, config) and returns its output.
+func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, String) {
+    await withCheckedContinuation { cont in
+        DispatchQueue.global().async {
+            guard let hp = Env.hermesPath else { cont.resume(returning: (-1, "hermes not found")); return }
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: hp)
+            p.arguments = args
+            p.environment = Env.vars()
+            p.currentDirectoryURL = Env.support
+            let o = Pipe(); p.standardOutput = o; p.standardError = o; p.standardInput = FileHandle.nullDevice
+            do { try p.run() } catch { cont.resume(returning: (-1, error.localizedDescription)); return }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
+            let d = o.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            cont.resume(returning: (p.terminationStatus, String(decoding: d, as: UTF8.self)))
         }
     }
+}
+
+// MARK: - The AIs the user can bring
+
+enum Provider: String, CaseIterable, Identifiable {
+    case claude, chatgpt, grok, openrouter
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .claude: "Claude"; case .chatgpt: "ChatGPT"; case .grok: "Grok"; case .openrouter: "OpenRouter" }
+    }
+    var subtitle: String {
+        switch self {
+        case .claude: "If you pay for Claude Pro or Max"
+        case .chatgpt: "If you pay for ChatGPT Plus or Pro"
+        case .grok: "If you pay for SuperGrok or X Premium+"
+        case .openrouter: "Don't have one? Pay as you go, any AI"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .claude: "sparkle"; case .chatgpt: "bubble.left.and.bubble.right"
+        case .grok: "bolt"; case .openrouter: "arrow.triangle.branch"
+        }
+    }
+    /// Hermes's own provider id and the model One starts with.
+    var hermesID: String {
+        switch self { case .claude: "anthropic"; case .chatgpt: "openai-codex"; case .grok: "xai-oauth"; case .openrouter: "openrouter" }
+    }
+    var defaultModel: String {
+        switch self {
+        case .claude: "claude-sonnet-5"; case .chatgpt: "gpt-5.5"
+        case .grok: "grok-4.6"; case .openrouter: "openrouter/auto"
+        }
+    }
+}
+
+// MARK: - Sign-in, driven through Hermes's own login flows
+
+enum SignInEvent: Sendable { case openPage(URL), code(String), needPaste, done(Bool, String) }
+
+final class SignIn: @unchecked Sendable {
+    private var proc: Process?
+    private var input: FileHandle?
+    private var buffer = ""
+    private var opened = false, sentCode = false, askedPaste = false
+    private let lock = NSLock()
+
+    func start(_ p: Provider, events: @escaping @Sendable (SignInEvent) -> Void) {
+        guard let hp = Env.hermesPath else { events(.done(false, "Hermes isn't on this Mac yet.")); return }
+        let pr = Process()
+        pr.executableURL = URL(fileURLWithPath: hp)
+        pr.arguments = ["auth", "add", p.hermesID, "--type", "oauth", "--no-browser", "--timeout", "900"]
+        pr.environment = Env.vars()
+        pr.currentDirectoryURL = Env.support
+        let out = Pipe(), inp = Pipe()
+        pr.standardOutput = out; pr.standardError = out; pr.standardInput = inp
+        input = inp.fileHandleForWriting
+        out.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let d = h.availableData
+            guard let self, !d.isEmpty else { return }
+            // Strip terminal color codes so links and codes read cleanly.
+            let clean = String(decoding: d, as: UTF8.self)
+                .replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[A-Za-z]"#, with: "", options: .regularExpression)
+            self.lock.lock(); self.buffer += clean; self.lock.unlock()
+            self.scan(events)
+        }
+        pr.terminationHandler = { [weak self] t in
+            out.fileHandleForReading.readabilityHandler = nil
+            let ok = t.terminationStatus == 0
+            let tail = self?.buffer.split(separator: "\n").suffix(2).joined(separator: " ") ?? ""
+            events(.done(ok, ok ? "" : String(tail.prefix(240))))
+        }
+        do { try pr.run(); proc = pr } catch { events(.done(false, error.localizedDescription)) }
+    }
+
+    private func scan(_ events: @Sendable (SignInEvent) -> Void) {
+        lock.lock(); let b = buffer; lock.unlock()
+        let trimmed = b.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasSuffix("[y/N]:") || trimmed.hasSuffix("[Y/n]:") || trimmed.hasSuffix("[y/n]:") {
+            input?.write(Data("n\n".utf8))   // always a fresh, separate login for One
+            lock.lock(); buffer += "\n"; lock.unlock()
+        }
+        if !opened, let r = b.range(of: #"https://[^\s\)\]>"']+"#, options: .regularExpression),
+           let u = URL(string: String(b[r])) {
+            opened = true; events(.openPage(u))
+        }
+        if !sentCode, let r = b.range(of: #"\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b"#, options: .regularExpression) {
+            sentCode = true; events(.code(String(b[r])))
+        }
+        if !askedPaste, b.contains("Authorization code") { askedPaste = true; events(.needPaste) }
+    }
+
+    func paste(_ code: String) { input?.write(Data((code.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").utf8)) }
+    func cancel() { if let p = proc, p.isRunning { p.terminate() } }
+
+    static func isSignedIn(_ p: Provider) async -> Bool {
+        let (_, out) = await hermesRun(["auth", "status", p.hermesID], timeout: 60)
+        return out.lowercased().contains(": logged in")
+    }
+    static func makeDefault(_ p: Provider) async {
+        _ = await hermesRun(["config", "set", "model.provider", p.hermesID])
+        _ = await hermesRun(["config", "set", "model.default", p.defaultModel])
+    }
+}
+
+// MARK: - The engine: Hermes over ACP (JSON-RPC on stdin/stdout)
+
+final class Engine: @unchecked Sendable {
+    static let shared = Engine()
+    private let lock = NSLock()
+    private var proc: Process?
+    private var stdin: FileHandle?
+    private var buf = Data()
+    private var nextID = 100
+    private var waiting: [Int: (Any) -> Void] = [:]
+    private var sessionID: String?
+
+    var onText: (@Sendable (String) -> Void)?
+    var onTool: (@Sendable (String) -> Void)?
+    /// (question, options[(id, label)], answer)
+    var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)?
+
+    var running: Bool { lock.lock(); defer { lock.unlock() }; return proc?.isRunning == true && sessionID != nil }
 
     func stop() {
-        lock.lock(); let p = current; lock.unlock()
+        lock.lock(); let p = proc; proc = nil; sessionID = nil
+        let w = waiting; waiting = [:]; lock.unlock()
+        w.values.forEach { $0(["error": "stopped"]) }
         if let p, p.isRunning { p.terminate() }
     }
-}
 
-// MARK: - Keychain (OpenRouter key never touches a plain file)
-
-enum Keychain {
-    static let service = "One Assistant"
-    static func save(_ value: String, account: String) {
-        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                   kSecAttrService as String: service, kSecAttrAccount as String: account]
-        SecItemDelete(base as CFDictionary)
-        var add = base; add[kSecValueData as String] = Data(value.utf8)
-        SecItemAdd(add as CFDictionary, nil)
-    }
-    static func read(_ account: String) -> String? {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                kSecAttrAccount as String: account, kSecReturnData as String: true]
-        var r: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &r) == errSecSuccess, let d = r as? Data else { return nil }
-        return String(decoding: d, as: UTF8.self)
-    }
-    static func delete(_ account: String) {
-        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                       kSecAttrAccount as String: account] as CFDictionary)
-    }
-}
-
-// MARK: - Sign-in flows
-
-enum Auth {
-    static func status(_ p: Provider) async -> Status {
-        switch p {
-        case .claude:
-            guard Runner.which("claude") else { return .notInstalled }
-            let r = await Runner.shared.run(["claude", "auth", "status"], timeout: 30)
-            if let d = r.out.data(using: .utf8),
-               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-               j["loggedIn"] as? Bool == true {
-                return .connected("Connected with your Claude plan")
-            }
-            return .notSignedIn
-        case .chatgpt:
-            guard Runner.which("codex") else { return .notInstalled }
-            let r = await Runner.shared.run(["codex", "login", "status"], timeout: 30)
-            let s = r.out + r.err
-            if s.contains("ChatGPT") && s.lowercased().contains("logged in") { return .connected("Connected with your ChatGPT plan") }
-            if s.lowercased().contains("logged in") { return .connected("Connected with an OpenAI key") }
-            return .notSignedIn
-        case .openrouter:
-            return Keychain.read("openrouter") != nil ? .connected("Connected to OpenRouter") : .notSignedIn
+    func start() async -> String? {
+        stop()
+        guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: hp)
+        p.arguments = ["acp"]
+        p.environment = Env.vars()
+        p.currentDirectoryURL = Env.support
+        let o = Pipe(), i = Pipe()
+        p.standardOutput = o; p.standardInput = i
+        p.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        o.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let d = h.availableData
+            if !d.isEmpty { self?.feed(d) }
         }
-    }
-
-    /// Installs the tool the provider needs, using each vendor's official installer.
-    static func install(_ p: Provider) async -> Bool {
-        switch p {
-        case .claude:
-            let r = await Runner.shared.run(["/bin/bash", "-c", "curl -fsSL https://claude.ai/install.sh | bash"], timeout: 600)
-            return r.code == 0
-        case .chatgpt:
-            guard Runner.which("npm") else { return false }
-            let r = await Runner.shared.run(["npm", "install", "-g", "@openai/codex"], timeout: 600)
-            return r.code == 0
-        case .openrouter: return true
+        do { try p.run() } catch { return error.localizedDescription }
+        lock.lock(); proc = p; stdin = i.fileHandleForWriting; buf = Data(); lock.unlock()
+        let ini = await call("initialize", ["protocolVersion": 1, "clientCapabilities": [String: Any]()], timeout: 120)
+        guard ini["result"] != nil else { return "The assistant didn't start." }
+        let new = await call("session/new", ["cwd": Env.support.path, "mcpServers": [Any]()], timeout: 120)
+        guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
+            return "The assistant couldn't open a conversation."
         }
+        lock.lock(); sessionID = sid; lock.unlock()
+        return nil
     }
 
-    /// Opens the provider's own sign-in page in the browser; returns when it finishes.
-    static func signIn(_ p: Provider) async -> Status {
-        switch p {
-        case .claude:
-            _ = await Runner.shared.run(["claude", "auth", "login"], timeout: 600)
-        case .chatgpt:
-            _ = await Runner.shared.run(["codex", "login"], timeout: 600)
-        case .openrouter:
-            do { Keychain.save(try await OpenRouterPKCE().run(), account: "openrouter") }
-            catch { return .failed("Sign-in didn't finish: \(error.localizedDescription)") }
-        }
-        return await status(p)
-    }
-}
-
-/// OpenRouter's official "sign in for apps" flow (OAuth PKCE with a localhost callback).
-final class OpenRouterPKCE: @unchecked Sendable {
-    struct Err: LocalizedError { let errorDescription: String? }
-    let verifier: String = {
-        var b = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, b.count, &b)
-        return Data(b).base64URL
-    }()
-    var challenge: String { Data(SHA256.hash(data: Data(verifier.utf8))).base64URL }
-    let port: UInt16 = 3000
-
-    var authURL: URL {
-        var c = URLComponents(string: "https://openrouter.ai/auth")!
-        c.queryItems = [.init(name: "callback_url", value: "http://localhost:\(port)/one-callback"),
-                        .init(name: "code_challenge", value: challenge),
-                        .init(name: "code_challenge_method", value: "S256")]
-        return c.url!
+    /// Sends one message; text streams through onText. Returns the stop reason or "error: …".
+    func prompt(_ text: String) async -> String {
+        lock.lock(); let sid = sessionID; lock.unlock()
+        guard let sid else { return "error: not started" }
+        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": text]]], timeout: 900)
+        if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
+        if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
+        return "error: \(r["error"] ?? "no answer")"
     }
 
-    func run() async throws -> String {
-        let code = try await waitForCode(openingBrowser: true)
-        return try await exchange(code: code)
+    func cancel() {
+        lock.lock(); let sid = sessionID; lock.unlock()
+        guard let sid else { return }
+        write(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": sid]])
     }
 
-    func waitForCode(openingBrowser: Bool) async throws -> String {
-        let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        defer { listener.cancel() }
-        return try await withCheckedThrowingContinuation { cont in
-            let done = Box()
-            listener.newConnectionHandler = { conn in
-                conn.start(queue: .global())
-                conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
-                    let req = String(decoding: data ?? Data(), as: UTF8.self)
-                    let path = req.split(separator: " ").dropFirst().first.map(String.init) ?? ""
-                    let code = URLComponents(string: "http://localhost\(path)")?
-                        .queryItems?.first(where: { $0.name == "code" })?.value
-                    let body = code != nil
-                        ? "<h2 style='font-family:-apple-system'>You're connected. You can close this tab.</h2>"
-                        : "<h2 style='font-family:-apple-system'>Waiting for OpenRouter…</h2>"
-                    let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
-                    conn.send(content: Data(resp.utf8), completion: .contentProcessed { _ in conn.cancel() })
-                    if let code, done.data.isEmpty { done.data = Data([1]); cont.resume(returning: code) }
-                }
+    private func call(_ method: String, _ params: [String: Any], timeout: TimeInterval) async -> [String: Any] {
+        await withCheckedContinuation { cont in
+            lock.lock(); nextID += 1; let id = nextID; lock.unlock()
+            let once = Box(false)
+            let finish: (Any) -> Void = { v in
+                self.lock.lock(); let first = !once.v; once.v = true; self.lock.unlock()
+                if first { cont.resume(returning: v as? [String: Any] ?? [:]) }
             }
-            listener.stateUpdateHandler = { st in
-                if case .failed(let e) = st, done.data.isEmpty { done.data = Data([1]); cont.resume(throwing: e) }
-                if case .ready = st, openingBrowser { DispatchQueue.main.async { NSWorkspace.shared.open(self.authURL) } }
-            }
-            listener.start(queue: .global())
-            DispatchQueue.global().asyncAfter(deadline: .now() + 600) {
-                if done.data.isEmpty { done.data = Data([1]); cont.resume(throwing: Err(errorDescription: "timed out")) }
+            lock.lock(); waiting[id] = finish; lock.unlock()
+            write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                self.lock.lock(); let f = self.waiting.removeValue(forKey: id); self.lock.unlock()
+                f?(["error": "timed out"])
             }
         }
     }
 
-    func exchange(code: String) async throws -> String {
-        var r = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/auth/keys")!)
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try JSONSerialization.data(withJSONObject: ["code": code, "code_verifier": verifier,
-                                                                 "code_challenge_method": "S256"])
-        let (d, resp) = try await URLSession.shared.data(for: r)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200,
-              let j = try JSONSerialization.jsonObject(with: d) as? [String: Any],
-              let key = j["key"] as? String else {
-            throw Err(errorDescription: "OpenRouter said: \(String(decoding: d, as: UTF8.self).prefix(200))")
+    private func write(_ obj: [String: Any]) {
+        guard let d = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        lock.lock(); let h = stdin; lock.unlock()
+        h?.write(d + Data("\n".utf8))
+    }
+
+    private func feed(_ d: Data) {
+        lock.lock(); buf.append(d); var lines: [Data] = []
+        while let nl = buf.firstIndex(of: 0x0A) {
+            lines.append(Data(buf[buf.startIndex..<nl])); buf = Data(buf[buf.index(after: nl)...])
         }
-        return key
+        lock.unlock()
+        for l in lines { if let j = try? JSONSerialization.jsonObject(with: l) as? [String: Any] { handle(j) } }
+    }
+
+    private func handle(_ m: [String: Any]) {
+        let method = m["method"] as? String
+        if method == nil, let id = m["id"] as? Int {
+            lock.lock(); let f = waiting.removeValue(forKey: id); lock.unlock()
+            f?(m); return
+        }
+        let params = m["params"] as? [String: Any] ?? [:]
+        if method == "session/update", let u = params["update"] as? [String: Any] {
+            switch u["sessionUpdate"] as? String {
+            case "agent_message_chunk":
+                if let c = u["content"] as? [String: Any], let t = c["text"] as? String { onText?(t) }
+            case "tool_call":
+                if let t = u["title"] as? String { onTool?(t) }
+            default: break
+            }
+            return
+        }
+        guard let id = m["id"] else { return }   // a request from Hermes to us
+        if method == "session/request_permission" {
+            let tc = params["toolCall"] as? [String: Any] ?? [:]
+            let title = tc["title"] as? String ?? "Do something on your Mac"
+            let opts = (params["options"] as? [[String: Any]] ?? []).compactMap { o -> (String, String)? in
+                guard let oid = o["optionId"] as? String else { return nil }
+                return (oid, o["name"] as? String ?? oid)
+            }
+            let reply: @Sendable (String?) -> Void = { choice in
+                let outcome: [String: Any] = choice.map { ["outcome": "selected", "optionId": $0] } ?? ["outcome": "cancelled"]
+                self.write(["jsonrpc": "2.0", "id": id, "result": ["outcome": outcome]])
+            }
+            if let ask = onPermission { ask(title, opts, reply) } else { reply(nil) }
+        } else {
+            write(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "not supported by One"]])
+        }
     }
 }
 
-extension Data {
-    var base64URL: String {
-        base64EncodedString().replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-    }
-}
+// MARK: - Who the assistant is (written into One's own Hermes)
 
-// MARK: - Talking to the assistant
+enum Persona {
+    static func write(assistant: String, user: String, connections: [String], passwords: String) {
+        let who = user.isEmpty ? "the user" : user
+        let soul = """
+        You are \(assistant.isEmpty ? "the assistant" : assistant), \(who)'s personal assistant. You run on their own Mac, not in the cloud.
 
-enum Brain {
-    static let authProblem = "AUTH_EXPIRED"
-    static let persona = "You are a warm, plain-spoken personal assistant running on the user's own Mac. Keep replies short and clear. No jargon."
+        How you talk:
+        - Like a helpful friend: short, warm, plain words. No jargon.
+        - Never mention Hermes, models, terminals, config files or tools unless they ask how you work.
+        - Offer one clear next step, not a menu.
 
-    static func ask(_ text: String, via p: Provider) async -> String {
-        switch p {
-        case .claude:
-            let r = await Runner.shared.run(["claude", "-p", text, "--append-system-prompt", persona,
-                                             "--output-format", "text"], timeout: 300)
-            let all = r.out + r.err
-            if all.contains("Failed to authenticate") || all.contains("OAuth") || all.contains("/login") {
-                return Brain.authProblem
-            }
-            return r.code == 0 ? r.out.trimmingCharacters(in: .whitespacesAndNewlines)
-                               : "I couldn't reach Claude. \(all.prefix(200))"
-        case .chatgpt:
-            let outFile = Runner.workDir.appendingPathComponent("last-reply.txt")
-            try? FileManager.default.removeItem(at: outFile)
-            let r = await Runner.shared.run(["codex", "exec", "--skip-git-repo-check", "-s", "read-only",
-                                             "--output-last-message", outFile.path,
-                                             "\(persona)\n\nUser: \(text)"], timeout: 300)
-            if let s = try? String(contentsOf: outFile, encoding: .utf8), !s.isEmpty {
-                return s.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            return "I couldn't reach ChatGPT. \(r.err.suffix(200))"
-        case .openrouter:
-            guard let key = Keychain.read("openrouter") else { return "OpenRouter isn't connected yet." }
-            var r = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
-            r.httpMethod = "POST"
-            r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            r.setValue("One Assistant", forHTTPHeaderField: "X-Title")
-            r.httpBody = try? JSONSerialization.data(withJSONObject: [
-                "model": "openrouter/auto",
-                "messages": [["role": "system", "content": persona], ["role": "user", "content": text]]])
-            guard let (d, _) = try? await URLSession.shared.data(for: r),
-                  let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                  let c = (j["choices"] as? [[String: Any]])?.first,
-                  let m = c["message"] as? [String: Any], let s = m["content"] as? String
-            else { return "I couldn't reach OpenRouter." }
-            return s
+        Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
+
+        If the Mac is closed or off, you're off. Say so if they ask why you didn't do something.
+        """
+        try? soul.write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
+
+        let mem = Env.hermesHome.appendingPathComponent("memories", isDirectory: true)
+        try? FileManager.default.createDirectory(at: mem, withIntermediateDirectories: true)
+        var facts = ["The user's name is \(user). They call their assistant \(assistant)."]
+        if !connections.isEmpty {
+            facts.append("They want these connected: \(connections.joined(separator: ", ")). Not connected yet; help them connect each one when it first comes up.")
         }
+        if !passwords.isEmpty { facts.append("For logins: \(passwords).") }
+        try? facts.joined(separator: "\n§\n").write(to: mem.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
     }
 }
 
 // MARK: - App state
 
-struct Msg: Identifiable { let id = UUID(); let fromMe: Bool; let text: String }
+struct Bubble: Identifiable { let id = UUID(); let fromMe: Bool; var text: String }
+
+struct Ask: Identifiable {
+    let id = UUID(); let question: String; let options: [(String, String)]
+    let answer: @Sendable (String?) -> Void
+}
+
+enum Step: Equatable {
+    case pickAI, signingIn, nameAssistant, nameUser, connect, whichEmail, passwords, passwordsOK, wrapUp, done
+}
 
 @MainActor
 final class Model: ObservableObject {
-    @AppStorage("provider") var providerRaw: String = ""
-    @AppStorage("setupDone") var setupDone = false
-    @Published var statuses: [Provider: Status] = [:]
-    @Published var busy: Provider?
-    @Published var messages: [Msg] = []
+    @AppStorage("onboarded") var onboarded = false
+    @AppStorage("assistantName") var assistantName = ""
+    @AppStorage("userName") var userName = ""
+    @AppStorage("provider") var providerRaw = ""
+    @AppStorage("connections") var connectionsRaw = ""
+    @AppStorage("passwords") var passwords = ""
+
+    @Published var bubbles: [Bubble] = []
+    @Published var step: Step = .pickAI
+    @Published var signedIn: [Provider: Bool] = [:]
+    @Published var signInCode: String?
+    @Published var signInNeedsPaste = false
+    @Published var signInProblem: String?
+    @Published var busy = false
     @Published var thinking = false
+    @Published var working: String?
+    @Published var asks: [Ask] = []
     @Published var paused = false
+    @Published var pickedEmails: Set<String> = []
+    @Published var switchingAI = false
 
+    private var signIn: SignIn?
     var provider: Provider? { Provider(rawValue: providerRaw) }
+    var connections: [String] { connectionsRaw.split(separator: ",").map(String.init) }
+    var name: String { assistantName.isEmpty ? "Your assistant" : assistantName }
 
-    func refresh() async {
-        for p in Provider.allCases { statuses[p] = .checking }
-        for p in Provider.allCases { statuses[p] = await Auth.status(p) }
+    func say(_ text: String) async {
+        try? await Task.sleep(for: .milliseconds(450))
+        bubbles.append(Bubble(fromMe: false, text: text))
+    }
+    func me(_ text: String) { bubbles.append(Bubble(fromMe: true, text: text)) }
+
+    // Onboarding
+
+    func beginOnboarding() async {
+        guard bubbles.isEmpty else { return }
+        await say("Hi. Let's get you set up. It takes about two minutes.")
+        await say("First: which AI do you already pay for? I'll use it as my brain. You can switch any time.")
+        for p in Provider.allCases { signedIn[p] = await SignIn.isSignedIn(p) }
     }
 
-    func connect(_ p: Provider) async {
-        busy = p; defer { busy = nil }
-        if statuses[p] == .notInstalled {
-            statuses[p] = .failed("Installing… this can take a few minutes")
-            guard await Auth.install(p) else { statuses[p] = .failed("Couldn't install it automatically"); return }
-            statuses[p] = await Auth.status(p)
-        }
-        if statuses[p]?.isConnected == true {
-            statuses[p] = .failed("Checking the connection works…")
-            if await Brain.ask("Reply with exactly the word: ready", via: p) == Brain.authProblem {
-                statuses[p] = .notSignedIn
-            } else { statuses[p] = .connected("Connected and working") }
-        }
-        if statuses[p]?.isConnected != true {
-            statuses[p] = .failed("Finish signing in on the page that just opened")
-            statuses[p] = await Auth.signIn(p)
-        }
-        if statuses[p]?.isConnected == true {
-            providerRaw = p.rawValue
-            setupDone = true
-            if messages.isEmpty {
-                messages.append(Msg(fromMe: false, text: "I'm set up and using \(p.title). What can I help you with?"))
+    func choose(_ p: Provider) async {
+        me(p.title)
+        providerRaw = p.rawValue
+        if signedIn[p] == true { await verify(p); return }
+        step = .signingIn; signInCode = nil; signInNeedsPaste = false; signInProblem = nil
+        await say("Great. I'm opening \(p.title)'s sign-in page in your browser. Sign in there and say yes, then come back here.")
+        let s = SignIn(); signIn = s
+        let result: (Bool, String) = await withCheckedContinuation { cont in
+            let once = Box(false)
+            s.start(p) { ev in
+                Task { @MainActor in
+                    switch ev {
+                    case .openPage(let u): NSWorkspace.shared.open(u)
+                    case .code(let c): self.signInCode = c
+                    case .needPaste: self.signInNeedsPaste = true
+                    case .done(let ok, let msg):
+                        if !once.v { once.v = true; cont.resume(returning: (ok, msg)) }
+                    }
+                }
             }
         }
+        signIn = nil; signInCode = nil; signInNeedsPaste = false
+        if result.0 { signedIn[p] = true; await verify(p) }
+        else {
+            step = .pickAI
+            await say("That sign-in didn't finish. Want to try again, or pick another one?")
+            if !result.1.isEmpty { signInProblem = result.1 }
+        }
+    }
+
+    func pasteCode(_ c: String) { signIn?.paste(c); signInNeedsPaste = false }
+    func cancelSignIn() { signIn?.cancel() }
+
+    private func verify(_ p: Provider) async {
+        busy = true; defer { busy = false }
+        await SignIn.makeDefault(p)
+        await say("Connected to \(p.title). Let me check I can think with it…")
+        if let err = await Engine.shared.start() { step = .pickAI; await say("Something went wrong: \(err)"); return }
+        let got = Box("")
+        Engine.shared.onText = { t in got.v += t }
+        let stop = await Engine.shared.prompt("Reply with exactly one word: ready")
+        Engine.shared.onText = nil
+        if stop.hasPrefix("error") || got.v.isEmpty {
+            step = .pickAI
+            await say("I signed in, but \(p.title) didn't answer (\(stop)). Try again, or pick another one.")
+            return
+        }
+        if onboarded {
+            switchingAI = false; step = .done; bubbles.removeAll()
+            Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+            _ = await Engine.shared.start()
+            bubbles.append(Bubble(fromMe: false, text: "All set. I'm using \(p.title) now."))
+            return
+        }
+        step = .nameAssistant
+        await say("It works. Now, what would you like to call me? You can rename me any time.")
+    }
+
+    func nameAssistant(_ n: String) async {
+        let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
+        me(n); assistantName = n; step = .nameUser
+        await say("\(n). I like it. And what should I call you?")
+    }
+
+    func nameUser(_ n: String) async {
+        let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
+        me(n); userName = n; step = .connect
+        await say("Nice to meet you, \(n).")
+        await say("Want me to connect anything? People usually start with one of these. Or tell me in your own words.")
+    }
+
+    func connect(_ what: String) async {
+        let what = what.trimmingCharacters(in: .whitespaces); guard !what.isEmpty else { return }
+        me(what)
+        let w = what.lowercased()
+        if w.contains("email") || w.contains("mail") {
+            step = .whichEmail
+            await say("Which email do you use? Pick all that apply. You can add as many accounts as you like.")
+        } else if w == "not now" {
+            await wrapUp()
+        } else {
+            addConnection(what)
+            await say("Got it: \(what). I'll set that up with you the first time we need it.")
+            await askPasswords()
+        }
+    }
+
+    func emailsChosen() async {
+        let list = pickedEmails.sorted()
+        guard !list.isEmpty else { return }
+        me(list.joined(separator: ", "))
+        list.forEach(addConnection)
+        await say("To read \(list.joined(separator: " and ")) I'll need to sign in for you.")
+        await askPasswords()
+    }
+
+    private func askPasswords() async {
+        step = .passwords
+        await say("When I need to log in somewhere, where should I find your passwords?")
+    }
+
+    func passwordsChosen(_ choice: String) async {
+        me(choice)
+        if choice == "Ask me each time" {
+            passwords = "ask the user for each login; never store passwords"
+            await say("Okay. I'll ask you each time and won't keep anything.")
+            await wrapUp(); return
+        }
+        step = .passwordsOK
+        passwords = choice
+        await say("To use \(choice) I need your OK first. I'll only look up a login when a task needs it, and I'll tell you which one.")
+    }
+
+    func passwordsOK(_ yes: Bool) async {
+        me(yes ? "Yes" : "Not now")
+        if yes { passwords = "use \(passwords) (permission given \(Date().formatted(date: .abbreviated, time: .omitted)))" }
+        else { passwords = "not set up yet; ask before using any password source" }
+        await say(yes ? "Thanks. Noted." : "No problem. I'll ask again when it's needed.")
+        await wrapUp()
+    }
+
+    private func addConnection(_ c: String) {
+        var l = connections; if !l.contains(c) { l.append(c) }; connectionsRaw = l.joined(separator: ",")
+    }
+
+    private func wrapUp() async {
+        step = .wrapUp
+        busy = true
+        Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+        _ = await Engine.shared.start()      // restart so the new name and memory load
+        busy = false
+        await say("You're all set, \(userName). Here are a few things I can do right now. Tap one, or just ask.")
+    }
+
+    func finish() { onboarded = true; step = .done; bubbles.removeAll() }
+
+    var suggestions: [String] {
+        var s: [String] = []
+        if connections.contains(where: { ["Gmail", "Outlook", "iCloud Mail", "Yahoo"].contains($0) }) {
+            s.append("Every morning, tell me what matters in my email")
+        }
+        if connections.contains("Calendar") { s.append("What does my week look like?") }
+        if connections.contains("News") { s.append("Give me 5 headlines I'd care about") }
+        s += ["Plan a Saturday for me nearby", "Help me plan a trip", "Remind me to call someone tomorrow"]
+        return Array(s.prefix(3))
+    }
+
+    // Talking after setup
+
+    func ensureEngine() async {
+        guard onboarded, !Engine.shared.running else { return }
+        Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+        if let e = await Engine.shared.start() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
     func send(_ text: String) async {
-        guard !paused, let p = provider, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        messages.append(Msg(fromMe: true, text: text))
-        thinking = true
-        var reply = await Brain.ask(text, via: p)
-        if reply == Brain.authProblem { reply = "My sign-in to \(p.title) expired. Open Connections and press Connect to sign in again." }
-        thinking = false
-        if !paused { messages.append(Msg(fromMe: false, text: reply)) }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !paused, !t.isEmpty, !thinking else { return }
+        await ensureEngine()
+        me(t)
+        bubbles.append(Bubble(fromMe: false, text: ""))
+        let idx = bubbles.count - 1
+        thinking = true; working = nil
+        Engine.shared.onText = { s in Task { @MainActor in if idx < self.bubbles.count { self.bubbles[idx].text += s } } }
+        Engine.shared.onTool = { s in Task { @MainActor in self.working = s } }
+        Engine.shared.onPermission = { q, opts, answer in
+            Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
+        }
+        let stop = await Engine.shared.prompt(t)
+        try? await Task.sleep(for: .milliseconds(150))
+        thinking = false; working = nil
+        if idx < bubbles.count, bubbles[idx].text.isEmpty {
+            bubbles[idx].text = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
+        }
     }
 
-    func stopEverything() { paused.toggle(); if paused { Runner.shared.stop(); thinking = false } }
+    func answer(_ a: Ask, _ choice: String?) { a.answer(choice); asks.removeAll { $0.id == a.id } }
+
+    func toggleStop() {
+        paused.toggle()
+        if paused { Engine.shared.cancel(); asks.forEach { $0.answer(nil) }; asks.removeAll(); thinking = false }
+    }
 }
 
 // MARK: - Screens
 
 struct RootView: View {
     @StateObject var m = Model()
-    @State var step = 0   // 0 welcome, 1 pick AI
+    @State var started = false
     var body: some View {
         Group {
-            if m.setupDone && m.provider != nil { TalkView(m: m) }
-            else if step == 0 { WelcomeView { step = 1 } }
-            else { PickAIView(m: m) }
+            if m.onboarded && !m.switchingAI { HomeView(m: m) }
+            else if !started && m.bubbles.isEmpty && !m.onboarded { WelcomeView { started = true } }
+            else { OnboardingView(m: m) }
         }
-        .frame(minWidth: 520, minHeight: 600)
-        .task { await m.refresh() }
+        .frame(minWidth: 560, minHeight: 680)
+        .onAppear { if m.onboarded { m.step = .done } }
     }
 }
 
@@ -394,77 +595,217 @@ struct WelcomeView: View {
             Text("Hi. I'm your assistant.").font(.system(size: 34, weight: .semibold))
             VStack(spacing: 10) {
                 Text("I live on this Mac, not in the cloud.")
-                Text("I can't see your files unless you say so.")
+                Text("I ask before I do anything that matters.")
                 Text("If this Mac is closed or off, I'm off too.")
             }.font(.title3).foregroundStyle(.secondary)
             Spacer()
-            Button(action: start) {
-                Circle().fill(Color.accentColor).frame(width: 120, height: 120)
-                    .overlay(Text("Start").font(.title2.bold()).foregroundStyle(.white))
-                    .shadow(radius: 8)
-            }.buttonStyle(.plain).keyboardShortcut(.defaultAction)
+            BigButton(label: "Start", action: start).keyboardShortcut(.defaultAction)
             Spacer()
         }.padding(40)
     }
 }
 
-struct PickAIView: View {
-    @ObservedObject var m: Model
+struct BigButton: View {
+    let label: String; let action: () -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Which AI do you already pay for?").font(.title.bold())
-            Text("I'll use it as my brain. You can switch any time.").foregroundStyle(.secondary)
-            ForEach(Provider.allCases) { p in
-                let st = m.statuses[p] ?? .checking
-                HStack(spacing: 14) {
-                    Image(systemName: p.symbol).font(.title2).frame(width: 36)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(p.title).font(.headline)
-                        Text(st.isConnected ? "Found on this Mac. \(st.label)." : p.subtitle)
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        if case .failed(let s) = st { Text(s).font(.caption).foregroundStyle(.orange) }
-                    }
-                    Spacer()
-                    if m.busy == p { ProgressView().controlSize(.small) }
-                    else {
-                        Button(st.isConnected ? "Use this" : (st == .notInstalled ? "Set it up" : "Connect")) {
-                            Task { await m.connect(p) }
-                        }.buttonStyle(.borderedProminent).disabled(m.busy != nil || st == .checking)
-                    }
-                }
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
-            }
-            Text("Don't have one? OpenRouter lets you pay a few dollars and try any model.")
-                .font(.footnote).foregroundStyle(.secondary)
-            Spacer()
-        }.padding(32)
+        Button(action: action) {
+            Circle().fill(Color.accentColor).frame(width: 120, height: 120)
+                .overlay(Text(label).font(.title2.bold()).foregroundStyle(.white)).shadow(radius: 8)
+        }.buttonStyle(.plain)
     }
 }
 
-struct TalkView: View {
+struct BubbleView: View {
+    let b: Bubble
+    var body: some View {
+        HStack {
+            if b.fromMe { Spacer(minLength: 80) }
+            Text(b.text.isEmpty ? "…" : b.text).textSelection(.enabled)
+                .font(b.fromMe ? .body : .title3)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 16)
+                    .fill(b.fromMe ? Color.accentColor : Color(nsColor: .controlBackgroundColor)))
+                .foregroundStyle(b.fromMe ? .white : .primary)
+            if !b.fromMe { Spacer(minLength: 80) }
+        }
+    }
+}
+
+struct Chip: View {
+    let label: String; var selected = false; let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(label).padding(.horizontal, 16).padding(.vertical, 9)
+                .background(Capsule().fill(selected ? Color.accentColor : Color(nsColor: .controlBackgroundColor)))
+                .foregroundStyle(selected ? .white : .primary)
+                .overlay(Capsule().stroke(.quaternary))
+        }.buttonStyle(.plain)
+    }
+}
+
+struct OnboardingView: View {
     @ObservedObject var m: Model
-    @State var draft = ""
-    @State var showConnections = false
+    @State var text = ""
+    @State var paste = ""
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(m.messages) { msg in
-                            HStack {
-                                if msg.fromMe { Spacer(minLength: 60) }
-                                Text(msg.text).textSelection(.enabled).padding(12)
-                                    .background(RoundedRectangle(cornerRadius: 14)
-                                        .fill(msg.fromMe ? Color.accentColor : Color(nsColor: .controlBackgroundColor)))
-                                    .foregroundStyle(msg.fromMe ? .white : .primary)
-                                if !msg.fromMe { Spacer(minLength: 60) }
-                            }.id(msg.id)
+                    VStack(spacing: 12) {
+                        ForEach(m.bubbles) { BubbleView(b: $0).id($0.id) }
+                        if m.busy { HStack { ProgressView().controlSize(.small); Spacer() } }
+                    }.padding(24)
+                }.onChange(of: m.bubbles.count) { _, _ in
+                    if let l = m.bubbles.last { withAnimation { proxy.scrollTo(l.id, anchor: .bottom) } }
+                }
+            }
+            Divider()
+            answerArea.padding(20).frame(maxWidth: .infinity)
+        }
+        .task { if m.switchingAI { m.bubbles.removeAll(); m.step = .pickAI; await m.say("Which AI should I use?") } else { await m.beginOnboarding() } }
+    }
+
+    @ViewBuilder var answerArea: some View {
+        switch m.step {
+        case .pickAI:
+            VStack(spacing: 10) {
+                ForEach(Provider.allCases) { p in
+                    Button { Task { await m.choose(p) } } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: p.symbol).font(.title2).frame(width: 34)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.title).font(.headline)
+                                Text(m.signedIn[p] == true ? "Already signed in" : p.subtitle)
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }.padding(12).contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+                    }.buttonStyle(.plain).disabled(m.busy)
+                }
+                if let p = m.signInProblem { Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                if m.switchingAI { Button("Never mind") { m.switchingAI = false; m.step = .done; m.bubbles.removeAll() }.buttonStyle(.link) }
+            }
+        case .signingIn:
+            VStack(spacing: 14) {
+                if let c = m.signInCode {
+                    Text("If the page asks for a code, enter:").foregroundStyle(.secondary)
+                    Text(c).font(.system(size: 30, weight: .bold, design: .monospaced)).textSelection(.enabled)
+                }
+                if m.signInNeedsPaste {
+                    Text("Paste the code the page shows you:").foregroundStyle(.secondary)
+                    HStack {
+                        TextField("Code", text: $paste).textFieldStyle(.roundedBorder).onSubmit(sendPaste)
+                        Button("Continue", action: sendPaste).buttonStyle(.borderedProminent)
+                    }.frame(maxWidth: 420)
+                }
+                if m.signInCode == nil && !m.signInNeedsPaste {
+                    HStack { ProgressView().controlSize(.small); Text("Waiting for you to sign in…").foregroundStyle(.secondary) }
+                }
+                Button("Cancel") { m.cancelSignIn() }.buttonStyle(.link)
+            }
+        case .nameAssistant:
+            VStack(spacing: 12) {
+                HStack { ForEach(["Juno", "Max", "Sage", "Nova"], id: \.self) { n in Chip(label: n) { Task { await m.nameAssistant(n) } } } }
+                field("Or type a name") { await m.nameAssistant($0) }
+            }
+        case .nameUser:
+            field("Your name") { await m.nameUser($0) }
+        case .connect:
+            VStack(spacing: 12) {
+                HStack { ForEach(["Email", "Calendar", "News", "Not now"], id: \.self) { c in Chip(label: c) { Task { await m.connect(c) } } } }
+                field("Or tell me, like \"my bank\" or \"WhatsApp\"") { await m.connect($0) }
+            }
+        case .whichEmail:
+            VStack(spacing: 12) {
+                HStack {
+                    ForEach(["Gmail", "Outlook", "iCloud Mail", "Yahoo"], id: \.self) { e in
+                        Chip(label: e, selected: m.pickedEmails.contains(e)) {
+                            if m.pickedEmails.contains(e) { m.pickedEmails.remove(e) } else { m.pickedEmails.insert(e) }
                         }
-                        if m.thinking { HStack { ProgressView().controlSize(.small); Text("Thinking…").foregroundStyle(.secondary); Spacer() } }
-                    }.padding(20)
-                }.onChange(of: m.messages.count) { _, _ in
-                    if let last = m.messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    }
+                }
+                Button("Continue") { Task { await m.emailsChosen() } }
+                    .buttonStyle(.borderedProminent).disabled(m.pickedEmails.isEmpty)
+            }
+        case .passwords:
+            let hasOP = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/op")
+            VStack(spacing: 10) {
+                HStack {
+                    Chip(label: hasOP ? "1Password (found on this Mac)" : "1Password") { Task { await m.passwordsChosen("1Password") } }
+                    Chip(label: "Bitwarden") { Task { await m.passwordsChosen("Bitwarden") } }
+                }
+                HStack {
+                    Chip(label: "My Mac's Keychain") { Task { await m.passwordsChosen("your Mac's Keychain") } }
+                    Chip(label: "Ask me each time") { Task { await m.passwordsChosen("Ask me each time") } }
+                }
+            }
+        case .passwordsOK:
+            HStack(spacing: 16) {
+                Button("Yes") { Task { await m.passwordsOK(true) } }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button("Not now") { Task { await m.passwordsOK(false) } }.controlSize(.large)
+            }
+        case .wrapUp:
+            VStack(spacing: 10) {
+                ForEach(m.suggestions, id: \.self) { s in
+                    Button { m.finish(); Task { await m.send(s) } } label: {
+                        Text(s).frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+                    }.buttonStyle(.plain).disabled(m.busy)
+                }
+                Button("I'll look around first") { m.finish() }.buttonStyle(.link).disabled(m.busy)
+            }
+        case .done:
+            EmptyView()
+        }
+    }
+
+    func sendPaste() { let p = paste; paste = ""; m.pasteCode(p) }
+
+    func field(_ placeholder: String, _ go: @escaping (String) async -> Void) -> some View {
+        TextField(placeholder, text: $text).textFieldStyle(.plain).font(.title3)
+            .padding(10).background(RoundedRectangle(cornerRadius: 20).stroke(.quaternary))
+            .onSubmit { let t = text; text = ""; Task { await go(t) } }
+            .frame(maxWidth: 440)
+    }
+}
+
+struct HomeView: View {
+    @ObservedObject var m: Model
+    @State var draft = ""
+    var greeting: String {
+        let h = Calendar.current.component(.hour, from: Date())
+        return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("\(greeting), \(m.userName).").font(.system(size: 28, weight: .semibold))
+                        Text("\(m.name) is here.").foregroundStyle(.secondary)
+
+                        if !m.asks.isEmpty {
+                            Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange).padding(.top, 8)
+                            ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
+                        }
+                        if m.bubbles.isEmpty {
+                            Text("TRY").font(.caption.bold()).foregroundStyle(.secondary).padding(.top, 8)
+                            ForEach(m.suggestions, id: \.self) { s in
+                                Button { Task { await m.send(s) } } label: {
+                                    Text(s).frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        ForEach(m.bubbles) { BubbleView(b: $0).id($0.id) }
+                        if m.thinking {
+                            HStack { ProgressView().controlSize(.small); Text(m.working ?? "Thinking…").foregroundStyle(.secondary) }
+                        }
+                    }.padding(28)
+                }.onChange(of: m.bubbles.last?.text) { _, _ in
+                    if let l = m.bubbles.last { proxy.scrollTo(l.id, anchor: .bottom) }
                 }
             }
             if m.paused {
@@ -472,73 +813,110 @@ struct TalkView: View {
                     .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
             }
             HStack(spacing: 12) {
-                TextField("Ask me anything…", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain).font(.title3).lineLimit(1...5)
+                TextField("Ask \(m.name)…", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain).font(.title3).lineLimit(1...4)
                     .padding(12).background(RoundedRectangle(cornerRadius: 22).stroke(.quaternary))
-                    .onSubmit(sendDraft).disabled(m.paused)
-                Button(action: sendDraft) {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 34))
-                }.buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
+                    .onSubmit(go).disabled(m.paused)
+                Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }
+                    .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
             }.padding(16)
         }
         .toolbar {
-            ToolbarItem { Button { showConnections = true } label: { Label("Connections", systemImage: "switch.2") } }
+            ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "switch.2") } }
             ToolbarItem {
-                Button { m.stopEverything() } label: {
+                Button { m.toggleStop() } label: {
                     Label(m.paused ? "Turn on" : "Stop", systemImage: m.paused ? "play.circle.fill" : "stop.circle.fill")
                 }.tint(m.paused ? .green : .red)
             }
         }
-        .navigationTitle("One · \(m.provider?.title ?? "")")
-        .sheet(isPresented: $showConnections) {
-            VStack(alignment: .leading) {
-                PickAIView(m: m)
-                Button("Done") { showConnections = false }.keyboardShortcut(.defaultAction).padding()
-            }.frame(width: 520, height: 520)
-        }
+        .navigationTitle(m.name)
+        .task { await m.ensureEngine() }
     }
-    func sendDraft() { let t = draft; draft = ""; Task { await m.send(t) } }
+    func go() { let t = draft; draft = ""; Task { await m.send(t) } }
+}
+
+struct AskCard: View {
+    let a: Ask; let answer: (String?) -> Void
+    func isNo(_ id: String) -> Bool { id.hasPrefix("deny") || id.hasPrefix("reject") }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(a.question).font(.headline)
+            HStack {
+                ForEach(a.options, id: \.0) { o in
+                    Button(o.0 == "allow_once" ? "Yes" : (isNo(o.0) ? "No" : o.1)) { answer(o.0) }
+                        .buttonStyle(.borderedProminent).tint(isNo(o.0) ? .gray : .accentColor)
+                }
+            }
+        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.12)))
+    }
 }
 
 struct OneApp: App {
-    var body: some Scene {
-        WindowGroup("One") { RootView() }.windowResizability(.contentSize)
-    }
+    var body: some Scene { WindowGroup("One") { RootView() }.windowResizability(.contentSize) }
 }
 
-// MARK: - Entry (with a headless self-test for checking the plumbing)
+// MARK: - Entry, with headless tests the agent can run
 
 @main
 struct Entry {
+    static func runHeadless(_ body: @escaping @Sendable () async -> Void) -> Never {
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached { await body(); sem.signal() }
+        sem.wait(); exit(0)
+    }
+
     static func main() {
         let args = CommandLine.arguments
+        if args.contains("--reset") {
+            if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+            print("reset onboarding"); exit(0)
+        }
         if args.contains("--selftest") {
-            let sem = DispatchSemaphore(value: 0)
-            Task.detached {
-                for p in Provider.allCases {
-                    let st = await Auth.status(p)
-                    print("[\(p.title)] status: \(st.label)")
-                    if st.isConnected {
-                        let t0 = Date()
-                        let reply = await Brain.ask("Reply with exactly the word: ready", via: p)
-                        print("[\(p.title)] reply (\(Int(Date().timeIntervalSince(t0)))s): \(reply.prefix(120))")
+            // Uses a throwaway Hermes home and an OPENROUTER_API_KEY from the environment.
+            Env.selfTest = true
+            runHeadless {
+                print("hermes:", Env.hermesPath ?? "missing")
+                for p in Provider.allCases { print("[\(p.title)] signed in (selftest home):", await SignIn.isSignedIn(p)) }
+                await SignIn.makeDefault(.openrouter)
+                Persona.write(assistant: "Juno", user: "Omar", connections: ["Gmail"], passwords: "use 1Password")
+                let t0 = Date()
+                if let e = await Engine.shared.start() { print("engine start failed:", e); return }
+                print("engine started in \(Int(Date().timeIntervalSince(t0)))s")
+                let out = Box("")
+                Engine.shared.onText = { out.v += $0 }
+                Engine.shared.onTool = { print("  tool:", $0) }
+                Engine.shared.onPermission = { q, opts, ans in print("  permission asked:", q, opts.map(\.0)); ans("deny") }
+                for q in ["Who are you, and what's my name? One sentence.",
+                          "What did I say I want connected? Short.",
+                          "What's in my Downloads folder? List 3 names."] {
+                    out.v = ""
+                    let t1 = Date()
+                    let stop = await Engine.shared.prompt(q)
+                    print("Q: \(q)\nA (\(Int(Date().timeIntervalSince(t1)))s, \(stop)): \(out.v.prefix(300))")
+                }
+                Engine.shared.stop()
+            }
+        }
+        if let i = args.firstIndex(of: "--signin-probe"), i + 1 < args.count, let p = Provider(rawValue: args[i + 1]) {
+            // Starts a real sign-in, prints what the app would show, then cancels.
+            Env.selfTest = true
+            runHeadless {
+                let s = SignIn()
+                let seen = Box([String]())
+                s.start(p) { ev in
+                    switch ev {
+                    case .openPage(let u): seen.v.append("would open page: \(u.absoluteString.prefix(90))")
+                    case .code(let c): seen.v.append("would show code: \(c)")
+                    case .needPaste: seen.v.append("would ask to paste a code")
+                    case .done(let ok, let m): seen.v.append("finished ok=\(ok) \(m.prefix(120))")
                     }
                 }
-                let pk = OpenRouterPKCE()
-                print("[OpenRouter] sign-in URL: \(pk.authURL.absoluteString.prefix(90))…")
-                sem.signal()
+                try? await Task.sleep(for: .seconds(25))
+                s.cancel()
+                try? await Task.sleep(for: .seconds(2))
+                seen.v.forEach { print($0) }
             }
-            sem.wait(); exit(0)
-        }
-        if args.contains("--pkce-listen-test") {
-            // Proves the localhost callback catches the code (no real exchange).
-            let sem = DispatchSemaphore(value: 0)
-            Task.detached {
-                do { print("callback code received: \(try await OpenRouterPKCE().waitForCode(openingBrowser: false))") }
-                catch { print("listener error: \(error)") }
-                sem.signal()
-            }
-            sem.wait(); exit(0)
         }
         OneApp.main()
     }

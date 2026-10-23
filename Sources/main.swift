@@ -310,6 +310,19 @@ final class Engine: @unchecked Sendable {
         if let p, p.isRunning { p.terminate() }
     }
 
+    private var starting: Task<String?, Never>?
+    /// Starts the engine once; anyone who asks while it's starting waits for that same start.
+    func ensureStarted() async -> String? {
+        if running { return nil }
+        lock.lock()
+        if let t = starting { lock.unlock(); return await t.value }
+        let t = Task { await self.start() }
+        starting = t; lock.unlock()
+        let r = await t.value
+        lock.lock(); starting = nil; lock.unlock()
+        return r
+    }
+
     func start() async -> String? {
         stop()
         guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
@@ -354,7 +367,9 @@ final class Engine: @unchecked Sendable {
     /// Sends one message; text streams through onText. Returns the stop reason or "error: …".
     func prompt(_ text: String) async -> String {
         lock.lock(); let sid = sessionID; lock.unlock()
-        guard let sid else { return "error: not started" }
+        var id = sid
+        if id == nil, await ensureStarted() == nil { lock.lock(); id = sessionID; lock.unlock() }
+        guard let sid = id else { return "error: not started" }
         let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": text]]], timeout: 900)
         if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
@@ -1016,7 +1031,7 @@ final class Model: ObservableObject {
         guard onboarded, !Engine.shared.running else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
-        if let e = await Engine.shared.start() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
+        if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
     func send(_ text: String) async {

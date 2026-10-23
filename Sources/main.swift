@@ -1042,6 +1042,28 @@ final class Model: ObservableObject {
     /// Pictures waiting to go with the next message (dragged, pasted, picked or dropped on the orb).
     @Published var pictures: [Picture] = []
     @Published var files: [SharedFile] = []
+    /// Talking inside One's window (mic button, or the talk key while One is in front).
+    @Published var talkingInApp = false
+    @Published var talkNote: String?
+    func talkBegin() {
+        guard !talkingInApp else { return }
+        talkNote = nil
+        if thinking { talkNote = "I'm still on the last thing. Give me a moment."; return }
+        talkingInApp = true; Voice.shared.stop(); Listener.shared.begin()
+    }
+    func talkEnd() {
+        guard talkingInApp else { return }
+        Listener.shared.finish { heard in
+            Task { @MainActor in
+                self.talkingInApp = false
+                if heard.isEmpty {
+                    if Listener.shared.problem == nil { self.talkNote = "I didn't catch that. Hold the mic and talk, then let go." }
+                    return
+                }
+                await self.send(heard)
+            }
+        }
+    }
 
     func send(_ text: String) async {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2008,13 +2030,19 @@ final class OrbHost: NSView {
 
     private var keyTalk = false
     /// Push-to-talk key held: show the orb (even over One) and listen.
+    private var keyInApp = false
     func keyTalkBegin() {
+        if NSApp.isActive, let w = mainWindow, w.isVisible, !w.isMiniaturized {
+            keyInApp = true; Model.shared.talkBegin(); return
+        }
+        keyInApp = false
         build(); placeCard()
         orb?.orderFrontRegardless(); card?.orderFrontRegardless()
         keyTalk = true
         beginTalk()
     }
     func keyTalkEnd() {
+        if keyInApp { keyInApp = false; Model.shared.talkEnd(); return }
         Listener.shared.finish { heard in
             guard !heard.isEmpty else {
                 if Listener.shared.problem == nil { self.note("I didn't catch that. Hold the key and talk, then let go.") }
@@ -2677,6 +2705,9 @@ struct HomeView: View {
     @State var draft = ""
     @State var folderSheet = false
     @State var talkKeySheet = false
+    @ObservedObject var l = Listener.shared
+    @State var micDownAt: Date?
+    @State var micLatched = false
     @State var dropping = false
     @FocusState var typing: Bool
     var greeting: String {
@@ -2771,8 +2802,51 @@ struct HomeView: View {
         }
         .task { await m.ensureEngine() }
     }
+    /// Hold the mic to talk (let go to send), or click once to start and again to send.
+    var micButton: some View {
+        let on = m.talkingInApp
+        return ZStack {
+            if on { Circle().fill(Color(hex: 0xFFE2C2, 0.18)).frame(width: 40 + 14 * l.level, height: 40 + 14 * l.level) }
+            Image(systemName: on ? "mic.fill" : "mic").font(.system(size: 20, weight: on ? .regular : .light))
+                .foregroundStyle(on ? Color(hex: 0xFFE2C2) : Color.primary)
+        }
+        .frame(width: 34, height: 34).contentShape(Circle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard micDownAt == nil else { return }
+                micDownAt = Date()
+                if micLatched { return }
+                m.talkBegin()
+            }
+            .onEnded { _ in
+                let held = Date().timeIntervalSince(micDownAt ?? Date()); micDownAt = nil
+                if micLatched { micLatched = false; m.talkEnd(); return }
+                if held < 0.35 && m.talkingInApp { micLatched = true; return }   // a click: keep listening until the next click
+                m.talkEnd()
+            })
+        .help("Hold to talk, or click to start and click again to send")
+        .disabled(m.paused)
+        .animation(.easeOut(duration: 0.12), value: l.level)
+    }
+    @ViewBuilder var talkLine: some View {
+        if m.talkingInApp {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform").foregroundStyle(Color(hex: 0xFFE2C2))
+                Text(l.text.isEmpty ? "I'm listening…" : l.text).lineLimit(3)
+                Spacer()
+                Text(micLatched ? "Click the mic to send" : "Let go to send").font(.callout).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.ultraThinMaterial))
+            .transition(.opacity)
+        } else if let n = l.problem ?? m.talkNote {
+            Text(n).font(.callout).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 6) { if m.talkNote == n { m.talkNote = nil } } }
+        }
+    }
     var askBox: some View {
         VStack(spacing: 8) {
+        talkLine
         PictureStrip(m: m)
         HStack(spacing: 12) {
             Button { PictureIn.pick() } label: { Image(systemName: "paperclip").font(.system(size: 20, weight: .light)) }
@@ -2782,6 +2856,7 @@ struct HomeView: View {
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
                 .onSubmit(go).disabled(m.paused)
+            micButton
             Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
                 .buttonStyle(.plain).disabled(m.paused || m.thinking || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty))
         }

@@ -152,12 +152,11 @@ final class Voice {
     /// Plays a line and returns how long it lasts (0 if muted or missing).
     @discardableResult
     func play(_ key: String) -> Double {
-        guard !muted, let url = Bundle.main.url(forResource: key, withExtension: "mp3"),
-              let p = try? AVAudioPlayer(contentsOf: url) else { return 0 }
-        player?.stop(); player = p; p.play()
-        return p.duration
+        guard !muted, let url = Bundle.main.url(forResource: key, withExtension: "mp3") else { return 0 }
+        Speaker.shared.hush()
+        return Speaker.shared.enqueue(url)
     }
-    func stop() { player?.stop() }
+    func stop() { Speaker.shared.hush() }
 }
 
 
@@ -171,7 +170,13 @@ final class Speaker: @unchecked Sendable {
     private let q = DispatchQueue(label: "one.speaker")
     private var buf = ""
     private(set) var ready = false
-    private var player: AVAudioPlayer?
+    // One always-running audio line, so Bluetooth speakers/headphones never fall asleep
+    // and swallow the first words. Nothing is heard while idle (it plays silence).
+    private let audio = AVAudioEngine()
+    private let node = AVAudioPlayerNode()
+    private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+    private var audioUp = false
+    private var endsAt = Date.distantPast
     private var queue: [(String, Int)] = []   // (text, generation)
     private var gen = 0
     private var playing = false
@@ -195,7 +200,50 @@ final class Speaker: @unchecked Sendable {
         }
     }
 
+    /// Main thread. Starts (or restarts) the audio line.
+    func wakeAudio() {
+        if !audioUp {
+            audioUp = true
+            audio.attach(node)
+            audio.connect(node, to: audio.mainMixerNode, format: fmt)
+            NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: audio, queue: .main) { [weak self] _ in
+                self?.endsAt = .distantPast; self?.wakeAudio()
+            }
+        }
+        if !audio.isRunning { audio.prepare(); try? audio.start() }
+        if !node.isPlaying { node.play() }
+    }
+    private func buffer(_ url: URL) -> AVAudioPCMBuffer? {
+        guard let f = try? AVAudioFile(forReading: url),
+              let inBuf = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: AVAudioFrameCount(f.length)),
+              (try? f.read(into: inBuf)) != nil else { return nil }
+        if f.processingFormat == fmt { return inBuf }
+        guard let conv = AVAudioConverter(from: f.processingFormat, to: fmt) else { return nil }
+        let cap = AVAudioFrameCount(Double(inBuf.frameLength) * fmt.sampleRate / f.processingFormat.sampleRate) + 2048
+        guard let out = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: cap) else { return nil }
+        var given = false
+        var err: NSError?
+        conv.convert(to: out, error: &err) { _, status in
+            if given { status.pointee = .endOfStream; return nil }
+            given = true; status.pointee = .haveData; return inBuf
+        }
+        return err == nil ? out : nil
+    }
+    /// Main thread. Queues a sound right after whatever is playing; returns its length.
+    @discardableResult
+    func enqueue(_ url: URL) -> Double {
+        wakeAudio()
+        guard let b = buffer(url) else { return 0 }
+        let d = Double(b.frameLength) / fmt.sampleRate
+        node.scheduleBuffer(b, completionHandler: nil)
+        endsAt = max(endsAt, Date()).addingTimeInterval(d)
+        return d
+    }
+    /// Main thread. Silences now but keeps the line awake.
+    func hush() { node.stop(); endsAt = .distantPast; wakeAudio() }
+
     func start() {
+        DispatchQueue.main.async { self.wakeAudio() }
         q.async {
             guard self.proc == nil, self.installed, let script = Bundle.main.url(forResource: "speak", withExtension: "py") else { return }
             let p = Process()
@@ -238,7 +286,7 @@ final class Speaker: @unchecked Sendable {
         stop()
         let (url, dur): (URL?, Double) = await withCheckedContinuation { c in render(text) { c.resume(returning: ($0, $1)) } }
         guard let url else { return 0 }
-        await MainActor.run { self.play(url) }
+        await MainActor.run { _ = self.enqueue(url) }
         return dur
     }
     /// Reads a reply aloud, sentence by sentence, starting with the first while the rest is still being made.
@@ -271,28 +319,19 @@ final class Speaker: @unchecked Sendable {
         }
     }
     private var nextIndex = 0
+    /// Sentences go straight onto the audio line in order, back to back.
     private func playNext() {
-        guard !(player?.isPlaying ?? false) else { return }
-        guard let k = pending.firstIndex(where: { $0.0 == nextIndex }) else { return }
-        let (_, url) = pending.remove(at: k); nextIndex += 1
-        if let url { play(url) } else { playNext() }
-        if nextIndex == 1, let f = onFirst { onFirst = nil; f() }
-    }
-    private func play(_ url: URL) {
-        player?.stop()
-        guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
-        player = p; p.play()
-        let g = gen
-        DispatchQueue.main.asyncAfter(deadline: .now() + p.duration + 0.15) { [weak self] in
-            guard let self, g == self.gen else { return }
-            self.playNext()
+        while let k = pending.firstIndex(where: { $0.0 == nextIndex }) {
+            let (_, url) = pending.remove(at: k); nextIndex += 1
+            if let url { enqueue(url) }
+            if let f = onFirst { onFirst = nil; f() }
         }
     }
-    var talking: Bool { player?.isPlaying ?? false }
+    var talking: Bool { Date() < endsAt }
     func stop() {
         gen += 1; pending = []; queue = []; nextIndex = 0
         if let f = onFirst { onFirst = nil; DispatchQueue.main.async { f() } }
-        DispatchQueue.main.async { self.player?.stop() }
+        DispatchQueue.main.async { self.hush() }
     }
 
     /// What's worth saying out loud: plain sentences, no lists of links, code or long tables.

@@ -1117,6 +1117,7 @@ final class Model: ObservableObject {
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     @Published var openedShelf: UUID?
     @Published var draftSeed: String?
+    @Published var viewing: URL?
     func openShelf(_ id: UUID) {
         openedShelf = id
         if let k = shelf.firstIndex(where: { $0.id == id }) { shelf[k].fresh = false }
@@ -1185,8 +1186,26 @@ final class Model: ObservableObject {
             else { h.state = "done"; h.line = "Done · " + Helpers.summary(parts.body, 30) }
             h.finishedAway = away || (self.openHelper != id && h.state == "needsYes")
         }
-        if let h = helpers.first(where: { $0.id == id }), h.state == "done", !stop.hasPrefix("error") {
-            putOnShelf(title: h.title, body: Choices.split(h.reply).body, from: "\(h.title) helper")
+        if let h = helpers.first(where: { $0.id == id }), !stop.hasPrefix("error") {
+            let said = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !said.isEmpty {
+                var entry = said
+                if let a = h.asked, !a.isEmpty, !(h.log ?? []).isEmpty { entry = "**You:** \(a)\n\n" + said }
+                update(id) { $0.log = ($0.log ?? []) + [entry] }
+            }
+            if let h2 = helpers.first(where: { $0.id == id }), h2.state == "done", let log = h2.log, !log.isEmpty {
+                // The file keeps the whole report: the first full answer plus every follow-up, never just the last line.
+                let body = log.joined(separator: "\n\n---\n\n")
+                if let sid = h2.shelfID, let k = shelf.firstIndex(where: { $0.id == sid }) {
+                    let text = "# \(h2.title)\n\n\(body)\n\n— \(h2.title) helper, \(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short))\n"
+                    try? text.write(to: shelf[k].url, atomically: true, encoding: .utf8)
+                    shelf[k].detail = Helpers.summary(log[0], 60); shelf[k].fresh = true; shelf[k].made = Date()
+                } else if let it = Shelf.keep(title: h2.title, body: body, from: "\(h2.title) helper") {
+                    var it = it; it.detail = Helpers.summary(log[0], 60)
+                    withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { shelf.insert(it, at: 0) }
+                    update(id) { $0.shelfID = it.id }
+                }
+            }
         }
         if away, let h = helpers.first(where: { $0.id == id }) {
             Floater.shared.note(h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done.")
@@ -2336,6 +2355,8 @@ struct Helper: Identifiable, Codable {
     var asked: String?
     var finishedAway = false
     var toldNova: Bool?          // has Nova been given this result yet?
+    var log: [String]?           // everything this helper reported, oldest first (kept for its file)
+    var shelfID: UUID?           // its card on the Ready for you shelf
     var viewState: HelperState {
         switch state { case "working": .working; case "needsYes": .needsYes; case "stopped": .stopped; default: .done }
     }
@@ -2609,39 +2630,95 @@ struct ShelfPanel: View {
     }
 }
 
+
+/// Any note or file the assistant links to opens here, inside One, instead of in another app.
+struct FileViewer: View {
+    @ObservedObject var m: Model
+    let url: URL
+    var body: some View {
+        let raw = (try? String(contentsOf: url, encoding: .utf8)) ?? "I couldn't open this file. It may have been moved or deleted."
+        var lines = raw.components(separatedBy: "\n")
+        if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines = Array(lines[(end + 1)...]) }
+        var title = url.deletingPathExtension().lastPathComponent
+        if let f = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }), lines[f].hasPrefix("# ") { title = String(lines[f].dropFirst(2)); lines.remove(at: f) }
+        let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return GeometryReader { g in
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { m.viewing = nil }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.text").foregroundStyle(Color(hex: 0xFFE2C2))
+                        Text(title).font(.system(size: 17, weight: .semibold))
+                        Spacer()
+                        Button { m.viewing = nil } label: { Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
+                    }.padding(.horizontal, 22).padding(.vertical, 16)
+                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                    ScrollView {
+                        MarkdownText(text: text.isEmpty ? "Nothing written here yet." : text, size: 15).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 22).padding(.vertical, 18)
+                    }
+                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                    HStack(spacing: 8) {
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Show in Finder", systemImage: "folder") }.buttonStyle(.bordered)
+                        Button { m.viewing = nil; m.draftSeed = "About \"\(title)\" (\(url.path)): " } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }.buttonStyle(.bordered)
+                        Spacer()
+                    }.padding(.horizontal, 22).padding(.vertical, 14)
+                }
+                .frame(width: min(720, g.size.width - 60), height: max(320, g.size.height - 70))
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: 0x1E1E22, 0.99)))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
+                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+            }
+        }
+    }
+    static let readable: Set<String> = ["md", "markdown", "txt", "text", "csv", "json", "yaml", "yml", "log"]
+}
+
 struct ShelfOpened: View {
     @ObservedObject var m: Model
     let item: ShelfItem
     var body: some View {
         let body = (try? String(contentsOf: item.url, encoding: .utf8)) ?? "This file was moved or deleted."
         let shown = body.components(separatedBy: "\n").drop { $0.hasPrefix("# ") || $0.isEmpty }.joined(separator: "\n")
-        ZStack {
-            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { m.openedShelf = nil }
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: item.icon).foregroundStyle(Color(hex: 0xFFE2C2))
-                    Text(item.title).font(.system(size: 15, weight: .semibold))
-                    Spacer()
-                    Button { m.openedShelf = nil } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction)
+        GeometryReader { g in
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { m.openedShelf = nil }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: item.icon).foregroundStyle(Color(hex: 0xFFE2C2))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.title).font(.system(size: 17, weight: .semibold))
+                            Text("\(item.from) · \(item.when)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { m.openedShelf = nil } label: { Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
+                    }
+                    .padding(.horizontal, 22).padding(.vertical, 16)
+                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                    ScrollView {
+                        MarkdownText(text: shown, size: 15)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 22).padding(.vertical, 18)
+                    }
+                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                    HStack(spacing: 8) {
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([item.url]) } label: { Label("Show in Finder", systemImage: "folder") }
+                            .buttonStyle(.bordered)
+                        Button { m.openedShelf = nil; m.openHelper = nil; m.draftSeed = "About \"\(item.title)\" (\(item.path)): " } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }
+                            .buttonStyle(.bordered)
+                        Spacer()
+                        Text("Drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 22).padding(.vertical, 14)
                 }
-                ScrollView { MarkdownText(text: shown, size: 14).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(maxHeight: 340)
-                HStack(spacing: 8) {
-                    Button("Open") { NSWorkspace.shared.open(item.url) }.buttonStyle(.borderedProminent)
-                        .tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }.buttonStyle(.bordered)
-                    Button("Ask \(m.name) about it") {
-                        m.openedShelf = nil; m.openHelper = nil
-                        m.draftSeed = "About \"\(item.title)\" (\(item.path)): "
-                    }.buttonStyle(.bordered)
-                }
-                Text("Tip: drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                .frame(width: min(720, g.size.width - 60), height: max(320, g.size.height - 70))
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: 0x1E1E22, 0.99)))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
+                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
             }
-            .padding(18).frame(width: 440)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x1E1E22, 0.98)))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
-            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
         }
     }
 }
@@ -4105,6 +4182,14 @@ struct HomeView: View {
                 ShelfOpened(m: m, item: it).transition(.opacity)
             }
         }
+        .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
+        .environment(\.openURL, OpenURLAction { u in
+            var f: URL? = u.isFileURL ? u : nil
+            if f == nil, u.scheme == nil, u.path.hasPrefix("/") { f = URL(fileURLWithPath: u.path) }
+            if let f, FileViewer.readable.contains(f.pathExtension.lowercased()) { m.viewing = f; return .handled }
+            if let f { NSWorkspace.shared.activateFileViewerSelecting([f]); return .handled }
+            return .systemAction
+        })
         .onChange(of: m.draftSeed) { _, v in if let v { draft = v; m.draftSeed = nil; typing = true } }
         .safeAreaInset(edge: .bottom) {
             if m.paused {
@@ -4285,6 +4370,7 @@ struct Entry {
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
+                    ("reader", AnyView(ZStack { Color(hex: 0x141416); FileViewer(m: Model.shared, url: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md")) }.environment(\.colorScheme, .dark))),
                     ("map", AnyView(MapScene())),
                     ("room-add", AnyView(RoomAddScene())),
                     ("room-confirm", AnyView(RoomAddScene(confirm: true))),
@@ -4299,7 +4385,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" ? 960 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" ? 600 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

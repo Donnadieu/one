@@ -26,6 +26,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
+cp tools/speak.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp assets/One.icns "$APP/Contents/Resources/One.icns"
 # Hermes's official installer (MIT, Nous Research), run by One on first launch.
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"

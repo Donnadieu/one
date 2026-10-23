@@ -139,7 +139,7 @@ func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, St
     }
 }
 
-// MARK: - Voice (pre-rendered ElevenLabs lines for onboarding)
+// MARK: - Voice (pre-recorded Kokoro lines: fallback until the live voice is ready)
 
 @MainActor
 final class Voice {
@@ -147,7 +147,7 @@ final class Voice {
     private var player: AVAudioPlayer?
     var muted: Bool {
         get { UserDefaults.standard.bool(forKey: "voiceMuted") }
-        set { UserDefaults.standard.set(newValue, forKey: "voiceMuted"); if newValue { player?.stop() } }
+        set { UserDefaults.standard.set(newValue, forKey: "voiceMuted"); if newValue { player?.stop(); Speaker.shared.stop() } }
     }
     /// Plays a line and returns how long it lasts (0 if muted or missing).
     @discardableResult
@@ -158,6 +158,163 @@ final class Voice {
         return p.duration
     }
     func stop() { player?.stop() }
+}
+
+
+// MARK: - Live voice (Kokoro, free and on this Mac): says anything, including names, in the same voice as setup.
+
+final class Speaker: @unchecked Sendable {
+    static let shared = Speaker()
+    private var proc: Process?
+    private var input: FileHandle?
+    private var waiting: [String: (URL?, Double) -> Void] = [:]
+    private let q = DispatchQueue(label: "one.speaker")
+    private var buf = ""
+    private(set) var ready = false
+    private var player: AVAudioPlayer?
+    private var queue: [(String, Int)] = []   // (text, generation)
+    private var gen = 0
+    private var playing = false
+    var dir: URL { Env.support.appendingPathComponent("voice", isDirectory: true) }
+    var installed: Bool { FileManager.default.fileExists(atPath: dir.appendingPathComponent(".ready").path) }
+
+    /// Downloads the voice once (about 350 MB), next to One's engine. Safe to call again.
+    func install() async -> Bool {
+        if installed { return true }
+        guard let script = Bundle.main.url(forResource: "install_voice", withExtension: "sh") else { return false }
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/bash"); p.arguments = [script.path, Env.support.path]
+                p.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "TMPDIR": NSTemporaryDirectory()]
+                let log = Env.support.appendingPathComponent("voice-install.log")
+                FileManager.default.createFile(atPath: log.path, contents: nil)
+                if let h = try? FileHandle(forWritingTo: log) { p.standardOutput = h; p.standardError = h }
+                do { try p.run() } catch { cont.resume(returning: false); return }
+                p.waitUntilExit(); cont.resume(returning: p.terminationStatus == 0)
+            }
+        }
+    }
+
+    func start() {
+        q.async {
+            guard self.proc == nil, self.installed, let script = Bundle.main.url(forResource: "speak", withExtension: "py") else { return }
+            let p = Process()
+            p.executableURL = self.dir.appendingPathComponent("venv/bin/python")
+            p.arguments = ["-I", script.path, self.dir.path, "af_heart"]
+            let i = Pipe(), o = Pipe(); p.standardInput = i; p.standardOutput = o; p.standardError = FileHandle.nullDevice
+            o.fileHandleForReading.readabilityHandler = { [weak self] h in
+                let d = h.availableData; guard let self, !d.isEmpty else { return }
+                self.q.async {
+                    self.buf += String(decoding: d, as: UTF8.self)
+                    while let nl = self.buf.firstIndex(of: "\n") {
+                        let line = String(self.buf[..<nl]); self.buf = String(self.buf[self.buf.index(after: nl)...])
+                        guard let j = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any], let id = j["id"] as? String else { continue }
+                        if id == "ready" { self.ready = true; continue }
+                        let cb = self.waiting.removeValue(forKey: id)
+                        let url = (j["path"] as? String).map { URL(fileURLWithPath: $0) }
+                        cb?(url, j["dur"] as? Double ?? 0)
+                    }
+                }
+            }
+            p.terminationHandler = { [weak self] _ in self?.q.async { self?.proc = nil; self?.ready = false; for (_, cb) in self?.waiting ?? [:] { cb(nil, 0) }; self?.waiting = [:] } }
+            do { try p.run() } catch { return }
+            self.proc = p; self.input = i.fileHandleForWriting
+        }
+    }
+
+    /// Makes the audio for one line. Calls back with nil if the voice isn't available.
+    func render(_ text: String, _ done: @escaping (URL?, Double) -> Void) {
+        q.async {
+            guard self.ready, let input = self.input else { done(nil, 0); return }
+            let id = UUID().uuidString
+            self.waiting[id] = done
+            let msg = (try? JSONSerialization.data(withJSONObject: ["id": id, "text": text])) ?? Data()
+            input.write(msg + Data("\n".utf8))
+        }
+    }
+    /// Says a line now and returns its length in seconds (0 if the live voice isn't ready).
+    func sayNow(_ text: String) async -> Double {
+        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else { return 0 }
+        stop()
+        let (url, dur): (URL?, Double) = await withCheckedContinuation { c in render(text) { c.resume(returning: ($0, $1)) } }
+        guard let url else { return 0 }
+        await MainActor.run { self.play(url) }
+        return dur
+    }
+    /// Reads a reply aloud, sentence by sentence, starting with the first while the rest is still being made.
+    func read(_ reply: String) {
+        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else { return }
+        stop()
+        let g = gen
+        for sentence in Speaker.spoken(reply) { queue.append((sentence, g)) }
+        pump()
+    }
+    private var pending: [(Int, URL?)] = []
+    private func pump() {
+        // render everything queued, play in order
+        let items = queue; queue = []; nextIndex = 0
+        var order = 0
+        for (t, g) in items {
+            let n = order; order += 1
+            render(t) { [weak self] url, _ in
+                DispatchQueue.main.async {
+                    guard let self, g == self.gen else { return }
+                    self.pending.append((n, url)); self.pending.sort { $0.0 < $1.0 }
+                    self.playNext()
+                }
+            }
+        }
+    }
+    private var nextIndex = 0
+    private func playNext() {
+        guard !(player?.isPlaying ?? false) else { return }
+        guard let k = pending.firstIndex(where: { $0.0 == nextIndex }) else { return }
+        let (_, url) = pending.remove(at: k); nextIndex += 1
+        if let url { play(url) } else { playNext() }
+    }
+    private func play(_ url: URL) {
+        player?.stop()
+        guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
+        player = p; p.play()
+        let g = gen
+        DispatchQueue.main.asyncAfter(deadline: .now() + p.duration + 0.15) { [weak self] in
+            guard let self, g == self.gen else { return }
+            self.playNext()
+        }
+    }
+    var talking: Bool { player?.isPlaying ?? false }
+    func stop() {
+        gen += 1; pending = []; queue = []; nextIndex = 0
+        DispatchQueue.main.async { self.player?.stop() }
+    }
+
+    /// What's worth saying out loud: plain sentences, no lists of links, code or long tables.
+    static func spoken(_ text: String) -> [String] {
+        var t = Choices.split(text).body
+        t = t.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)
+        for mark in ["**", "__", "`", "#", "|", ">"] { t = t.replacingOccurrences(of: mark, with: "") }
+        let lines = t.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.allSatisfy { "-—=:".contains($0) } }
+            .map { l -> String in
+                var l = l
+                if let r = l.range(of: #"^([-*•]|\d+[.)])\s+"#, options: .regularExpression) { l.removeSubrange(r) }
+                if let last = l.last, !".!?:;".contains(last) { l += "." }
+                return l
+            }
+        var out: [String] = []
+        var cur = ""
+        for l in lines {
+            let parts = l.replacingOccurrences(of: #"([.!?])\s+"#, with: "$1\n", options: .regularExpression).components(separatedBy: "\n")
+            for s in parts where !s.isEmpty {
+                if cur.count + s.count < 160 { cur += (cur.isEmpty ? "" : " ") + s } else { if !cur.isEmpty { out.append(cur) }; cur = s }
+                if out.count >= 8 { break }
+            }
+        }
+        if !cur.isEmpty && out.count < 8 { out.append(cur) }
+        return out
+    }
 }
 
 // MARK: - The AIs the user can bring
@@ -812,7 +969,9 @@ final class Model: ObservableObject {
             let d = Voice.shared.play(key); speakUntil = Date().addingTimeInterval(d > 0 ? d : 2.6); return d
         }
         worldCaption = "Nice to meet you, \(userName). This is everything I can reach from your Mac."
-        await hold(speak("worldIntro"), min: 3.6)
+        let live = await Speaker.shared.sayNow(worldCaption)
+        if live > 0 { speakUntil = Date().addingTimeInterval(live) }
+        await hold(live > 0 ? live : speak("worldIntro"), min: 3.6)
         for n in worldNodes where !skipTour {
             tourNode = n.id; worldCaption = n.line
             await hold(n.voice.map(speak) ?? 0, min: 3.4)
@@ -843,11 +1002,13 @@ final class Model: ObservableObject {
         speaking = true; defer { speaking = false }
         try? await Task.sleep(for: .milliseconds(350))
         bubbles.append(Bubble(fromMe: false, text: text))
-        let d = voice.map { Voice.shared.play($0) } ?? 0
+        // Live voice says the exact line (with names); the recorded line is the fallback until it's ready.
+        var d = Speaker.shared.ready ? await Speaker.shared.sayNow(text) : 0
+        if d == 0 { d = voice.map { Voice.shared.play($0) } ?? 0 }
         // Let the voice finish (or the text settle) before the next line emerges.
         try? await Task.sleep(for: .milliseconds(Int(max(d, 1.1) * 1000) + 200))
     }
-    func me(_ text: String) { Voice.shared.stop(); bubbles.append(Bubble(fromMe: true, text: text)) }
+    func me(_ text: String) { Voice.shared.stop(); Speaker.shared.stop(); bubbles.append(Bubble(fromMe: true, text: text)) }
 
     // Onboarding
 
@@ -876,6 +1037,7 @@ final class Model: ObservableObject {
             installError = err
             await say("Something stopped the setup. Check your internet connection and try again.", voice: "installFailed")
         } else {
+            Task.detached { if await Speaker.shared.install() { Speaker.shared.start() } }
             await say("Done. I'm ready.", voice: "installDone")
             await askAI()
         }
@@ -1095,7 +1257,7 @@ final class Model: ObservableObject {
         guard !talkingInApp else { return }
         talkNote = nil
         if busyHere { talkNote = "I'm still on the last thing. Give me a moment."; return }
-        talkingInApp = true; Voice.shared.stop(); Listener.shared.begin()
+        talkingInApp = true; Voice.shared.stop(); Speaker.shared.stop(); Listener.shared.begin()
     }
     func talkEnd() {
         guard talkingInApp else { return }
@@ -1310,6 +1472,7 @@ final class Model: ObservableObject {
         if idx < bubbles.count, bubbles[idx].text.isEmpty {
             bubbles[idx].text = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }
+        if idx < bubbles.count, !stop.hasPrefix("error"), !paused { Speaker.shared.read(bubbles[idx].text) }
     }
 
     func answer(_ a: Ask, _ choice: String?) { a.answer(choice); asks.removeAll { $0.id == a.id } }
@@ -4082,6 +4245,7 @@ struct HomeView: View {
     @State var folderSheet = false
     @State var talkKeySheet = false
     @State var roomsSheet = false
+    @AppStorage("voiceMuted") var voiceOff = false
     @ObservedObject var l = Listener.shared
     @State var micDownAt: Date?
     @State var micLatched = false
@@ -4198,6 +4362,11 @@ struct HomeView: View {
             }
         }
         .toolbar {
+            ToolbarItem {
+                Button { voiceOff.toggle(); if voiceOff { Speaker.shared.stop(); Voice.shared.stop() } } label: {
+                    Label(voiceOff ? "Voice off" : "Voice on", systemImage: voiceOff ? "speaker.slash" : "speaker.wave.2")
+                }.help(voiceOff ? "Let \(m.name) talk" : "Stop \(m.name) from talking")
+            }
             ToolbarItem { Button { roomsSheet = true } label: { Label("Rooms", systemImage: "circle.hexagongrid") }.help("See your rooms") }
             ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
@@ -4328,6 +4497,8 @@ struct AskCard: View {
 
 final class OneDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Speaker.shared.installed { Speaker.shared.start() }
+        else if Env.hermesPath != nil { Task.detached { if await Speaker.shared.install() { Speaker.shared.start() } } }
         MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply() }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

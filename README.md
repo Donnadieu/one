@@ -50,7 +50,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Folder lock** | The engine runs inside a macOS sandbox profile (`sandbox-exec`). Your home folder is closed except One's own data, your memory and the folders you approve. This is enforced by the Mac, not by the model's good behaviour. |
 | **Sign-in** | Hermes's own OAuth/device-code flows (`hermes auth add <provider>`), so any provider Hermes supports becomes available to One. |
 | **Memory** | Rooms built from a "brain starter" template set: plain Markdown files, one folder per room, with rules for what each room may hold. Writes inside your memory need no yes; anything outside still asks. |
-| **Voice** | Onboarding lines pre-rendered with ElevenLabs (`tools/render_voice.py`, only changed lines are re-rendered) and played with AVFoundation. No voice service is called at runtime. |
+| **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, voice `af_heart`), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
 ### Build it
@@ -67,7 +67,7 @@ Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates
 
 Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--render-world <prefix>` (renders the world screen to PNGs), `--signin-probe <provider>`, `--reset`.
 
-To re-record voice lines: edit `voice/lines.json`, then `ELEVENLABS_API_KEY=... python3 tools/render_voice.py`.
+To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 
 ## Privacy
 
@@ -91,7 +91,7 @@ Ideas, bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 ## Credits
 
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research, the engine underneath.
-- Voice by [ElevenLabs](https://elevenlabs.io). World screen first designed with Claude Design.
+- Voice by [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (Apache 2.0). World screen first designed with Claude Design.
 
 ## License
 

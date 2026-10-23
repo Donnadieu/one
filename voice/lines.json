@@ -1,6 +1,4 @@
 {
- "voice_id": "EST9Ui6982FZPSi7gCHi",
- "model_id": "eleven_multilingual_v2",
  "lines": {
   "welcome1": "Hi. I'm your assistant.",
   "welcome2": "I live on this Mac, not in the cloud.",
@@ -44,5 +42,6 @@
   "devTools": "Your Mac needs one small Apple add-on first. Click Install on the box that just opened, then press Continue here when it's done.",
   "installFailed": "Something stopped the setup. Check your internet connection, and try again.",
   "installDone": "Done. I'm ready."
- }
+ },
+ "voice": "af_heart"
 }

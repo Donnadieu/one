@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 APP=build/One.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macosx14.0 \
-  -framework SwiftUI -framework AppKit -swift-version 5 \
+  -framework SwiftUI -framework AppKit -framework Speech -swift-version 5 \
   Sources/main.swift -o "$APP/Contents/MacOS/One"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,6 +21,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>So you can hold the orb and talk to your assistant.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>So what you say turns into words for your assistant, on this Mac.</string>
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"

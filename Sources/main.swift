@@ -4,6 +4,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import Speech
 
 // MARK: - Paths and environment
 
@@ -685,6 +686,7 @@ enum Step: Equatable {
 
 @MainActor
 final class Model: ObservableObject {
+    static let shared = Model()
     @AppStorage("onboarded") var onboarded = false
     @AppStorage("assistantName") var assistantName = ""
     @AppStorage("userName") var userName = ""
@@ -1188,6 +1190,506 @@ struct Orb: View {
     }
 }
 
+// MARK: - Floating orb (One minimized)
+// When One is minimized it becomes a small orb that floats above every window. Hold it to talk
+// (let go to send), double-click to open the full window. It glows while One works.
+
+enum FloatState { case idle, listening, working }
+
+struct FloatingOrb: View {
+    var state: FloatState
+    var size: CGFloat = 72
+    /// Fixed time for renders; nil = live animation.
+    var fixedT: Double? = nil
+    var body: some View {
+        if let t = fixedT { face(t) } else {
+            TimelineView(.animation) { tl in face(tl.date.timeIntervalSince(WorldLook.start)) }
+        }
+    }
+
+    private func face(_ t: Double) -> some View {
+        let listening = state == .listening, working = state == .working
+        let voice: Double = listening ? 0.45 + 0.4 * abs(sin(t * 4.1) * sin(t * 2.3 + 0.7))
+                          : working ? 0.3 + 0.35 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
+        let energy: Double = working ? 0.45 + 0.25 * sin(t * 2) : listening ? 0.2 : 0
+        let k = size / 168                 // outer ring (~68pt + wobble) fits inside the disc
+        let glow = working ? 0.30 + 0.10 * sin(t * 2.2) : listening ? 0.26 : 0.10
+        return ZStack {
+            Circle().fill(WorldLook.bg.opacity(0.96))
+                .overlay(Circle().fill(RadialGradient(colors: [WorldLook.cream.opacity(listening ? 0.10 : 0.05), .clear],
+                                                      center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: size * 0.6)))
+            Presence(t: t, lean: .zero, voice: voice, energy: energy, line: 1.5 / k)
+                .frame(width: 280, height: 280)
+                .scaleEffect(k)
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+            Circle().strokeBorder(WorldLook.cream.opacity(listening ? 0.30 : 0.07), lineWidth: 0.75)
+            if working {
+                // A soft light travelling around the edge: "busy" without a spinner.
+                Circle()
+                    .trim(from: 0, to: 0.36)
+                    .stroke(AngularGradient(colors: [Color(hex: 0xFFE2C2, 0), Color(hex: 0xFFE2C2, 0.55), Color(hex: 0xFFF3E6, 1)],
+                                            center: .center, startAngle: .degrees(0), endAngle: .degrees(130)),
+                            style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                    .frame(width: size + 9, height: size + 9)
+                    .rotationEffect(.degrees(t * 150 + 115))
+            }
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                Circle().fill(RadialGradient(colors: [Color(hex: 0xFFF1E2, glow), Color(hex: 0xFFF1E2, glow * 0.3), .clear],
+                                             center: .center, startRadius: size * 0.45, endRadius: size * (working ? 0.82 : 0.7)))
+                if listening {
+                    // Two gentle ripples while it hears you.
+                    ForEach(0..<2, id: \.self) { i in
+                        let p = (t * 0.8 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                        Circle().stroke(WorldLook.cream.opacity(0.55 * (1 - p)), lineWidth: 1.5 - 0.7 * p)
+                            .frame(width: size * (1.1 + 0.32 * p), height: size * (1.1 + 0.32 * p))
+                    }
+                }
+            }
+            .frame(width: size * 1.8, height: size * 1.8)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 12, y: 5)
+        .scaleEffect(listening ? 1.08 : 1)
+    }
+}
+
+/// Small plain-words label next to the orb.
+struct FloatHint: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(WorldLook.cream.opacity(0.72))
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(Color(hex: 0x1E1E22, 0.92)))
+            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.10), lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+            .fixedSize()
+    }
+}
+
+/// What One is hearing while you hold the orb.
+struct FloatTranscript: View {
+    let text: String
+    var level: Double = 0.6
+    var t: Double = 0
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 7) {
+                HStack(alignment: .center, spacing: 2) {
+                    ForEach(0..<5, id: \.self) { i in
+                        let shape: [Double] = [0.45, 0.8, 1, 0.7, 0.4]
+                        let h = 4 + 8 * shape[i] * (0.75 + 0.25 * level * abs(sin(t * 5 + Double(i) * 1.3)))
+                        Capsule().fill(Color(hex: 0xFFE2C2, 0.9)).frame(width: 2, height: h)
+                    }
+                }.frame(height: 12)
+                Text("Listening").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.7))
+            }
+            Text(text)
+                .font(.system(size: 14.5))
+                .foregroundStyle(WorldLook.cream)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Let go to send").font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.62))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(width: 250, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0x1E1E22, 0.95)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+    }
+}
+
+/// Render-only: the floating orb parked in the bottom-right corner of a sample dark desktop.
+struct FloatScene: View {
+    let state: FloatState
+    var t: Double = 12.3
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            LinearGradient(colors: [Color(hex: 0x2A2F3D), Color(hex: 0x15161C)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            // Menu bar
+            VStack(spacing: 0) {
+                HStack(spacing: 16) {
+                    Text("Finder").fontWeight(.semibold)
+                    Text("File"); Text("Edit"); Text("View"); Text("Go"); Spacer(); Text("Fri 23 Oct  9:41")
+                }
+                .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, 14).frame(height: 24).background(Color.black.opacity(0.35))
+                Spacer()
+            }
+            // A background window, for scale
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(hex: 0x23252C))
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) { ForEach([0xFF5F57, 0xFEBC2E, 0x28C840], id: \.self) { Circle().fill(Color(hex: UInt32($0), 0.85)).frame(width: 10, height: 10) } }
+                        ForEach(0..<6, id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.06)).frame(width: [220, 180, 240, 150, 200, 120][i], height: 9)
+                        }
+                    }.padding(12)
+                }
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
+                .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+                .frame(width: 330, height: 200)
+                .position(x: 200, y: 150)
+            HStack(alignment: .center, spacing: state == .listening ? 26 : 18) {
+                switch state {
+                case .idle: FloatHint(text: "Hold to talk · Double-click to open")
+                case .listening: FloatTranscript(text: "Move my call with Dana to Thursday at 3, and let her know", level: 0.7, t: t)
+                case .working: FloatHint(text: "Moving your call with Dana…")
+                }
+                FloatingOrb(state: state, size: 72, fixedT: t)
+            }
+            .padding(.trailing, 44).padding(.bottom, 44)
+        }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+
+// MARK: - Push to talk (speech → text on this Mac)
+
+/// Hears you while you hold the orb. Speech is turned into text on the Mac when it can be.
+@MainActor final class Listener: ObservableObject {
+    static let shared = Listener()
+    @Published var listening = false
+    @Published var text = ""
+    @Published var level: Double = 0
+    @Published var problem: String?
+    private let audio = AVAudioEngine()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var want = false
+    private var gotFinal = false
+    private var onFinal: (() -> Void)?
+    private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+
+    func begin() {
+        want = true; problem = nil; text = ""
+        SFSpeechRecognizer.requestAuthorization { s in
+            DispatchQueue.main.async {
+                guard s == .authorized else { self.fail("I need permission to hear you. Open System Settings, Privacy & Security, Speech Recognition, and turn on One."); return }
+                AVCaptureDevice.requestAccess(for: .audio) { ok in
+                    DispatchQueue.main.async {
+                        guard ok else { self.fail("I need the microphone. Open System Settings, Privacy & Security, Microphone, and turn on One."); return }
+                        if self.want { self.startAudio() }
+                    }
+                }
+            }
+        }
+    }
+
+    private func fail(_ msg: String) {
+        problem = msg; want = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { if self.problem == msg { self.problem = nil } }
+    }
+
+    private func startAudio() {
+        guard !listening else { return }
+        guard let r = recognizer, r.isAvailable else { fail("Talking isn't available right now. You can type instead."); return }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        req.addsPunctuation = true
+        if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        request = req; gotFinal = false
+        let input = audio.inputNode
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0), block: Listener.tap(req) { lv in
+            DispatchQueue.main.async { self.level = lv }
+        })
+        audio.prepare()
+        do { try audio.start() } catch { input.removeTap(onBus: 0); fail("I couldn't use the microphone."); return }
+        listening = true
+        task = r.recognitionTask(with: req, resultHandler: Listener.handler { text, final in
+            DispatchQueue.main.async {
+                if let text { self.text = text }
+                if final { self.gotFinal = true; let f = self.onFinal; self.onFinal = nil; f?() }
+            }
+        })
+    }
+
+    /// Built outside the class's methods so the audio thread never touches main-thread-only state.
+    nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest, level: @escaping (Double) -> Void) -> AVAudioNodeTapBlock {
+        return { buf, _ in
+            req.append(buf)
+            guard let ch = buf.floatChannelData?[0] else { return }
+            let n = Int(buf.frameLength); var sum: Float = 0
+            for i in 0..<n { sum += ch[i] * ch[i] }
+            level(min(1, Double(sqrt(sum / Float(max(n, 1)))) * 14))
+        }
+    }
+    nonisolated private static func handler(_ cb: @escaping (String?, Bool) -> Void) -> (SFSpeechRecognitionResult?, Error?) -> Void {
+        return { res, err in cb(res?.bestTranscription.formattedString, err != nil || res?.isFinal == true) }
+    }
+
+    /// Stop listening; `done` gets what was heard (empty if nothing).
+    func finish(_ done: @escaping (String) -> Void) {
+        want = false
+        guard listening else { done(""); return }
+        listening = false
+        audio.stop(); audio.inputNode.removeTap(onBus: 0)
+        request?.endAudio()
+        var called = false
+        let complete = {
+            guard !called else { return }; called = true
+            self.task?.cancel(); self.task = nil; self.request = nil; self.level = 0
+            done(self.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if gotFinal { complete() } else {
+            onFinal = complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { self.onFinal = nil; complete() }
+        }
+    }
+}
+
+// MARK: - Floating orb window (shown when One is minimized or hidden)
+
+@MainActor final class FloatUI: ObservableObject {
+    static let shared = FloatUI()
+    static let orbBox: CGFloat = 150
+    static let cardSize = CGSize(width: 290, height: 220)
+    @Published var onRight = false
+    @Published var showHint = false
+    @Published var reply: String?
+    @Published var note: String?
+}
+
+struct FloatOrbView: View {
+    @ObservedObject var m = Model.shared
+    @ObservedObject var l = Listener.shared
+    var body: some View {
+        FloatingOrb(state: l.listening ? .listening : (m.thinking ? .working : .idle), size: 72)
+            .frame(width: FloatUI.orbBox, height: FloatUI.orbBox)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: l.listening)
+    }
+}
+
+/// A short message card beside the orb (a reply, a problem, a note).
+struct FloatNote: View {
+    let text: String
+    var footer: String? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(text).font(.system(size: 13.5)).foregroundStyle(WorldLook.cream).lineSpacing(2).lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
+            if let footer { Text(footer).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.62)) }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(width: 250, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0x1E1E22, 0.95)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+    }
+}
+
+struct FloatCard: View {
+    @ObservedObject var m = Model.shared
+    @ObservedObject var l = Listener.shared
+    @ObservedObject var ui = FloatUI.shared
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !l.listening)) { tl in
+            ZStack(alignment: ui.onRight ? .leading : .trailing) {
+                Color.clear
+                content(tl.date.timeIntervalSince(WorldLook.start)).padding(.horizontal, 12)
+            }
+        }
+        .frame(width: FloatUI.cardSize.width, height: FloatUI.cardSize.height)
+        .environment(\.colorScheme, .dark)
+    }
+    @ViewBuilder func content(_ t: Double) -> some View {
+        if l.listening { FloatTranscript(text: l.text.isEmpty ? "I'm listening…" : l.text, level: max(0.3, l.level), t: t) }
+        else if let p = l.problem ?? ui.note { FloatNote(text: p) }
+        else if m.thinking { FloatHint(text: m.working ?? "Working on it…") }
+        else if let r = ui.reply { FloatNote(text: r, footer: "Double-click the orb to see it all") }
+        else if ui.showHint { FloatHint(text: "Hold to talk · Double-click to open") }
+    }
+}
+
+/// Mouse handling for the orb: drag to move, hold to talk, double-click to open One.
+final class OrbHost: NSView {
+    private var grab = NSPoint.zero, downAt = NSPoint.zero
+    private var dragging = false, holding = false
+    private var holdTimer: Timer?
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let q = convert(point, from: superview)
+        return hypot(q.x - bounds.midX, q.y - bounds.midY) < 46 ? self : nil
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with e: NSEvent) {
+        holdTimer?.invalidate()
+        if e.clickCount >= 2 { Floater.shared.openMain(); return }
+        downAt = NSEvent.mouseLocation; dragging = false
+        if let w = window { grab = NSPoint(x: downAt.x - w.frame.minX, y: downAt.y - w.frame.minY) }
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+            guard let self, !self.dragging else { return }
+            self.holding = true; Floater.shared.beginTalk()
+        }
+    }
+    override func mouseDragged(with e: NSEvent) {
+        let p = NSEvent.mouseLocation
+        if !dragging && !holding && hypot(p.x - downAt.x, p.y - downAt.y) > 4 { dragging = true; holdTimer?.invalidate() }
+        guard dragging, let w = window else { return }
+        w.setFrameOrigin(NSPoint(x: p.x - grab.x, y: p.y - grab.y))
+        Floater.shared.placeCard()
+    }
+    override func mouseUp(with e: NSEvent) {
+        holdTimer?.invalidate()
+        if holding { holding = false; Floater.shared.endTalk() }
+        else if dragging { dragging = false; Floater.shared.settle() }
+        else if e.clickCount == 1 { Floater.shared.flashHint() }
+    }
+}
+
+@MainActor final class Floater: NSObject {
+    static let shared = Floater()
+    private var orb: NSPanel?
+    private var card: NSPanel?
+    private var replyToken = 0, hintToken = 0
+
+    private var mainWindow: NSWindow? { NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain } }
+
+    func setup() {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
+            if !(n.object is NSPanel) { self.show() }
+        }
+        nc.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: .main) { n in
+            if !(n.object is NSPanel) { self.hide() }
+        }
+        // Hiding One (⌘H) would hide the orb too, so turn "hide" into "tuck the window away and show the orb".
+        nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard Model.shared.onboarded else { return }
+                self.mainWindow?.orderOut(nil)
+                NSApp.unhideWithoutActivation()
+                self.show()
+            }
+        }
+    }
+
+    private func panel(_ size: CGSize) -> NSPanel {
+        let p = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
+        p.level = .floating; p.isFloatingPanel = true; p.hidesOnDeactivate = false
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        p.isReleasedWhenClosed = false
+        return p
+    }
+
+    private func build() {
+        guard orb == nil else { return }
+        let o = panel(CGSize(width: FloatUI.orbBox, height: FloatUI.orbBox))
+        let host = OrbHost(frame: NSRect(x: 0, y: 0, width: FloatUI.orbBox, height: FloatUI.orbBox))
+        let hv = NSHostingView(rootView: FloatOrbView())
+        hv.frame = host.bounds; hv.autoresizingMask = [.width, .height]
+        host.addSubview(hv)
+        o.contentView = host
+        let c = panel(FloatUI.cardSize)
+        c.ignoresMouseEvents = true
+        c.contentView = NSHostingView(rootView: FloatCard())
+        orb = o; card = c
+        let d = UserDefaults.standard
+        if d.object(forKey: "orbX") != nil {
+            o.setFrameOrigin(NSPoint(x: d.double(forKey: "orbX"), y: d.double(forKey: "orbY")))
+        } else if let v = NSScreen.main?.visibleFrame {
+            o.setFrameOrigin(NSPoint(x: v.maxX - FloatUI.orbBox + 10, y: v.maxY - FloatUI.orbBox + 10))
+        }
+        clamp()
+    }
+
+    func show() {
+        guard Model.shared.onboarded else { return }
+        build()
+        placeCard()
+        orb?.orderFrontRegardless(); card?.orderFrontRegardless()
+        if !UserDefaults.standard.bool(forKey: "orbHintSeen") { UserDefaults.standard.set(true, forKey: "orbHintSeen") }
+        flashHint()
+    }
+
+    func hide() {
+        if Listener.shared.listening { Listener.shared.finish { _ in } }
+        orb?.orderOut(nil); card?.orderOut(nil)
+    }
+
+    func openMain() {
+        hide()
+        if NSApp.isHidden { NSApp.unhide(nil) }
+        if let w = mainWindow { if w.isMiniaturized { w.deminiaturize(nil) }; w.makeKeyAndOrderFront(nil) }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Keep the orb fully on a screen.
+    private func clamp() {
+        guard let o = orb else { return }
+        let f = o.frame, pad: CGFloat = 30   // the glow can hang off the edge, the orb itself can't
+        let scr = NSScreen.screens.first { $0.frame.contains(NSPoint(x: f.midX, y: f.midY)) } ?? NSScreen.main
+        guard let v = scr?.visibleFrame else { return }
+        let x = min(max(f.minX, v.minX - pad), v.maxX - f.width + pad)
+        let y = min(max(f.minY, v.minY - pad), v.maxY - f.height + pad)
+        o.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    func settle() {
+        clamp(); placeCard()
+        if let f = orb?.frame { UserDefaults.standard.set(f.minX, forKey: "orbX"); UserDefaults.standard.set(f.minY, forKey: "orbY") }
+    }
+
+    func placeCard() {
+        guard let o = orb?.frame, let c = card else { return }
+        let scr = NSScreen.screens.first { $0.frame.contains(NSPoint(x: o.midX, y: o.midY)) } ?? NSScreen.main
+        let onRight = o.midX < (scr?.frame.midX ?? 0)
+        if FloatUI.shared.onRight != onRight { FloatUI.shared.onRight = onRight }
+        let sz = FloatUI.cardSize, inset: CGFloat = 32   // tuck the card into the orb's glow
+        let x = onRight ? o.maxX - inset : o.minX - sz.width + inset
+        c.setFrame(NSRect(x: x, y: o.midY - sz.height / 2, width: sz.width, height: sz.height), display: true)
+    }
+
+    func flashHint() {
+        hintToken += 1; let tk = hintToken
+        FloatUI.shared.showHint = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { if self.hintToken == tk { FloatUI.shared.showHint = false } }
+    }
+
+    func beginTalk() {
+        let ui = FloatUI.shared
+        ui.reply = nil; ui.note = nil; ui.showHint = false
+        if Model.shared.thinking { note("I'm still on the last thing. Give me a moment."); return }
+        Listener.shared.begin()
+    }
+
+    func endTalk() {
+        Listener.shared.finish { heard in
+            guard !heard.isEmpty else {
+                if Listener.shared.problem == nil { self.note("I didn't catch that. Hold the orb and talk, then let go.") }
+                return
+            }
+            Task { @MainActor in
+                await Model.shared.send(heard)
+                self.showReply()
+            }
+        }
+    }
+
+    private func note(_ s: String) {
+        FloatUI.shared.note = s
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if FloatUI.shared.note == s { FloatUI.shared.note = nil } }
+    }
+
+    private func showReply() {
+        guard let b = Model.shared.bubbles.last, !b.fromMe else { return }
+        var t = Choices.split(b.text).body
+        for mark in ["**", "__", "`", "#"] { t = t.replacingOccurrences(of: mark, with: "") }
+        t = t.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+        if t.count > 220 { t = String(t.prefix(217)) + "…" }
+        replyToken += 1; let tk = replyToken
+        FloatUI.shared.reply = t
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { if self.replyToken == tk { FloatUI.shared.reply = nil } }
+    }
+}
+
 // The world, as designed in Claude Design ("One World"): a quiet dark room, the assistant as a living
 // set of soft rings in the middle, and everything it can reach drifting upright around it.
 
@@ -1218,6 +1720,8 @@ enum WorldLook {
 /// move with its voice and pulse when something connects.
 struct Presence: View {
     let t: Double; let lean: CGPoint; let voice: Double; let energy: Double
+    /// Ring stroke width; bigger when the rings are drawn scaled down (floating orb) so they stay crisp.
+    var line: CGFloat = 1.1
     var body: some View {
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -1248,7 +1752,7 @@ struct Presence: View {
                                                          center: CGPoint(x: o.x - 8, y: o.y - 10), startRadius: 2, endRadius: base * 1.1))
                 }
                 let hue = (32 + kd * 26) / 360
-                ctx.stroke(path, with: .color(Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(0.62 - kd * 0.07)), lineWidth: 1.1)
+                ctx.stroke(path, with: .color(Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(0.62 - kd * 0.07)), lineWidth: line)
             }
         }
     }
@@ -1463,7 +1967,7 @@ let tryItems: [TryItem] = [
 // MARK: - Screens
 
 struct RootView: View {
-    @StateObject var m = Model()
+    @StateObject var m = Model.shared
     @State var started = false
     var body: some View {
         Group {
@@ -1936,6 +2440,10 @@ struct AskCard: View {
 }
 
 final class OneDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) { Floater.shared.setup() }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Floater.shared.openMain(); return true
+    }
     func applicationWillTerminate(_ notification: Notification) {
         Engine.shared.stop()
         Engine.stopStrayGateway()
@@ -1971,6 +2479,9 @@ struct Entry {
                         ChoiceRow(choices: Choices.split("x\n[choices: Yes, go ahead | Not now | Change the plan]").choices) { _ in }
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
+                    ("float-idle", AnyView(FloatScene(state: .idle))),
+                    ("float-listen", AnyView(FloatScene(state: .listening))),
+                    ("float-work", AnyView(FloatScene(state: .working))),
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {

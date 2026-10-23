@@ -1023,23 +1023,110 @@ let worldNodes: [Node] = [
     Node(id: "News", symbol: "newspaper", line: "I follow the stories you care about and tell you each morning.", voice: "tourNews"),
 ]
 
+/// Renders the assistant's Markdown replies: headings, bullet and numbered lists, quotes, code blocks,
+/// simple tables and rules, with inline bold/italic/code/links.
+struct MarkdownText: View {
+    let text: String
+    var size: CGFloat = 15
+    enum Block: Hashable { case heading(Int, String), bullet(Int, String), numbered(Int, String, String), quote(String), code(String), table([[String]]), rule, para(String) }
+
+    static func blocks(_ src: String) -> [Block] {
+        var out: [Block] = []; var para: [String] = []; var code: [String]? = nil; var table: [[String]] = []
+        func flushPara() { if !para.isEmpty { out.append(.para(para.joined(separator: " "))); para = [] } }
+        func flushTable() { if !table.isEmpty { out.append(.table(table)); table = [] } }
+        for raw in src.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") {
+                if let c = code { out.append(.code(c.joined(separator: "\n"))); code = nil } else { flushPara(); flushTable(); code = [] }
+                continue
+            }
+            if code != nil { code!.append(raw); continue }
+            if line.hasPrefix("|") && line.hasSuffix("|") {
+                flushPara()
+                let cells = line.dropFirst().dropLast().split(separator: "|", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+                if !cells.allSatisfy({ $0.allSatisfy { "-: ".contains($0) } }) { table.append(cells) }
+                continue
+            }
+            flushTable()
+            if line.isEmpty { flushPara(); continue }
+            let indent = raw.prefix { $0 == " " }.count / 2
+            if let r = line.range(of: #"^#{1,6} "#, options: .regularExpression) {
+                flushPara(); out.append(.heading(line[r].count - 1, String(line[r.upperBound...])))
+            } else if line == "---" || line == "***" || line == "___" {
+                flushPara(); out.append(.rule)
+            } else if let r = line.range(of: #"^[-*+•] "#, options: .regularExpression) {
+                flushPara(); out.append(.bullet(indent, String(line[r.upperBound...])))
+            } else if let r = line.range(of: #"^\d+[.)] "#, options: .regularExpression) {
+                flushPara(); out.append(.numbered(indent, String(line[r].dropLast(2)), String(line[r.upperBound...])))
+            } else if line.hasPrefix(">") {
+                flushPara(); out.append(.quote(line.dropFirst().trimmingCharacters(in: .whitespaces)))
+            } else { para.append(line) }
+        }
+        if let c = code { out.append(.code(c.joined(separator: "\n"))) }
+        flushPara(); flushTable()
+        return out
+    }
+
+    static func inline(_ s: String) -> AttributedString {
+        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(Self.blocks(text).enumerated()), id: \.offset) { _, b in
+                switch b {
+                case .heading(let l, let t):
+                    Text(Self.inline(t)).font(.system(size: size + CGFloat(max(0, 4 - l)) * 2, weight: .semibold)).padding(.top, 4)
+                case .bullet(let ind, let t):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("•").foregroundStyle(.secondary)
+                        Text(Self.inline(t)).fixedSize(horizontal: false, vertical: true)
+                    }.padding(.leading, CGFloat(ind) * 16)
+                case .numbered(let ind, let n, let t):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(n).").foregroundStyle(.secondary).monospacedDigit()
+                        Text(Self.inline(t)).fixedSize(horizontal: false, vertical: true)
+                    }.padding(.leading, CGFloat(ind) * 16)
+                case .quote(let t):
+                    Text(Self.inline(t)).foregroundStyle(.secondary).padding(.leading, 10)
+                        .overlay(alignment: .leading) { Rectangle().fill(.secondary.opacity(0.4)).frame(width: 2) }
+                case .code(let c):
+                    Text(c).font(.system(size: size - 2, design: .monospaced)).padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06)))
+                case .table(let rows):
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+                            GridRow { ForEach(Array(r.enumerated()), id: \.offset) { _, c in
+                                Text(Self.inline(c)).fontWeight(i == 0 ? .semibold : .regular)
+                            } }
+                            if i == 0 { Divider() }
+                        }
+                    }
+                case .rule: Divider()
+                case .para(let t): Text(Self.inline(t)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.system(size: size))
+        .multilineTextAlignment(.leading)
+        .textSelection(.enabled)
+    }
+}
+
+/// The assistant itself: the same living rings as the world screen (Claude Design), so it looks
+/// like one being everywhere. Breathes when idle, moves like a voice while it works.
 struct Orb: View {
     var size: CGFloat = 130
     var active = false
     var body: some View {
         TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            let breathe = 1 + 0.04 * sin(t * (active ? 4.5 : 1.3))
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [Color.accentColor.opacity(0.5), .clear], center: .center, startRadius: 0, endRadius: size))
-                    .frame(width: size * 2, height: size * 2).blur(radius: 24)
-                Circle()
-                    .fill(RadialGradient(colors: [.white.opacity(0.95), Color.accentColor, Color.accentColor.opacity(0.55)],
-                                         center: UnitPoint(x: 0.35, y: 0.3), startRadius: 2, endRadius: size * 0.75))
-                    .frame(width: size, height: size)
-                    .shadow(color: Color.accentColor.opacity(0.6), radius: 26)
-            }.scaleEffect(breathe)
+            let t = tl.date.timeIntervalSince(WorldLook.start)
+            let voice = active ? 0.35 + 0.65 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
+            Presence(t: t, lean: .zero, voice: voice, energy: 0)
+                .frame(width: 280, height: 280)
+                .scaleEffect(size / 100)
+                .frame(width: size * 2, height: size * 2)
         }
     }
 }
@@ -1423,7 +1510,8 @@ struct BubbleView: View {
     var body: some View {
         HStack {
             if b.fromMe { Spacer(minLength: 80) }
-            Text(b.text.isEmpty ? "…" : b.text).textSelection(.enabled)
+            Group { if b.fromMe || b.text.isEmpty { Text(b.text.isEmpty ? "…" : b.text) } else { MarkdownText(text: b.text, size: 17) } }
+                .textSelection(.enabled)
                 .font(b.fromMe ? .body : .title3)
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 16)
@@ -1678,7 +1766,7 @@ struct HomeView: View {
                         VStack(spacing: 12) {
                             Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
                             if let r = lastReply, !r.text.isEmpty {
-                                Text(r.text).font(.title3).textSelection(.enabled)
+                                MarkdownText(text: r.text, size: 16)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                                     .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
                                     .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
@@ -1757,7 +1845,16 @@ struct AskCard: View {
     }
 }
 
+final class OneDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        Engine.shared.stop()
+        Engine.stopStrayGateway()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
 struct OneApp: App {
+    @NSApplicationDelegateAdaptor(OneDelegate.self) var delegate
     var body: some Scene { WindowGroup("One") { RootView() }.windowResizability(.contentSize) }
 }
 
@@ -1778,6 +1875,8 @@ struct Entry {
             MainActor.assumeIsolated {
                 let views: [(String, AnyView)] = [
                     ("tour", AnyView(WorldCanvas(t: 30, lit: 1, picking: false, linked: [:], speaking: true).background(WorldLook.bg))),
+                    ("md", AnyView(MarkdownText(text: "## Downloads, tidied\n\nI moved **42 files** into 5 folders:\n\n1. **Receipts** (12)\n2. *Screenshots* (18)\n3. Installers (`.dmg`, 6)\n\n- Kept on top: `resume.pdf`\n  - nested item\n\n| Folder | Files |\n|---|---|\n| Receipts | 12 |\n| Screenshots | 18 |\n\n> Nothing was deleted.\n\nSee [Finder](https://apple.com) for details.", size: 16).padding(18).frame(width: 520).background(RoundedRectangle(cornerRadius: 18).fill(Color.gray.opacity(0.15))).padding(20).background(WorldLook.bg).environment(\.colorScheme, .dark))),
+                    ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {

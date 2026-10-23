@@ -242,11 +242,16 @@ final class Speaker: @unchecked Sendable {
         return dur
     }
     /// Reads a reply aloud, sentence by sentence, starting with the first while the rest is still being made.
-    func read(_ reply: String) {
-        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else { return }
+    private var onFirst: (() -> Void)?
+    /// `started` runs when the first sentence starts playing (or right away if there's nothing to say).
+    func read(_ reply: String, started: (() -> Void)? = nil) {
+        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else { started?(); return }
         stop()
         let g = gen
-        for sentence in Speaker.spoken(reply) { queue.append((sentence, g)) }
+        let parts = Speaker.spoken(reply)
+        guard !parts.isEmpty else { started?(); return }
+        onFirst = started
+        for sentence in parts { queue.append((sentence, g)) }
         pump()
     }
     private var pending: [(Int, URL?)] = []
@@ -271,6 +276,7 @@ final class Speaker: @unchecked Sendable {
         guard let k = pending.firstIndex(where: { $0.0 == nextIndex }) else { return }
         let (_, url) = pending.remove(at: k); nextIndex += 1
         if let url { play(url) } else { playNext() }
+        if nextIndex == 1, let f = onFirst { onFirst = nil; f() }
     }
     private func play(_ url: URL) {
         player?.stop()
@@ -285,6 +291,7 @@ final class Speaker: @unchecked Sendable {
     var talking: Bool { player?.isPlaying ?? false }
     func stop() {
         gen += 1; pending = []; queue = []; nextIndex = 0
+        if let f = onFirst { onFirst = nil; DispatchQueue.main.async { f() } }
         DispatchQueue.main.async { self.player?.stop() }
     }
 
@@ -968,8 +975,10 @@ final class Model: ObservableObject {
         func speak(_ key: String) -> Double {
             let d = Voice.shared.play(key); speakUntil = Date().addingTimeInterval(d > 0 ? d : 2.6); return d
         }
-        worldCaption = "Nice to meet you, \(userName). This is everything I can reach from your Mac."
-        let live = await Speaker.shared.sayNow(worldCaption)
+        let intro = "Nice to meet you, \(userName). This is everything I can reach from your Mac."
+        let live = await Speaker.shared.sayNow(intro)
+        if live > 0 { try? await Task.sleep(for: .milliseconds(500)) }
+        worldCaption = intro
         if live > 0 { speakUntil = Date().addingTimeInterval(live) }
         await hold(live > 0 ? live : speak("worldIntro"), min: 3.6)
         for n in worldNodes where !skipTour {
@@ -1001,12 +1010,14 @@ final class Model: ObservableObject {
     func say(_ text: String, voice: String? = nil) async {
         speaking = true; defer { speaking = false }
         try? await Task.sleep(for: .milliseconds(350))
-        bubbles.append(Bubble(fromMe: false, text: text))
-        // Live voice says the exact line (with names); the recorded line is the fallback until it's ready.
+        // Voice first: live voice says the exact line (with names); the recorded line is the fallback.
         var d = Speaker.shared.ready ? await Speaker.shared.sayNow(text) : 0
         if d == 0 { d = voice.map { Voice.shared.play($0) } ?? 0 }
-        // Let the voice finish (or the text settle) before the next line emerges.
-        try? await Task.sleep(for: .milliseconds(Int(max(d, 1.1) * 1000) + 200))
+        let lag = d > 0 ? 0.6 : 0
+        if lag > 0 { try? await Task.sleep(for: .milliseconds(Int(lag * 1000))) }
+        // ...then the words follow.
+        bubbles.append(Bubble(fromMe: false, text: text))
+        try? await Task.sleep(for: .milliseconds(Int(max(d - lag, 1.1) * 1000) + 200))
     }
     func me(_ text: String) { Voice.shared.stop(); Speaker.shared.stop(); bubbles.append(Bubble(fromMe: true, text: text)) }
 
@@ -1451,7 +1462,11 @@ final class Model: ObservableObject {
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true; working = nil
-        Engine.shared.onText = { s in Task { @MainActor in if idx < self.bubbles.count { self.bubbles[idx].text += s } } }
+        let voiceFirst = Speaker.shared.ready && !UserDefaults.standard.bool(forKey: "voiceMuted")
+        heldText = ""
+        Engine.shared.onText = { s in Task { @MainActor in
+            if voiceFirst { self.heldText += s } else if idx < self.bubbles.count { self.bubbles[idx].text += s }
+        } }
         Engine.shared.onTool = { s in Task { @MainActor in self.working = Plain.step(s) } }
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
@@ -1460,19 +1475,38 @@ final class Model: ObservableObject {
         let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer.)"
         let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
-        thinking = false; working = nil
-        if idx < bubbles.count {
-            let (clean, jobs) = Helpers.extract(bubbles[idx].text)
-            if !jobs.isEmpty {
-                bubbles[idx].text = clean
-                for j in jobs { spawnHelper(title: j.0, task: j.1) }
+        var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
+        heldText = ""
+        let (clean, jobs) = Helpers.extract(full)
+        if !jobs.isEmpty { full = clean; for j in jobs { spawnHelper(title: j.0, task: j.1) } }
+        if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
+        }
+        if voiceFirst && !stop.hasPrefix("error") && !paused {
+            // Voice first: the words appear just after she starts talking (or after 6s if the voice stalls).
+            revealCount += 1; let tk = revealCount
+            pendingReveal = (idx, full, tk)
+            Speaker.shared.read(full) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { Task { @MainActor in self?.reveal(tk) } }
             }
+            Task { try? await Task.sleep(for: .seconds(6)); reveal(tk) }
+        } else {
+            if idx < bubbles.count { bubbles[idx].text = full }
+            thinking = false; working = nil
+            saveBubbles()
+            if !voiceFirst, !stop.hasPrefix("error"), !paused { Speaker.shared.read(full) }
         }
+    }
+
+    var heldText = ""
+    private var pendingReveal: (idx: Int, text: String, token: Int)?
+    private var revealCount = 0
+    func reveal(_ token: Int? = nil) {
+        guard let p = pendingReveal, token == nil || p.token == token else { return }
+        pendingReveal = nil
+        if p.idx < bubbles.count { bubbles[p.idx].text = p.text }
+        thinking = false; working = nil
         saveBubbles()
-        if idx < bubbles.count, bubbles[idx].text.isEmpty {
-            bubbles[idx].text = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
-        }
-        if idx < bubbles.count, !stop.hasPrefix("error"), !paused { Speaker.shared.read(bubbles[idx].text) }
     }
 
     func answer(_ a: Ask, _ choice: String?) { a.answer(choice); asks.removeAll { $0.id == a.id } }
@@ -1480,6 +1514,7 @@ final class Model: ObservableObject {
     func toggleStop() {
         paused.toggle()
         if paused { helpers.filter { $0.state == "working" }.compactMap(\.sid).forEach { Engine.shared.cancel(session: $0) } }
+        if paused { Speaker.shared.stop(); reveal() }
         if paused { Engine.shared.cancel(); asks.forEach { $0.answer(nil) }; asks.removeAll(); thinking = false }
     }
 }
@@ -3957,9 +3992,10 @@ struct WelcomeView: View {
         .task {
             try? await Task.sleep(for: .milliseconds(700))
             for (i, l) in lines.enumerated() {
-                shown = i + 1
                 let d = Voice.shared.play(l.1)
-                try? await Task.sleep(for: .milliseconds(Int(max(d, 1.3) * 1000) + 250))
+                if d > 0 { try? await Task.sleep(for: .milliseconds(500)) }
+                shown = i + 1
+                try? await Task.sleep(for: .milliseconds(Int(max(d - 0.5, 1.3) * 1000) + 250))
             }
             shown = lines.count + 1
         }

@@ -1533,7 +1533,7 @@ struct Stage: View {
             ForEach(Array(recent.enumerated()), id: \.element.id) { i, b in
                 let age = recent.count - 1 - i        // 0 = newest
                 let on = appeared.contains(b.id)
-                Text(b.text)
+                Group { if b.fromMe { Text(b.text) } else { MarkdownText(text: b.text, size: age == 0 ? 20 : 16) } }
                     .font(b.fromMe ? .title3 : (age == 0 ? .system(size: 26, weight: .medium) : .title3))
                     .foregroundStyle(b.fromMe ? Color.accentColor : .primary)
                     .multilineTextAlignment(.center)

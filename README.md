@@ -1,0 +1,98 @@
+# One
+
+**A personal AI assistant that lives on your Mac, for people who have never opened a terminal.**
+
+You download it, you open it, and it talks you through the rest. It sets itself up, asks which AI you already pay for, learns your name, and shows you everything it can reach from your Mac. Then it works for you: your files, your browser, your email, your calendar, the web. It always asks before it does anything that matters.
+
+![The world screen: everything One can reach, floating around the assistant](docs/world.png)
+
+> Status: early test build (0.6). It runs end to end on Apple Silicon Macs. Some connections (email, calendar) are chosen in setup but not wired yet. See [Roadmap](#roadmap).
+
+---
+
+## Why this exists
+
+Personal AI agents can already do remarkable things: tidy a folder, sign in to a site, watch a price, read fifty emails and tell you who is waiting on you. But getting one running still means a terminal, API keys, config files and a chat box that gives you no idea what to type.
+
+When the iPhone arrived, every phone had a keyboard. The answer wasn't a better keyboard; it was removing it. One tries to do the same for assistants. The "keyboard" here is the setup friction and the empty chat box. So:
+
+- **One button to start.** Everything after that is a conversation the assistant leads, out loud.
+- **It lives on your Mac, not in a cloud.** It uses your own browser, already signed in, so websites treat it like you instead of blocking it as a bot. It can reach your files, but only the folders you allow.
+- **Bring the AI you already pay for.** ChatGPT, Claude, Grok or OpenRouter. Switch any time. Nobody locks you to one model.
+- **Its memory is yours.** Plain files on your Mac, organised in rooms. Switch AIs and it still remembers you.
+- **A human stays in the loop.** Buying, paying, sending or deleting always waits for your yes.
+- **Honest about its limits.** If your Mac is closed or off, so is the assistant. It tells you that up front.
+
+This is a personal project, not a company. It is built for me, my friends and anyone who wants an assistant that is theirs.
+
+## What it does today
+
+1. **Welcome.** Four spoken lines surface on screen: who it is, where it lives, that it asks first, and that it's off when your Mac is off.
+2. **Sets itself up.** On first launch it installs its own private copy of its engine (about 80 seconds, no terminal, no questions). It never touches your shell files or any other install.
+3. **Pick your AI.** Sign in with ChatGPT, Claude, Grok or OpenRouter through each provider's own sign-in page. If your plan doesn't allow a model, it quietly tries the next one.
+4. **Names.** "What would you like to call me? And what should I call you?"
+5. **Memory and rooms.** Everything starts in a personal room. If part of your life needs different rules (your job, a business, something just for you), it gets its own room, kept separate.
+6. **The world.** A short spoken tour of everything it can reach, then you tap what you want connected.
+7. **Passwords and backup.** Where to find logins (your password manager, Keychain, or ask each time), and an optional copy of your memory to iCloud Drive.
+8. **Home.** A greeting, the assistant itself, the answer to your latest request, any "needs your yes" cards, and a grid of things only a Mac-based assistant can do.
+
+## How it is built
+
+One is deliberately small: **one Swift file** and a build script. No Xcode project.
+
+| Piece | What it is |
+|---|---|
+| **Face** | A SwiftUI app (`Sources/main.swift`), built with `swiftc` for Apple Silicon, macOS 14+. |
+| **Engine** | [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research (MIT). It brings model routing to any provider, tools (files, browser, web, scheduling), memory, messaging gateways (Telegram, WhatsApp) and secret stores. One never shows it to the user. |
+| **Talking to the engine** | Hermes's ACP adapter: JSON-RPC over stdio (`initialize`, `session/new`, `session/prompt`). Replies stream in; permission requests become "needs your yes" cards. |
+| **Isolation** | One runs its own Hermes in `~/Library/Application Support/One`, with its own `HERMES_HOME`, so it never mixes with another Hermes on the same Mac. |
+| **First-launch install** | Hermes's official installer, bundled in the app and run non-interactively with a scratch `HOME`, so nothing outside One's folder changes. |
+| **Folder lock** | The engine runs inside a macOS sandbox profile (`sandbox-exec`). Your home folder is closed except One's own data, your memory and the folders you approve. This is enforced by the Mac, not by the model's good behaviour. |
+| **Sign-in** | Hermes's own OAuth/device-code flows (`hermes auth add <provider>`), so any provider Hermes supports becomes available to One. |
+| **Memory** | Rooms built from a "brain starter" template set: plain Markdown files, one folder per room, with rules for what each room may hold. Writes inside your memory need no yes; anything outside still asks. |
+| **Voice** | Onboarding lines pre-rendered with ElevenLabs (`tools/render_voice.py`, only changed lines are re-rendered) and played with AVFoundation. No voice service is called at runtime. |
+| **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
+
+### Build it
+
+Requirements: an Apple Silicon Mac, macOS 14+, Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+./build.sh             # builds build/One.app
+./build.sh --install   # also copies it to ~/Applications
+./build.sh --package   # builds build/One.dmg
+```
+
+Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates.
+
+Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--render-world <prefix>` (renders the world screen to PNGs), `--signin-probe <provider>`, `--reset`.
+
+To re-record voice lines: edit `voice/lines.json`, then `ELEVENLABS_API_KEY=... python3 tools/render_voice.py`.
+
+## Privacy
+
+- Your files, memory and settings stay on your Mac.
+- What you ask is sent to the AI provider you chose, under your own account.
+- One has no server, no analytics and no account of its own.
+
+## Roadmap
+
+- Real connections: Gmail and Google Calendar first, through guided sign-in.
+- Talk instead of type: hold the assistant to speak.
+- A "Today" page: what it did, what needs your yes, what it noticed.
+- It reaches out first ("your flight dropped $80, book it?").
+- Your phone: link Telegram or WhatsApp in one step; later a small companion app.
+- Signed and notarised builds, auto-updates.
+
+## Contributing
+
+Ideas, bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). The bar for every change is the same question: does this make it simpler for someone who is not technical?
+
+## Credits
+
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research, the engine underneath.
+- Voice by [ElevenLabs](https://elevenlabs.io). World screen first designed with Claude Design.
+
+## License
+
+[MIT](LICENSE)

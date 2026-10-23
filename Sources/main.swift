@@ -1161,7 +1161,7 @@ final class Model: ObservableObject {
         let id = h.id
         Task { @MainActor in
             guard let sid = await Engine.shared.openSession() else {
-                self.update(id) { $0.state = "done"; $0.line = "Couldn't start"; $0.reply = "I couldn't start this job. Ask Nova again in a minute." }
+                self.update(id) { $0.state = "done"; $0.line = "Couldn't start"; $0.reply = "I couldn't start this job. Ask \(self.name) again in a minute." }
                 return
             }
             self.update(id) { $0.sid = sid }
@@ -2374,7 +2374,7 @@ struct NovaWithHelpers: View {
                 Orb(size: 92, active: m.thinking).opacity(m.openHelper == nil ? 1 : 0.5)
                     .contentShape(Circle())
                     .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
-                    .help(m.openHelper == nil ? "" : "Back to Nova")
+                    .help(m.openHelper == nil ? "" : "Back to \(m.name)")
                     .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
                 ForEach(shown, id: \.element.id) { i, h in
                     let p = Self.slots[i]
@@ -2409,8 +2409,8 @@ struct HelperCard: View {
                 Text("· " + (h.state == "working" ? "working" : h.state == "needsYes" ? "needs your yes" : h.state == "stopped" ? "paused" : "done"))
                     .foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
                 Spacer()
-                Button { m.openHelper = nil } label: { Label("Nova", systemImage: "chevron.left") }
-                    .buttonStyle(.bordered).controlSize(.small).help("Back to Nova")
+                Button { m.openHelper = nil } label: { Label(m.name, systemImage: "chevron.left") }
+                    .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
             }
             if let a = h.asked, !a.isEmpty { Text(a).font(.callout).foregroundStyle(Color.accentColor) }
             if h.reply.isEmpty {
@@ -2492,9 +2492,10 @@ struct ShelfItem: Identifiable, Codable {
 }
 
 enum Shelf {
+    static var who: String { let n = UserDefaults.standard.string(forKey: "assistantName") ?? ""; return n.isEmpty ? "your assistant" : n }
     static var folder: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return Env.selfTest ? Env.support.appendingPathComponent("selftest-made") : docs.appendingPathComponent("Made by Nova")
+        return Env.selfTest ? Env.support.appendingPathComponent("selftest-made") : docs.appendingPathComponent("Made by \(Shelf.who)")
     }
     static func load() -> [ShelfItem] {
         guard let d = UserDefaults.standard.data(forKey: "shelf"), let v = try? JSONDecoder().decode([ShelfItem].self, from: d) else { return [] }
@@ -2568,7 +2569,7 @@ struct ShelfPanel: View {
                 }
             }
             Button { NSWorkspace.shared.open(Shelf.folder) } label: {
-                HStack(spacing: 5) { Image(systemName: "folder").font(.system(size: 10)); Text("All saved in Documents › Made by Nova").font(.system(size: 10.5)) }
+                HStack(spacing: 5) { Image(systemName: "folder").font(.system(size: 10)); Text("All saved in Documents › Made by \(Shelf.who)").font(.system(size: 10.5)) }
             }.buttonStyle(.plain).foregroundStyle(.secondary)
         }
         .padding(14).frame(width: 250)
@@ -2601,7 +2602,7 @@ struct ShelfOpened: View {
                     Button("Open") { NSWorkspace.shared.open(item.url) }.buttonStyle(.borderedProminent)
                         .tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }.buttonStyle(.bordered)
-                    Button("Ask Nova about it") {
+                    Button("Ask \(m.name) about it") {
                         m.openedShelf = nil; m.openHelper = nil
                         m.draftSeed = "About \"\(item.title)\" (\(item.path)): "
                     }.buttonStyle(.bordered)
@@ -2612,6 +2613,218 @@ struct ShelfOpened: View {
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x1E1E22, 0.98)))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
             .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+        }
+    }
+}
+
+
+// MARK: - Rooms map + add a room (render-only design preview)
+struct MapNode { let p: CGPoint; let r: CGFloat; let label: String?; let hub: Bool }
+
+enum MapData {
+    static func cluster(_ c: CGPoint, _ hub: String, _ named: [String], extra: Int, seed: Double, spread: CGFloat) -> [MapNode] {
+        var v = [MapNode(p: c, r: 9, label: hub, hub: true)]
+        let total = named.count + extra
+        for i in 0..<total {
+            let a = Double(i) / Double(total) * 2 * .pi + seed
+            let d = spread * (0.55 + 0.45 * CGFloat(abs(sin(Double(i) * 2.7 + seed))))
+            let p = CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d * 0.8)
+            v.append(MapNode(p: p, r: i < named.count ? 5 : 3, label: i < named.count ? named[i] : nil, hub: false))
+        }
+        return v
+    }
+    static func place(_ c: CGPoint, _ hub: String, _ named: [(String, CGFloat, CGFloat)], _ dots: [(CGFloat, CGFloat)]) -> [MapNode] {
+        [MapNode(p: c, r: 9, label: hub, hub: true)]
+        + named.map { MapNode(p: CGPoint(x: c.x + $0.1, y: c.y + $0.2), r: 5, label: $0.0, hub: false) }
+        + dots.map { MapNode(p: CGPoint(x: c.x + $0.0, y: c.y + $0.1), r: 3, label: nil, hub: false) }
+    }
+    static let personal = place(CGPoint(x: 205, y: 250), "Life",
+        [("Family", -120, -40), ("Health", -60, -112), ("Quebec trip", 92, -86), ("Money", 128, 10), ("Home", 70, 104), ("Kids' school", -90, 92)],
+        [(-150, 30), (-20, -140), (20, 130), (150, 70), (-40, 150), (130, -40), (-130, -95), (0, 70), (45, -45)])
+    static let business = place(CGPoint(x: 455, y: 205), "Company",
+        [("Ideas", -62, -70), ("Buyers", 68, -56), ("The offer", 70, 56), ("Pipeline", -40, 78)],
+        [(10, -95), (100, 0), (-95, 10), (30, 100), (-10, -40)])
+}
+
+struct RoomGraph: View {
+    var t: Double = 4
+    var body: some View {
+        Canvas { ctx, _ in
+            func draw(_ nodes: [MapNode], _ tint: Color) {
+                let hub = nodes[0]
+                for (i, n) in nodes.enumerated().dropFirst() {
+                    var path = Path(); path.move(to: hub.p); path.addLine(to: n.p)
+                    ctx.stroke(path, with: .color(tint.opacity(0.22)), lineWidth: 1)
+                    if i > 1, i % 3 == 0 {
+                        var q = Path(); q.move(to: n.p); q.addLine(to: nodes[i - 1].p)
+                        ctx.stroke(q, with: .color(tint.opacity(0.14)), lineWidth: 0.8)
+                    }
+                }
+                for n in nodes {
+                    let sel = n.label == "Quebec trip"
+                    if n.hub || sel {
+                        ctx.fill(Path(ellipseIn: CGRect(x: n.p.x - n.r * 2.4, y: n.p.y - n.r * 2.4, width: n.r * 4.8, height: n.r * 4.8)), with: .color(tint.opacity(sel ? 0.25 : 0.14)))
+                    }
+                    ctx.fill(Path(ellipseIn: CGRect(x: n.p.x - n.r, y: n.p.y - n.r, width: n.r * 2, height: n.r * 2)), with: .color(tint.opacity(n.label == nil ? 0.5 : 0.95)))
+                    if let l = n.label {
+                        let txt = ctx.resolve(Text(l).font(.system(size: n.hub ? 12.5 : 11, weight: n.hub ? .semibold : .regular)).foregroundColor(WorldLook.cream.opacity(n.hub ? 0.95 : 0.8)))
+                        let sz = txt.measure(in: CGSize(width: 200, height: 40))
+                        let at = CGPoint(x: n.p.x, y: n.p.y + n.r + 11)
+                        ctx.fill(Path(roundedRect: CGRect(x: at.x - sz.width / 2 - 4, y: at.y - sz.height / 2 - 1, width: sz.width + 8, height: sz.height + 2), cornerRadius: 5), with: .color(WorldLook.bg.opacity(0.85)))
+                        ctx.draw(txt, at: at)
+                    }
+                }
+            }
+            // the one dated line that crossed between rooms
+            var x = Path(); x.move(to: MapData.personal[3].p)
+            x.addQuadCurve(to: MapData.business[0].p, control: CGPoint(x: 360, y: 40))
+            ctx.stroke(x, with: .color(WorldLook.cream.opacity(0.28)), style: StrokeStyle(lineWidth: 1, dash: [2, 5]))
+            draw(MapData.personal, Color(hex: 0xFFE2C2))
+            draw(MapData.business, Color(hex: 0x9FC9B0))
+        }
+    }
+}
+
+struct MapScene: View {
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            WorldLook.bg
+            RoomGraph()
+            // room names
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Personal room").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0xFFE2C2))
+                Text("15 notes").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5))
+            }.position(x: 92, y: 400)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Business room").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0x9FC9B0))
+                Text("9 notes").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5))
+            }.position(x: 500, y: 340)
+            Text("1 date crossed: “trip Dec 20–24”").font(.system(size: 10)).foregroundStyle(WorldLook.cream.opacity(0.45))
+                .position(x: 360, y: 74)
+            // top bar
+            HStack(spacing: 10) {
+                HStack(spacing: 4) { Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold)); Text("Nova") }
+                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.85))
+                    .padding(.horizontal, 9).padding(.vertical, 4).background(Capsule().fill(Color.white.opacity(0.08)))
+                Text("Your rooms").font(.system(size: 16, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                Spacer()
+                HStack(spacing: 4) { Image(systemName: "plus").font(.system(size: 10, weight: .bold)); Text("Room") }
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                    .padding(.horizontal, 11).padding(.vertical, 5).background(Capsule().fill(WorldLook.cream))
+            }
+            .padding(.horizontal, 18).frame(width: 580).position(x: 290, y: 28)
+            // the opened note
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Circle().fill(Color(hex: 0xFFE2C2)).frame(width: 7, height: 7)
+                    Text("Personal room").font(.system(size: 10.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.55))
+                }
+                Text("Quebec trip").font(.system(size: 16, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                Text("December 20–24, four of us: Omar, his wife, and the kids (7 and 3).\n\nFlights: Newark is cheapest at $3,104 for all four. Hotel pick: Le Germain, $289 a night, family room in Old Quebec.")
+                    .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.85)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LINKED NOTES").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.45))
+                    HStack(spacing: 6) {
+                        ForEach(["Family", "Money"], id: \.self) { n in
+                            Text(n).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.85))
+                                .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Color.white.opacity(0.07)))
+                        }
+                    }
+                }
+                Spacer()
+                Text("Open in Finder").font(.system(size: 11.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.75))
+            }
+            .padding(16).frame(width: 220, height: 400, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.045)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.08)))
+            .position(x: 700, y: 225)
+        }
+        .frame(width: 820, height: 450)
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+struct RoomAddScene: View {
+    var confirm = false
+    var t: Double = 12
+    var body: some View {
+        ZStack {
+            WorldLook.bg
+            RadialGradient(colors: [Color(hex: 0x24262A, 0.6), .clear], center: UnitPoint(x: 0.5, y: 0.2), startRadius: 10, endRadius: 260)
+            Presence(t: t, lean: .zero, voice: 0.3, energy: 0.15).frame(width: 280, height: 280).scaleEffect(0.36).position(x: 310, y: 62)
+            if !confirm {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack { Spacer(); Text("I want a room for my business").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                        .padding(.horizontal, 12).padding(.vertical, 7).background(Capsule().fill(Color.white.opacity(0.08))) }
+                    Text("Good idea. A room is a part of your life where I act differently and keep the notes apart from everything else. Four quick questions, then you'll see it before I make it.")
+                        .font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.92)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        ForEach(0..<4) { i in Capsule().fill(WorldLook.cream.opacity(i == 0 ? 0.9 : 0.18)).frame(width: i == 0 ? 22 : 8, height: 5) }
+                        Text("1 of 4").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5)).padding(.leading, 4)
+                    }
+                    Text("What should I be for you in this room?").font(.system(size: 15, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            chip("A co-founder who pushes me", main: true); chip("An assistant who keeps things organized")
+                        }
+                        HStack(spacing: 8) { chip("A coach who asks hard questions"); chip("Say it your way…") }
+                    }
+                }
+                .padding(20).frame(width: 520, alignment: .leading)
+                .position(x: 310, y: 270)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        Circle().fill(Color(hex: 0x9FC9B0)).frame(width: 9, height: 9)
+                        Text("Business room").font(.system(size: 16, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                        Spacer()
+                        Text("Here's the room. Look right?").font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.55))
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        row("person.2", "My job here", "Your co-founder. I push you to make progress.")
+                        row("eye", "Who might see it", "Just you, for now.")
+                        row("lock", "How private", "Kept apart from your personal room. Only a date or number crosses, with your OK.")
+                        row("arrow.up.right", "What I push you toward", "Talking to buyers and hitting deadlines.")
+                    }
+                    Divider().overlay(WorldLook.cream.opacity(0.1))
+                    HStack(alignment: .top, spacing: 14) {
+                        rule("On my own", "read, draft")
+                        rule("Needs your yes", "send, spend, delete")
+                        rule("Only you", "change these rules")
+                    }
+                    HStack(spacing: 8) {
+                        Text("Make the room").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                            .padding(.horizontal, 14).padding(.vertical, 7).background(Capsule().fill(WorldLook.cream))
+                        chip("Change something")
+                    }.padding(.top, 2)
+                }
+                .padding(18).frame(width: 520, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.1)))
+                .position(x: 310, y: 268)
+            }
+        }
+        .frame(width: 620, height: 440)
+        .environment(\.colorScheme, .dark)
+    }
+    func chip(_ s: String, main: Bool = false) -> some View {
+        Text(s).font(.system(size: 12.5, weight: .medium)).foregroundStyle(WorldLook.cream)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(Color.white.opacity(main ? 0.12 : 0.07)))
+            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(main ? 0.3 : 0.14)))
+            .fixedSize()
+    }
+    func row(_ icon: String, _ k: String, _ v: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Color(hex: 0x9FC9B0)).frame(width: 18)
+            Text(k).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.9)).frame(width: 165, alignment: .leading)
+            Text(v).font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    func rule(_ k: String, _ v: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(k.uppercased()).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.5))
+            Text(v).font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.85))
         }
     }
 }
@@ -3760,6 +3973,9 @@ struct Entry {
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
+                    ("map", AnyView(MapScene())),
+                    ("room-add", AnyView(RoomAddScene())),
+                    ("room-confirm", AnyView(RoomAddScene(confirm: true))),
                     ("shelf", AnyView(ShelfScene())),
                     ("shelf-open", AnyView(ShelfScene(open: true))),
                     ("helpers", AnyView(HelpersScene())),
@@ -3771,7 +3987,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name.hasPrefix("shelf") ? 820 : 620, height: name.hasPrefix("shelf") ? 450 : 440)); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name.hasPrefix("shelf") || name == "map" ? 820 : 620, height: name.hasPrefix("shelf") || name == "map" ? 450 : 440)); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

@@ -109,10 +109,14 @@ enum Provider: String, CaseIterable, Identifiable {
     var hermesID: String {
         switch self { case .claude: "anthropic"; case .chatgpt: "openai-codex"; case .grok: "xai-oauth"; case .openrouter: "openrouter" }
     }
-    var defaultModel: String {
+    var defaultModel: String { models[0] }
+    /// Tried in order until one answers (plans don't all allow the same models).
+    var models: [String] {
         switch self {
-        case .claude: "claude-sonnet-5"; case .chatgpt: "gpt-5.5"
-        case .grok: "grok-4.6"; case .openrouter: "openrouter/auto"
+        case .claude: ["claude-sonnet-5", "claude-opus-5", "claude-sonnet-4-6"]
+        case .chatgpt: ["gpt-6-sol", "gpt-5.6-sol", "gpt-6-luna", "gpt-5.6-terra"]
+        case .grok: ["grok-4.6", "grok-4.20-0309-reasoning"]
+        case .openrouter: ["openrouter/auto"]
         }
     }
 }
@@ -180,9 +184,9 @@ final class SignIn: @unchecked Sendable {
         let (_, out) = await hermesRun(["auth", "status", p.hermesID], timeout: 60)
         return out.lowercased().contains(": logged in")
     }
-    static func makeDefault(_ p: Provider) async {
+    static func makeDefault(_ p: Provider, model: String? = nil) async {
         _ = await hermesRun(["config", "set", "model.provider", p.hermesID])
-        _ = await hermesRun(["config", "set", "model.default", p.defaultModel])
+        _ = await hermesRun(["config", "set", "model.default", model ?? p.defaultModel])
     }
 }
 
@@ -450,13 +454,19 @@ final class Model: ObservableObject {
 
     private func verify(_ p: Provider) async {
         busy = true; defer { busy = false }
-        await SignIn.makeDefault(p)
         await say("You're connected to \(p.title). Let me check I can think with it…", voice: "checking")
-        if let err = await Engine.shared.start() { step = .pickAI; await say("Something went wrong: \(err)"); return }
+        var stop = "error: no model answered"
         let got = Box("")
-        Engine.shared.onText = { t in got.v += t }
-        let stop = await Engine.shared.prompt("Reply with exactly one word: ready")
-        Engine.shared.onText = nil
+        for model in p.models {
+            await SignIn.makeDefault(p, model: model)
+            if let err = await Engine.shared.start() { step = .pickAI; await say("Something went wrong: \(err)"); return }
+            got.v = ""
+            Engine.shared.onText = { t in got.v += t }
+            stop = await Engine.shared.prompt("Reply with exactly one word: ready")
+            Engine.shared.onText = nil
+            if !stop.hasPrefix("error") && !got.v.isEmpty && !got.v.lowercased().contains("rejected") { break }
+            got.v = ""
+        }
         if stop.hasPrefix("error") || got.v.isEmpty {
             step = .pickAI
             await say("I signed in, but \(p.title) didn't answer (\(stop)). Try again, or pick another one.")

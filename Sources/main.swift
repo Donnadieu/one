@@ -1082,10 +1082,10 @@ final class Model: ObservableObject {
 
     func beginOnboarding() async {
         guard bubbles.isEmpty else { return }
-        await say("Let's get you set up. It only takes a couple of minutes.", voice: "setup")
+        await say("Let's get you set up.", voice: "setup")
         if Env.hermesPath == nil {
             step = .installing
-            await say("First, I'm setting myself up on this Mac. It takes about three minutes, and only happens once.", voice: "installing")
+            await say("First, I'm setting myself up on this Mac. This only happens once. Please hang on while I get ready.", voice: "installing")
             await install()
             return
         }
@@ -3174,7 +3174,7 @@ struct UpdateCard: View {
                 Label("A new version of One is ready (\(a.version))", systemImage: "arrow.down.circle.fill").font(.headline)
                 let notes = a.notes.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(4).joined(separator: "\n")
                 if !notes.isEmpty { MarkdownText(text: notes, size: 13).foregroundStyle(.secondary) }
-                Text("It takes about 10 seconds. Your memory, rooms and settings stay exactly as they are.").font(.caption).foregroundStyle(.secondary)
+                Text("It only takes a moment. Your memory, rooms and settings stay exactly as they are.").font(.caption).foregroundStyle(.secondary)
                 if let st = u.state { Text(st).font(.callout) }
                 HStack(spacing: 8) {
                     Button("Update now") { Task { await u.install() } }

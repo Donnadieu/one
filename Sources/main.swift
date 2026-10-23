@@ -278,6 +278,11 @@ final class Engine: @unchecked Sendable {
     private var nextID = 100
     private var waiting: [Int: (Any) -> Void] = [:]
     private var sessionID: String?
+    /// Helper sessions (one per background job): where their words go, and which ones this engine has open.
+    private var sessionHandlers: [String: (text: @Sendable (String) -> Void, tool: @Sendable (String) -> Void)] = [:]
+    private var loaded: Set<String> = []
+    private let wlock = NSLock()
+    static var workDir: String { (Brain.exists ? Brain.root : Env.support).path }
 
     var onText: (@Sendable (String) -> Void)?
     var onTool: (@Sendable (String) -> Void)?
@@ -308,7 +313,7 @@ final class Engine: @unchecked Sendable {
     var running: Bool { lock.lock(); defer { lock.unlock() }; return proc?.isRunning == true && sessionID != nil }
 
     func stop() {
-        lock.lock(); let p = proc; proc = nil; sessionID = nil
+        lock.lock(); let p = proc; proc = nil; sessionID = nil; loaded = []; sessionHandlers = [:]
         let w = waiting; waiting = [:]; lock.unlock()
         w.values.forEach { $0(["error": "stopped"]) }
         if let p, p.isRunning { p.terminate() }
@@ -380,6 +385,37 @@ final class Engine: @unchecked Sendable {
         return "error: \(r["error"] ?? "no answer")"
     }
 
+    /// A new background session for a helper.
+    func openSession() async -> String? {
+        if await ensureStarted() != nil { return nil }
+        let r = await call("session/new", ["cwd": Engine.workDir, "mcpServers": [Any]()], timeout: 120)
+        guard let res = r["result"] as? [String: Any], let sid = res["sessionId"] as? String else { return nil }
+        lock.lock(); loaded.insert(sid); lock.unlock()
+        return sid
+    }
+
+    /// Talk to a helper's session (opening it again first if One restarted since).
+    func promptSession(_ sid: String, _ text: String, images: [String] = [],
+                       onText: @escaping @Sendable (String) -> Void, onTool: @escaping @Sendable (String) -> Void) async -> String {
+        if await ensureStarted() != nil { return "error: not started" }
+        lock.lock(); let isOpen = loaded.contains(sid); lock.unlock()
+        if !isOpen {
+            let r = await call("session/load", ["sessionId": sid, "cwd": Engine.workDir, "mcpServers": [Any]()], timeout: 120)
+            guard r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) else { return "error: couldn't pick this job back up" }
+            lock.lock(); loaded.insert(sid); lock.unlock()
+        }
+        lock.lock(); sessionHandlers[sid] = (onText, onTool); lock.unlock()
+        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": text]] + images.map { ["type": "image", "data": $0, "mimeType": "image/jpeg"] }], timeout: 1800)
+        lock.lock(); sessionHandlers[sid] = nil; lock.unlock()
+        if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
+        if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
+        return "error: \(r["error"] ?? "no answer")"
+    }
+
+    func cancel(session sid: String) {
+        write(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": sid]])
+    }
+
     func cancel() {
         lock.lock(); let sid = sessionID; lock.unlock()
         guard let sid else { return }
@@ -406,7 +442,7 @@ final class Engine: @unchecked Sendable {
     private func write(_ obj: [String: Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: obj) else { return }
         lock.lock(); let h = stdin; lock.unlock()
-        h?.write(d + Data("\n".utf8))
+        wlock.lock(); h?.write(d + Data("\n".utf8)); wlock.unlock()
     }
 
     private func feed(_ d: Data) {
@@ -426,11 +462,16 @@ final class Engine: @unchecked Sendable {
         }
         let params = m["params"] as? [String: Any] ?? [:]
         if method == "session/update", let u = params["update"] as? [String: Any] {
+            let usid = params["sessionId"] as? String
+            lock.lock(); let mainID = sessionID; let hh = usid.flatMap { sessionHandlers[$0] }; lock.unlock()
+            let toMain = usid == nil || usid == mainID
+            if !toMain && hh == nil { return }      // e.g. history replayed while a session reopens
+            let textCB = toMain ? onText : hh?.text, toolCB = toMain ? onTool : hh?.tool
             switch u["sessionUpdate"] as? String {
             case "agent_message_chunk":
-                if let c = u["content"] as? [String: Any], let t = c["text"] as? String { onText?(t) }
+                if let c = u["content"] as? [String: Any], let t = c["text"] as? String { textCB?(t) }
             case "tool_call":
-                if let t = u["title"] as? String { onTool?(t) }
+                if let t = u["title"] as? String { toolCB?(t) }
             default: break
             }
             return
@@ -637,6 +678,10 @@ enum Persona {
         - Never mention Hermes, models, terminals, config files or tools unless they ask how you work.
         - Offer one clear next step, not a menu.
         - When you ask them to decide something, end your message with one last line listing 2 to 4 short answers they can tap, exactly like: [choices: Yes, go ahead | Not now | Change the plan]. Keep each answer under 5 words. Don't list them anywhere else in the message.
+
+        Helpers: when they ask for a separate job that takes a while or runs in the background (watching a price, tidying files, digging through receipts, researching, checking something every day), don't do it yourself here. Say in one short line that you're sending a helper, then add a line exactly like:
+        [helper: Flight to Quebec | Find the cheapest flight from PHL or EWR to Quebec City (YQB), Dec 20 to 24 2026, and keep an eye on the price.]
+        The title is 2 to 4 words. After the | write the whole job with every detail, because the helper can't see this conversation. One line per job. You stay free to keep talking. Quick things (a question, one short lookup) you just do yourself.
 
         Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
 
@@ -1048,7 +1093,7 @@ final class Model: ObservableObject {
     func talkBegin() {
         guard !talkingInApp else { return }
         talkNote = nil
-        if thinking { talkNote = "I'm still on the last thing. Give me a moment."; return }
+        if busyHere { talkNote = "I'm still on the last thing. Give me a moment."; return }
         talkingInApp = true; Voice.shared.stop(); Listener.shared.begin()
     }
     func talkEnd() {
@@ -1065,20 +1110,86 @@ final class Model: ObservableObject {
         }
     }
 
-    func send(_ text: String) async {
+    // Helpers
+    @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
+    @Published var openHelper: UUID?
+    var openedHelper: Helper? { openHelper.flatMap { id in helpers.first { $0.id == id } } }
+    /// Is whatever you're talking to right now busy?
+    var busyHere: Bool { if let h = openedHelper { return h.state == "working" }; return thinking }
+    static func savedHelpers() -> [Helper] {
+        guard let d = UserDefaults.standard.data(forKey: "helpers"), var hs = try? JSONDecoder().decode([Helper].self, from: d) else { return [] }
+        for k in hs.indices where hs[k].state == "working" { hs[k].state = "stopped"; hs[k].line = "Paused when One closed · tap to pick up" }
+        return hs
+    }
+    func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
+    func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
+    func focusHelper(_ id: UUID) {
+        openHelper = openHelper == id ? nil : id
+        update(id) { $0.finishedAway = false }
+    }
+    func dismissHelper(_ id: UUID) {
+        if openHelper == id { openHelper = nil }
+        withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
+    }
+    func clearAway() {
+        let gone = helpers.filter { $0.finishedAway && $0.state == "done" }.map(\.id)
+        for k in helpers.indices { helpers[k].finishedAway = false }
+        withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { gone.contains($0.id) } }
+    }
+
+    func spawnHelper(title: String, task: String) {
+        helpers.removeAll { ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && $0.id != openHelper }
+        if helpers.filter({ $0.state == "working" }).count >= 3 {
+            bubbles.append(Bubble(fromMe: false, text: "I already have 3 helpers busy. I'll take \"\(title)\" as soon as one is free; ask me again in a bit."))
+            return
+        }
+        while helpers.count >= 4, let k = helpers.firstIndex(where: { $0.state != "working" }) { helpers.remove(at: k) }
+        let h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
+        withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { helpers.append(h) }
+        let id = h.id
+        Task { @MainActor in
+            guard let sid = await Engine.shared.openSession() else {
+                self.update(id) { $0.state = "done"; $0.line = "Couldn't start"; $0.reply = "I couldn't start this job. Ask Nova again in a minute." }
+                return
+            }
+            self.update(id) { $0.sid = sid }
+            await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: task), images: [])
+        }
+    }
+
+    func runHelper(_ id: UUID, _ text: String, images: [String]) async {
+        guard let sid = helpers.first(where: { $0.id == id })?.sid else { return }
+        update(id) { $0.state = "working"; $0.reply = ""; $0.line = "Working on it…"; $0.finishedAway = false }
+        let stop = await Engine.shared.promptSession(sid, text, images: images,
+            onText: { s in Task { @MainActor in self.update(id) { $0.reply += s } } },
+            onTool: { s in Task { @MainActor in self.update(id) { $0.line = s } } })
+        try? await Task.sleep(for: .milliseconds(150))
+        let away = !NSApp.isActive
+        update(id) { h in
+            if stop.hasPrefix("error") && h.reply.isEmpty { h.reply = "I couldn't finish this (\(stop.dropFirst(7)))." }
+            let parts = Choices.split(h.reply)
+            if !parts.choices.isEmpty { h.state = "needsYes"; h.line = "Needs your yes" }
+            else { h.state = "done"; h.line = "Done · " + Helpers.summary(parts.body, 30) }
+            h.finishedAway = away || (self.openHelper != id && h.state == "needsYes")
+        }
+        if away, let h = helpers.first(where: { $0.id == id }) {
+            Floater.shared.note(h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done.")
+        }
+    }
+
+    /// Turn what you typed/said plus any pictures and files into (what you see, what the engine gets, images).
+    private func compose(_ text: String) -> (display: String, engine: String, images: [String])? {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !paused, !thinking, !(t.isEmpty && pictures.isEmpty && files.isEmpty) else { return }
+        guard !(t.isEmpty && pictures.isEmpty && files.isEmpty) else { return nil }
         let pics = pictures; pictures = []
         let docs = files; files = []
         if t.isEmpty {
             t = docs.isEmpty ? (pics.count == 1 ? "What's in this picture?" : "What's in these pictures?")
                              : (pics.count + docs.count == 1 ? "Have a look at this and tell me what it is." : "Have a look at these and tell me what they are.")
         }
-        await ensureEngine()
         var tags: [String] = []
         if !pics.isEmpty { tags.append("🖼 " + (pics.count == 1 ? "1 picture" : "\(pics.count) pictures")) }
         tags += docs.map { "📄 " + $0.name }
-        me(tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t)
         var forEngine = t
         if !docs.isEmpty {
             forEngine += "\n\n(I'm sharing these files. Copies are saved here and you can open them:"
@@ -1088,6 +1199,20 @@ final class Model: ObservableObject {
             }
             forEngine += ")"
         }
+        return (tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t, forEngine, pics.map { $0.data.base64EncodedString() })
+    }
+
+    func send(_ text: String) async {
+        if let hid = openHelper, let h = openedHelper {
+            guard !paused, h.state != "working", let c = compose(text) else { return }
+            await ensureEngine()
+            update(hid) { $0.asked = c.display }
+            await runHelper(hid, c.engine, images: c.images)
+            return
+        }
+        guard !paused, !thinking, let c = compose(text) else { return }
+        await ensureEngine()
+        me(c.display)
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true; working = nil
@@ -1096,9 +1221,17 @@ final class Model: ObservableObject {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let stop = await Engine.shared.prompt(forEngine, images: pics.map { $0.data.base64EncodedString() })
+        let stop = await Engine.shared.prompt(c.engine, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
-        thinking = false; working = nil; saveBubbles()
+        thinking = false; working = nil
+        if idx < bubbles.count {
+            let (clean, jobs) = Helpers.extract(bubbles[idx].text)
+            if !jobs.isEmpty {
+                bubbles[idx].text = clean
+                for j in jobs { spawnHelper(title: j.0, task: j.1) }
+            }
+        }
+        saveBubbles()
         if idx < bubbles.count, bubbles[idx].text.isEmpty {
             bubbles[idx].text = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }
@@ -1108,6 +1241,7 @@ final class Model: ObservableObject {
 
     func toggleStop() {
         paused.toggle()
+        if paused { helpers.filter { $0.state == "working" }.compactMap(\.sid).forEach { Engine.shared.cancel(session: $0) } }
         if paused { Engine.shared.cancel(); asks.forEach { $0.answer(nil) }; asks.removeAll(); thinking = false }
     }
 }
@@ -1808,7 +1942,7 @@ struct FloatOrbView: View {
     @ObservedObject var m = Model.shared
     @ObservedObject var l = Listener.shared
     var body: some View {
-        FloatingOrb(state: l.listening ? .listening : (m.thinking ? .working : .idle), size: 72)
+        FloatingOrb(state: l.listening ? .listening : (m.thinking || m.helpers.contains { $0.state == "working" } ? .working : .idle), size: 72)
             .frame(width: FloatUI.orbBox, height: FloatUI.orbBox)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: l.listening)
     }
@@ -2090,6 +2224,313 @@ final class OrbHost: NSView {
         replyToken += 1; let tk = replyToken
         FloatUI.shared.reply = t
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { if self.replyToken == tk { FloatUI.shared.reply = nil } }
+    }
+}
+
+
+
+// MARK: - Helpers: Nova sends out a helper for each separate job; each is its own engine session.
+
+struct Helper: Identifiable, Codable {
+    var id = UUID()
+    var title: String
+    var task: String
+    var sid: String?
+    var state: String            // working, needsYes, done, stopped
+    var line: String
+    var reply: String = ""
+    var asked: String?
+    var finishedAway = false
+    var viewState: HelperState {
+        switch state { case "working": .working; case "needsYes": .needsYes; case "stopped": .stopped; default: .done }
+    }
+}
+
+enum Helpers {
+    /// Pull "[helper: Title | job]" lines out of Nova's reply.
+    static func extract(_ text: String) -> (String, [(String, String)]) {
+        var jobs: [(String, String)] = [], keep: [String] = []
+        for l in text.components(separatedBy: "\n") {
+            let tl = l.trimmingCharacters(in: .whitespaces)
+            if tl.lowercased().hasPrefix("[helper:"), tl.hasSuffix("]") {
+                let parts = tl.dropFirst(8).dropLast().split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { jobs.append((parts[0], parts[1])) }
+            } else { keep.append(l) }
+        }
+        while let last = keep.last, last.trimmingCharacters(in: .whitespaces).isEmpty { keep.removeLast() }
+        return (keep.joined(separator: "\n"), jobs)
+    }
+    /// Hide helper lines while a reply is still streaming in.
+    static func strip(_ text: String) -> String {
+        text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("[helper") }.joined(separator: "\n")
+    }
+    static func short(_ s: String, _ n: Int = 34) -> String { s.count > n ? String(s.prefix(n - 1)) + "…" : s }
+    static func summary(_ body: String, _ n: Int = 40) -> String {
+        var t = body
+        for mark in ["**", "__", "`", "#", "> "] { t = t.replacingOccurrences(of: mark, with: "") }
+        let first = t.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? "Done"
+        return short(first, n)
+    }
+    static func brief(assistant: String, user: String, task: String) -> String {
+        """
+        You're one of \(assistant.isEmpty ? "the assistant" : assistant)'s helpers, sent to do one job in the background while \(user.isEmpty ? "they" : user) keep talking to \(assistant.isEmpty ? "the assistant" : assistant). Don't send helpers yourself; do the job.
+
+        The job: \(task)
+
+        Do it now. Finish with a short message (2 to 4 lines): what you found or did, in plain words. If you need their yes before going further (money, sending, posting, deleting), stop and ask, ending with a [choices: ...] line. If the job is to keep watching something, do the first check now, say what you found, and say how you'll keep watching.
+        """
+    }
+}
+
+struct NovaWithHelpers: View {
+    @ObservedObject var m: Model
+    static let slots: [CGPoint] = [CGPoint(x: -168, y: -34), CGPoint(x: 168, y: -34), CGPoint(x: -150, y: 76), CGPoint(x: 150, y: 76)]
+    var body: some View {
+        let shown = Array(m.helpers.prefix(4).enumerated())
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: m.helpers.isEmpty)) { tl in
+            let t = tl.date.timeIntervalSince(WorldLook.start)
+            ZStack {
+                Orb(size: 92, active: m.thinking).opacity(m.openHelper == nil ? 1 : 0.5)
+                ForEach(shown, id: \.element.id) { i, h in
+                    let p = Self.slots[i]
+                    Button { m.focusHelper(h.id) } label: {
+                        VStack(spacing: -10) {
+                            HelperOrb(state: h.viewState, t: t + Double(i) * 3.1, size: 42)
+                            HelperLabel(title: Helpers.short(h.title, 24), line: Helpers.short(h.line, 32), warm: h.state == "needsYes")
+                        }.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(h.state == "working" ? h.line : "Tap to see this job")
+                    .offset(x: p.x + sin(t * 0.4 + Double(i) * 1.7) * 4, y: p.y + sin(t * 0.55 + Double(i) * 2.3) * 5)
+                    .opacity(m.openHelper == nil || m.openHelper == h.id ? 1 : 0.5)
+                    .transition(.asymmetric(insertion: .scale(scale: 0.2).combined(with: .opacity),
+                                            removal: .offset(x: -p.x, y: -p.y).combined(with: .scale(scale: 0.1)).combined(with: .opacity)))
+                }
+            }
+            .frame(maxWidth: .infinity).frame(height: m.helpers.isEmpty ? 150 : 250)
+        }
+        .animation(.spring(response: 0.7, dampingFraction: 0.8), value: m.helpers.map(\.id))
+    }
+}
+
+struct HelperCard: View {
+    @ObservedObject var m: Model
+    let h: Helper
+    var body: some View {
+        let parts = Choices.split(h.reply)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Text(h.title).font(.headline)
+                Text("· " + (h.state == "working" ? "working" : h.state == "needsYes" ? "needs your yes" : h.state == "stopped" ? "paused" : "done"))
+                    .foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
+                Spacer()
+                Button { m.openHelper = nil } label: { Label("Nova", systemImage: "chevron.left") }
+                    .buttonStyle(.bordered).controlSize(.small).help("Back to Nova")
+            }
+            if let a = h.asked, !a.isEmpty { Text(a).font(.callout).foregroundStyle(Color.accentColor) }
+            if h.reply.isEmpty {
+                Text(h.state == "working" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
+            } else {
+                MarkdownText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !parts.choices.isEmpty && h.state != "working" {
+                ChoiceRow(choices: parts.choices, disabled: m.paused) { c in Task { await m.send(c) } } onOther: {}
+            }
+            if h.state == "done" || h.state == "stopped" {
+                HStack {
+                    Spacer()
+                    Button("Got it") { m.dismissHelper(h.id) }.buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                }
+            }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xF0A04B, h.state == "needsYes" ? 0.55 : 0), lineWidth: 1.2))
+    }
+}
+
+struct AwayCard: View {
+    @ObservedObject var m: Model
+    let hs: [Helper]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("WHILE YOU WERE GONE").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(hs) { h in
+                Button { m.focusHelper(h.id) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: h.state == "needsYes" ? "exclamationmark.circle" : "checkmark.circle")
+                            .foregroundStyle(h.state == "needsYes" ? Color.orange : Color(hex: 0xFFE2C2))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(h.title).font(.callout.weight(.semibold))
+                            Text(h.state == "needsYes" ? "Needs your yes. Tap to answer." : Helpers.summary(Choices.split(h.reply).body, 140))
+                                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                        }
+                        Spacer()
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+            HStack { Spacer(); Button("Got it") { m.clearAway() } }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+    }
+}
+
+// MARK: - Helpers (render-only design preview): Nova in the middle, each separate job as a small orb around her.
+
+enum HelperState { case working, needsYes, done, stopped }
+
+struct HelperOrb: View {
+    let state: HelperState
+    let t: Double
+    var size: CGFloat = 46
+    var body: some View {
+        let warm = state == .needsYes
+        ZStack {
+            if warm {
+                ForEach(0..<2, id: \.self) { i in
+                    let p = (t * 0.6 + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                    Circle().stroke(Color(hex: 0xF0A04B, 0.85 * (1 - p)), lineWidth: 1.6)
+                        .frame(width: size * (1.1 + 0.45 * p), height: size * (1.1 + 0.45 * p))
+                }
+            }
+            FloatingOrb(state: state == .working ? .working : .idle, size: size, fixedT: t)
+                .saturation(state == .done || state == .stopped ? 0.3 : 1)
+            if warm {
+                Circle().fill(RadialGradient(colors: [Color(hex: 0xF0A04B, 0.55), Color(hex: 0xF0A04B, 0.1)], center: .center, startRadius: 2, endRadius: size * 0.55))
+                    .frame(width: size, height: size).blendMode(.plusLighter)
+            }
+            if state == .done {
+                Circle().fill(WorldLook.cream).frame(width: 16, height: 16)
+                    .overlay(Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(WorldLook.bg))
+                    .offset(x: size * 0.36, y: -size * 0.36)
+            }
+        }
+        .frame(width: size * 1.8, height: size * 1.8)
+    }
+}
+
+struct HelperLabel: View {
+    let title: String; let line: String; var warm = false
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(warm ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.92))
+            Text(line).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(warm ? 0.8 : 0.66))
+        }.multilineTextAlignment(.center).fixedSize()
+    }
+}
+
+struct HelpersScene: View {
+    var t: Double = 21.7
+    var open = false     // a helper tapped: its little conversation shown
+    var body: some View {
+        let novaY: CGFloat = open ? 336 : 214
+        ZStack {
+            WorldLook.bg
+            RadialGradient(colors: [Color(hex: 0x24262A, 0.6), .clear], center: UnitPoint(x: 0.5, y: novaY / 440), startRadius: 10, endRadius: 280)
+            Text("Good afternoon, Omar.").font(.system(size: 17, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                .position(x: 310, y: 30)
+            // Nova
+            Presence(t: t, lean: .zero, voice: open ? 0 : 0.25, energy: 0.15)
+                .frame(width: 280, height: 280).scaleEffect(open ? 0.42 : 0.6).position(x: 310, y: novaY)
+                .opacity(open ? 0.5 : 1)
+            Text("Nova").font(.system(size: 12, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(open ? 0.45 : 0.8))
+                .position(x: 310, y: novaY + (open ? 56 : 66))
+
+            if open {
+                // Tapped "Flight to Quebec": the orb comes forward and you talk to that job directly.
+                HelperOrb(state: .working, t: t, size: 30).position(x: 310, y: 66)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Text("Flight to Quebec").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                        Text("· working").font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                        Spacer()
+                        HStack(spacing: 4) { Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold)); Text("Nova") }
+                            .font(.system(size: 11.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.85))
+                            .padding(.horizontal, 9).padding(.vertical, 4).background(Capsule().fill(Color.white.opacity(0.08)))
+                    }
+                    Text("PHL → YQB, Dec 20–24. Cheapest right now: $248 on United, 1 stop. I'll check every morning and tell you if it drops.")
+                        .font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.88)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Text("make it Dec 21 instead").font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                        Spacer()
+                        Image(systemName: "mic").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.65))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                }
+                .padding(14).frame(width: 330)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1E1E22, 0.97)))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.14)))
+                .shadow(color: .black.opacity(0.45), radius: 16, y: 6)
+                .position(x: 310, y: 194)
+                // the other helpers step back, still visible
+                HelperOrb(state: .needsYes, t: t, size: 30).opacity(0.75).position(x: 520, y: 336)
+                HelperLabel(title: "Downloads", line: "Needs your yes", warm: true).scaleEffect(0.9).position(x: 520, y: 374)
+                HelperOrb(state: .done, t: t, size: 26).opacity(0.7).position(x: 100, y: 336)
+                HelperLabel(title: "Receipts", line: "Done").scaleEffect(0.9).position(x: 100, y: 370)
+            } else {
+                // working: flight watch (upper left)
+                HelperOrb(state: .working, t: t).position(x: 132, y: 132)
+                HelperLabel(title: "Flight to Quebec", line: "Checking Google Flights…").position(x: 132, y: 184)
+                // needs a yes (upper right)
+                HelperOrb(state: .needsYes, t: t).position(x: 492, y: 150)
+                HelperLabel(title: "Downloads", line: "Needs your yes · tap to answer", warm: true).position(x: 492, y: 202)
+                // done: drifting back in to Nova
+                HelperOrb(state: .done, t: t, size: 36).position(x: 420, y: 292)
+                HelperLabel(title: "Receipts", line: "Done · $1,284 this year").position(x: 420, y: 334)
+                // Talk to Nova any time, even while helpers work
+                HStack {
+                    Text("Talk to Nova…").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                    Spacer()
+                    Image(systemName: "mic").foregroundStyle(WorldLook.cream.opacity(0.65))
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10).frame(width: 360)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.1)))
+                .position(x: 310, y: 404)
+            }
+        }
+        .frame(width: 620, height: 440)
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+struct AwayScene: View {
+    var t: Double = 33.1
+    var body: some View {
+        ZStack {
+            WorldLook.bg
+            RadialGradient(colors: [Color(hex: 0x24262A, 0.6), .clear], center: UnitPoint(x: 0.5, y: 0.28), startRadius: 10, endRadius: 260)
+            Presence(t: t, lean: .zero, voice: 0.4, energy: 0.2).frame(width: 280, height: 280).scaleEffect(0.5).position(x: 310, y: 112)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("While you were gone").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.8))
+                ForEach([("airplane", "The flight to Quebec dropped to $214. Want me to hold it?"),
+                         ("folder", "Your Downloads are sorted into 9 folders. Nothing was deleted."),
+                         ("receipt", "Your receipts this year add up to $1,284.")], id: \.1) { r in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: r.0).font(.system(size: 13)).foregroundStyle(Color(hex: 0xFFE2C2)).frame(width: 18)
+                        Text(r.1).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.92)).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                HStack(spacing: 8) {
+                    Text("Hold the flight").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 14).padding(.vertical, 7).background(Capsule().fill(WorldLook.cream))
+                    ForEach(["Show the folders", "Not now"], id: \.self) { c in
+                        Text(c).font(.system(size: 12.5, weight: .medium)).foregroundStyle(WorldLook.cream)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(Capsule().fill(Color.white.opacity(0.08)))
+                            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.14)))
+                    }
+                }.padding(.top, 4)
+            }
+            .padding(20).frame(width: 500, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.08)))
+            .position(x: 310, y: 300)
+        }
+        .frame(width: 620, height: 440)
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -2722,9 +3163,12 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).padding(.top, 18)
-                    Orb(size: 92, active: m.thinking).frame(height: 150)
-                    if m.thinking {
+                    NovaWithHelpers(m: m)
+                    if m.thinking && m.openHelper == nil {
                         Text(m.working ?? "Working on it…").foregroundStyle(.secondary).transition(.opacity)
+                    }
+                    if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
+                        AwayCard(m: m, hs: away).transition(.opacity)
                     }
                     if !m.asks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -2732,11 +3176,13 @@ struct HomeView: View {
                             ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
                         }
                     }
-                    if let ask = lastAsk {
+                    if let h = m.openedHelper {
+                        HelperCard(m: m, h: h).transition(.opacity.combined(with: .offset(y: 8)))
+                    } else if let ask = lastAsk {
                         VStack(spacing: 12) {
                             Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
                             if let r = lastReply, !r.text.isEmpty {
-                                let parts = Choices.split(r.text)
+                                let parts = Choices.split(Helpers.strip(r.text))
                                 MarkdownText(text: parts.body, size: 16)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                                     .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
@@ -2851,14 +3297,14 @@ struct HomeView: View {
         HStack(spacing: 12) {
             Button { PictureIn.pick() } label: { Image(systemName: "paperclip").font(.system(size: 20, weight: .light)) }
                 .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)").disabled(m.paused)
-            TextField(lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…", text: $draft)
+            TextField(m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…"), text: $draft)
                 .textFieldStyle(.plain).font(.title3).focused($typing)
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
                 .onSubmit(go).disabled(m.paused)
             micButton
             Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                .buttonStyle(.plain).disabled(m.paused || m.thinking || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty))
+                .buttonStyle(.plain).disabled(m.paused || m.busyHere || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty))
         }
         }
     }
@@ -2948,6 +3394,9 @@ struct Entry {
                         ChoiceRow(choices: Choices.split("x\n[choices: Yes, go ahead | Not now | Change the plan]").choices) { _ in }
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
+                    ("helpers", AnyView(HelpersScene())),
+                    ("helper-open", AnyView(HelpersScene(open: true))),
+                    ("away", AnyView(AwayScene())),
                     ("float-idle", AnyView(FloatScene(state: .idle))),
                     ("float-listen", AnyView(FloatScene(state: .listening))),
                     ("float-work", AnyView(FloatScene(state: .working))),

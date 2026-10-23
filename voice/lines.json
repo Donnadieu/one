@@ -29,6 +29,14 @@
     "roomsDone": "Done. Your rooms are ready, and each one keeps to its own rules.",
     "backupQuestion": "One last thing. Want me to back up your memory to iCloud, so it's safe if something happens to this Mac?",
     "backupOn": "Backup is on. I'll keep a copy in your iCloud Drive.",
-    "backupOff": "Okay. Your memory stays only on this Mac. Ask me any time to turn backup on."
+    "backupOff": "Okay. Your memory stays only on this Mac. Ask me any time to turn backup on.",
+    "worldIntro": "Here's what I can do from this Mac.",
+    "tourFiles": "I find, sort and tidy the folders you allow.",
+    "tourBrowser": "I open sites and click through them as you, in your own browser.",
+    "tourEmail": "I read every inbox you have, and tell you what matters.",
+    "tourCalendar": "I keep your days straight, and warn you before things clash.",
+    "tourPhone": "Text me from your phone, while this Mac does the work.",
+    "tourPasswords": "I sign in for you with your password manager, only with your OK.",
+    "worldPick": "Tap anything you want me connected to."
   }
 }

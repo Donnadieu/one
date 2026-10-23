@@ -207,6 +207,16 @@ final class Engine: @unchecked Sendable {
     /// (question, options[(id, label)], answer)
     var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)?
 
+    /// Hermes keeps a background helper per home; restart it so it picks up the current folder limits.
+    static func stopStrayGateway() {
+        let f = Env.hermesHome.appendingPathComponent("gateway.pid")
+        guard let d = try? Data(contentsOf: f),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let pid = j["pid"] as? Int, pid > 1 else { return }
+        kill(pid_t(pid), SIGTERM)
+        usleep(900_000)
+    }
+
     static func isBrainEdit(_ title: String) -> Bool {
         let prefix = "Approve edit: "
         guard title.hasPrefix(prefix), Brain.exists else { return false }
@@ -232,7 +242,9 @@ final class Engine: @unchecked Sendable {
         guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: hp)
-        p.arguments = ["acp"]
+        Engine.stopStrayGateway()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+        p.arguments = ["-p", Access.profile(), hp, "acp"]
         p.environment = Env.vars()
         let cwd = Brain.exists ? Brain.root : Env.support
         p.currentDirectoryURL = cwd
@@ -338,6 +350,33 @@ final class Engine: @unchecked Sendable {
         } else {
             write(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "not supported by One"]])
         }
+    }
+}
+
+// MARK: - Folder access (macOS sandbox around the engine)
+
+enum Access {
+    nonisolated(unsafe) static var override: [String]?
+    static var folders: [String] {
+        if let o = override { return o }
+        return (UserDefaults.standard.string(forKey: "folders") ?? "").split(separator: "\n").map(String.init)
+    }
+    static func set(_ f: [String]) { UserDefaults.standard.set(f.joined(separator: "\n"), forKey: "folders") }
+    /// Everything in the home folder is closed except the engine itself, the brain and the folders the user approved.
+    static func profile() -> String {
+        let h = NSHomeDirectory()
+        func q(_ p: String) -> String {
+            "(subpath \"" + p.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\")"
+        }
+        let rw = [Env.support.path, Brain.root.path, "\(h)/.cache", "\(h)/Library/Caches"] + folders
+        let ro = ["\(h)/.local", "\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"]
+        return """
+        (version 1)
+        (allow default)
+        (deny file-read-data file-write* (subpath "\(h)"))
+        (allow file-read-data \((ro + rw).map(q).joined(separator: " ")))
+        (allow file-write* \(rw.map(q).joined(separator: " ")))
+        """
     }
 }
 
@@ -497,6 +536,8 @@ enum Persona {
 
         If the Mac is closed or off, you're off. Say so if they ask why you didn't do something.
 
+        Folders you can open: \(Access.folders.isEmpty ? "none yet" : Access.folders.joined(separator: ", ")), plus their brain. Anything else is locked by the Mac. If they ask about another folder, say you don't have access yet and that they can add it with the Folders button.
+
         Your memory is their brain: the folder "\(Brain.root.path)". Its AGENTS.md says how it works: one room at a time, the personal room by default, a new room only when the rules differ, never just for a topic. Follow it. In this app the rooms are local folders: skip any GitHub, repository, git-crypt or key steps in its skills; backup is handled by the app. When they ask what you remember, read the room first. If they ask how your memory works, say it in plain words: it's theirs, it lives on this Mac as files, and it stays even if they switch AIs.
         """
         try? soul.write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
@@ -522,7 +563,7 @@ struct Ask: Identifiable {
 }
 
 enum Step: Equatable {
-    case pickAI, signingIn, nameAssistant, nameUser, rooms, connect, whichEmail, passwords, passwordsOK, backup, wrapUp, done
+    case pickAI, signingIn, nameAssistant, nameUser, rooms, world, connect, whichEmail, passwords, passwordsOK, backup, wrapUp, done
 }
 
 @MainActor
@@ -574,6 +615,39 @@ final class Model: ObservableObject {
     }
     @Published var switchingAI = false
     @Published var speaking = false
+    @Published var worldCaption = ""
+    @Published var tourNode: String?
+    @Published var touring = false
+    @Published var skipTour = false
+
+    func runTour() async {
+        guard !touring, worldCaption.isEmpty else { return }
+        touring = true; skipTour = false
+        func hold(_ d: Double, min: Double) async {
+            let end = Date().addingTimeInterval(max(d, min) + 0.35)
+            while Date() < end && !skipTour { try? await Task.sleep(for: .milliseconds(100)) }
+        }
+        worldCaption = "Here's what I can do from this Mac."
+        await hold(Voice.shared.play("worldIntro"), min: 1.6)
+        for n in worldNodes where n.voice != nil && !skipTour {
+            tourNode = n.id; worldCaption = n.line
+            await hold(Voice.shared.play(n.voice!), min: 2.4)
+        }
+        if skipTour { Voice.shared.stop() }
+        tourNode = nil; touring = false
+        worldCaption = "Tap anything you want me connected to."
+        Voice.shared.play("worldPick")
+    }
+
+    func setFolders(_ f: [String]) {
+        Access.set(f)
+        if f.isEmpty { pickedConnections.removeAll { $0 == "Files" } }
+        else if !pickedConnections.contains("Files") { pickedConnections.append("Files") }
+        if onboarded {
+            Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+            Task { _ = await Engine.shared.start() }
+        }
+    }
 
     private var signIn: SignIn?
     var provider: Provider? { Provider(rawValue: providerRaw) }
@@ -688,8 +762,7 @@ final class Model: ObservableObject {
         if let err { await say("I couldn't set up your memory: \(err)") }
         else if extra.isEmpty { await say("Your personal room is ready. If you ever want another one, just ask.", voice: "roomsSimple") }
         else { await say("Done. Your rooms are ready, and each one keeps to its own rules.", voice: "roomsDone") }
-        step = .connect
-        await say("Want me to connect anything? Pick as many as you like, or tell me in your own words.", voice: "connect")
+        step = .world
     }
 
     func connect(_ what: String) async {
@@ -777,7 +850,9 @@ final class Model: ObservableObject {
 
     func finish() { onboarded = true; step = .done; bubbles.removeAll() }
 
-    var suggestions: [String] {
+    var suggestions: [String] { [tryItems[0].text, tryItems[4].text, tryItems[3].text] }
+
+    var suggestionsOld: [String] {
         var s: [String] = []
         if connections.contains(where: { ["Gmail", "Outlook", "iCloud Mail", "Yahoo"].contains($0) }) {
             s.append("Every morning, tell me what matters in my email")
@@ -825,6 +900,178 @@ final class Model: ObservableObject {
         if paused { Engine.shared.cancel(); asks.forEach { $0.answer(nil) }; asks.removeAll(); thinking = false }
     }
 }
+
+// MARK: - The world: everything One can reach, floating around it
+
+struct Node: Identifiable, Hashable {
+    let id: String; let symbol: String; let line: String; let voice: String?
+}
+
+let worldNodes: [Node] = [
+    Node(id: "Files", symbol: "folder", line: "I find, sort and tidy the folders you allow.", voice: "tourFiles"),
+    Node(id: "Browser", symbol: "safari", line: "I open sites and click through them as you, in your own browser.", voice: "tourBrowser"),
+    Node(id: "Email", symbol: "envelope", line: "I read every inbox you have and tell you what matters.", voice: "tourEmail"),
+    Node(id: "Calendar", symbol: "calendar", line: "I keep your days straight and warn you before things clash.", voice: "tourCalendar"),
+    Node(id: "Phone", symbol: "iphone", line: "Text me from your phone while this Mac does the work.", voice: "tourPhone"),
+    Node(id: "Passwords", symbol: "key", line: "I sign in for you with your password manager, only with your OK.", voice: "tourPasswords"),
+    Node(id: "Web", symbol: "globe", line: "I search, compare and sum it up for you.", voice: nil),
+    Node(id: "News", symbol: "newspaper", line: "I bring you the news you care about, every morning.", voice: nil),
+    Node(id: "Reminders", symbol: "bell", line: "I remind you, and I follow up.", voice: nil),
+    Node(id: "Notes", symbol: "note.text", line: "I keep your notes and find them again.", voice: nil),
+]
+
+struct Orb: View {
+    var size: CGFloat = 130
+    var active = false
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let breathe = 1 + 0.04 * sin(t * (active ? 4.5 : 1.3))
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [Color.accentColor.opacity(0.5), .clear], center: .center, startRadius: 0, endRadius: size))
+                    .frame(width: size * 2, height: size * 2).blur(radius: 24)
+                Circle()
+                    .fill(RadialGradient(colors: [.white.opacity(0.95), Color.accentColor, Color.accentColor.opacity(0.55)],
+                                         center: UnitPoint(x: 0.35, y: 0.3), startRadius: 2, endRadius: size * 0.75))
+                    .frame(width: size, height: size)
+                    .shadow(color: Color.accentColor.opacity(0.6), radius: 26)
+            }.scaleEffect(breathe)
+        }
+    }
+}
+
+struct NodeBubble: View {
+    let n: Node; let on: Bool
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: n.symbol).font(.system(size: 19, weight: .light))
+                .foregroundStyle(on ? Color.white : Color.primary.opacity(0.75))
+                .frame(width: 52, height: 52)
+                .background(Circle().fill(on ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(.ultraThinMaterial)))
+                .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.5))
+                .shadow(color: on ? Color.accentColor.opacity(0.65) : .clear, radius: 14)
+            Text(n.id).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct WorldView: View {
+    let highlight: String?
+    let selected: Set<String>
+    let tap: (Node) -> Void
+    @State private var start = Date()
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSince(start)
+                let c = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+                let R = min(geo.size.width * 0.42, geo.size.height * 1.05)
+                let pts: [(Node, CGPoint, Double)] = worldNodes.enumerated().map { i, n in
+                    let a = Double(i) / Double(worldNodes.count) * 2 * .pi + t * 0.10
+                    let ring = i % 2 == 0 ? 1.0 : 0.74
+                    let z = sin(a)
+                    let pt = CGPoint(x: c.x + cos(a) * R * ring, y: c.y + z * R * 0.30 * ring + (i % 2 == 0 ? -10 : 12))
+                    return (n, pt, (z + 1) / 2)
+                }
+                ZStack {
+                    Canvas { ctx, _ in
+                        for (n, pt, d) in pts where selected.contains(n.id) || highlight == n.id {
+                            var path = Path(); path.move(to: c); path.addLine(to: pt)
+                            ctx.stroke(path, with: .color(Color.accentColor.opacity(0.2 + 0.5 * d)), lineWidth: 1.4)
+                        }
+                    }
+                    ForEach(pts.filter { $0.2 < 0.5 }, id: \.0.id) { n, pt, d in bubble(n, pt, d) }
+                    Orb(size: 96, active: highlight != nil).position(c)
+                    ForEach(pts.filter { $0.2 >= 0.5 }, id: \.0.id) { n, pt, d in bubble(n, pt, d) }
+                }
+            }
+        }
+    }
+    func bubble(_ n: Node, _ pt: CGPoint, _ d: Double) -> some View {
+        NodeBubble(n: n, on: selected.contains(n.id) || highlight == n.id)
+            .scaleEffect(0.68 + 0.42 * d).opacity(0.4 + 0.6 * d)
+            .position(pt)
+            .onTapGesture { tap(n) }
+    }
+}
+
+struct WorldStage: View {
+    @ObservedObject var m: Model
+    @State var folderSheet = false
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(m.worldCaption).font(.system(size: 22, weight: .medium))
+                .multilineTextAlignment(.center).frame(maxWidth: 480, minHeight: 80).padding(.top, 28)
+                .id(m.worldCaption).transition(.opacity.combined(with: .offset(y: 8)))
+                .animation(.easeOut(duration: 0.8), value: m.worldCaption)
+            WorldView(highlight: m.tourNode, selected: Set(m.pickedConnections)) { n in
+                guard !m.touring else { return }
+                m.worldCaption = n.line
+                if n.id == "Files" { folderSheet = true } else { m.toggleConnection(n.id) }
+            }
+            ZStack {
+                Button("Skip the tour") { m.skipTour = true }.buttonStyle(.link).opacity(m.touring ? 0.7 : 0)
+                HStack(spacing: 16) {
+                    Button("Continue") { Task { await m.connectionsChosen() } }
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(m.pickedConnections.isEmpty)
+                    Button("Not now") { m.pickedConnections = []; Task { await m.connectionsChosen() } }.buttonStyle(.link)
+                }.opacity(m.touring ? 0 : 1).allowsHitTesting(!m.touring)
+            }.padding(24).animation(.easeOut(duration: 0.8), value: m.touring)
+        }
+        .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
+        .task { await m.runTour() }
+    }
+}
+
+struct FolderSheet: View {
+    @ObservedObject var m: Model
+    let done: () -> Void
+    @State var folders: [String] = Access.folders
+    let common = ["Desktop", "Documents", "Downloads"].map { NSHomeDirectory() + "/" + $0 }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Which folders can I see?").font(.title2.bold())
+            Text("Everything else stays locked. You can change this any time.").foregroundStyle(.secondary)
+            HStack {
+                ForEach(common, id: \.self) { f in
+                    Chip(label: (f as NSString).lastPathComponent, selected: folders.contains(f)) { toggle(f) }
+                }
+            }
+            Button("Choose another folder…", action: pick)
+            ForEach(folders.filter { !common.contains($0) }, id: \.self) { f in
+                HStack {
+                    Image(systemName: "folder").font(.system(size: 13, weight: .light))
+                    Text((f as NSString).abbreviatingWithTildeInPath)
+                    Spacer()
+                    Button("Remove") { toggle(f) }.buttonStyle(.link)
+                }
+            }
+            Spacer()
+            HStack { Spacer(); Button("Done") { m.setFolders(folders); done() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
+        }.padding(24).frame(width: 480, height: 360)
+    }
+    func toggle(_ p: String) { if let i = folders.firstIndex(of: p) { folders.remove(at: i) } else { folders.append(p) } }
+    func pick() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = true
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())
+        if panel.runModal() == .OK { for u in panel.urls where !folders.contains(u.path) { folders.append(u.path) } }
+    }
+}
+
+struct TryItem: Hashable { let symbol: String; let tag: String; let text: String }
+
+let tryItems: [TryItem] = [
+    TryItem(symbol: "folder", tag: "Files", text: "Tidy my Downloads into folders that make sense"),
+    TryItem(symbol: "doc.text.magnifyingglass", tag: "Files", text: "Find every receipt from this year and add them up"),
+    TryItem(symbol: "safari", tag: "Browser", text: "Log in to a site for me and check my account"),
+    TryItem(symbol: "airplane", tag: "Watch", text: "Watch a flight price and tell me when it drops"),
+    TryItem(symbol: "sunrise", tag: "Every day", text: "Every morning at 7, send me my day on my phone"),
+    TryItem(symbol: "hammer", tag: "Research", text: "Compare 3 contractors near me and save it to my Desktop"),
+    TryItem(symbol: "envelope", tag: "Email", text: "Read my last 50 emails and tell me who's waiting on me"),
+    TryItem(symbol: "brain", tag: "Memory", text: "Remember what I like, then plan my weekend around it"),
+]
 
 // MARK: - Screens
 
@@ -992,7 +1239,7 @@ struct OnboardingView: View {
     @State var text = ""
     @State var paste = ""
     var body: some View {
-        VStack(spacing: 0) {
+        Group { if m.step == .world { WorldStage(m: m) } else { VStack(spacing: 0) {
             Stage(bubbles: m.bubbles, busy: m.busy)
             answerArea.padding(24).frame(maxWidth: .infinity)
                 .opacity(m.speaking ? 0 : 1).blur(radius: m.speaking ? 8 : 0)
@@ -1000,7 +1247,7 @@ struct OnboardingView: View {
                 .animation(.easeOut(duration: 0.9), value: m.speaking)
                 .id(m.step).transition(.opacity.combined(with: .offset(y: 10)))
                 .animation(.easeOut(duration: 0.8), value: m.step)
-        }
+        } } }
         .background(Mist())
         .task { if m.switchingAI { m.bubbles.removeAll(); m.step = .pickAI; await m.say("Which AI should I use?") } else { await m.beginOnboarding() } }
     }
@@ -1012,7 +1259,7 @@ struct OnboardingView: View {
                 ForEach(Provider.allCases) { p in
                     Button { Task { await m.choose(p) } } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: p.symbol).font(.title2).frame(width: 34)
+                            Image(systemName: p.symbol).font(.system(size: 20, weight: .light)).frame(width: 34)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(p.title).font(.headline)
                                 Text(m.signedIn[p] == true ? "Already signed in" : p.subtitle)
@@ -1130,7 +1377,7 @@ struct OnboardingView: View {
                 }
                 Button("I'll look around first") { m.finish() }.buttonStyle(.link).disabled(m.busy)
             }
-        case .done:
+        case .done, .world:
             EmptyView()
         }
     }
@@ -1148,62 +1395,90 @@ struct OnboardingView: View {
 struct HomeView: View {
     @ObservedObject var m: Model
     @State var draft = ""
+    @State var folderSheet = false
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
     }
+    var lastAsk: Bubble? { m.bubbles.last(where: { $0.fromMe }) }
+    var lastReply: Bubble? { m.bubbles.last.flatMap { $0.fromMe ? nil : $0 } }
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("\(greeting), \(m.userName).").font(.system(size: 28, weight: .semibold))
-                        Text("\(m.name) is here.").foregroundStyle(.secondary)
-
-                        if !m.asks.isEmpty {
-                            Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange).padding(.top, 8)
+        ZStack {
+            Mist()
+            ScrollView {
+                VStack(spacing: 18) {
+                    Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).padding(.top, 18)
+                    Orb(size: 92, active: m.thinking).frame(height: 150)
+                    if m.thinking {
+                        Text(m.working ?? "Working on it…").foregroundStyle(.secondary).transition(.opacity)
+                    }
+                    if !m.asks.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)
                             ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
                         }
-                        if m.bubbles.isEmpty {
-                            Text("TRY").font(.caption.bold()).foregroundStyle(.secondary).padding(.top, 8)
-                            ForEach(m.suggestions, id: \.self) { s in
-                                Button { Task { await m.send(s) } } label: {
-                                    Text(s).frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(nsColor: .controlBackgroundColor)))
-                                }.buttonStyle(.plain)
+                    }
+                    if let ask = lastAsk {
+                        VStack(spacing: 12) {
+                            Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
+                            if let r = lastReply, !r.text.isEmpty {
+                                Text(r.text).font(.title3).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                                    .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+                                    .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
+                            }
+                        }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(lastAsk == nil ? "THINGS ONLY I CAN DO FROM YOUR MAC" : "TRY SOMETHING ELSE")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                            ForEach(tryItems, id: \.self) { it in
+                                Button { Task { await m.send(it.text) } } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: it.symbol).font(.system(size: 14, weight: .light))
+                                            Text(it.tag.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                                        }
+                                        Text(it.text).font(.callout).multilineTextAlignment(.leading).foregroundStyle(.primary)
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading).padding(12)
+                                    .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial))
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12)))
+                                }.buttonStyle(.plain).disabled(m.thinking || m.paused)
                             }
                         }
-                        ForEach(m.bubbles) { BubbleView(b: $0).id($0.id) }
-                        if m.thinking {
-                            HStack { ProgressView().controlSize(.small); Text(m.working ?? "Thinking…").foregroundStyle(.secondary) }
-                        }
-                    }.padding(28)
-                }.onChange(of: m.bubbles.last?.text) { _, _ in
-                    if let l = m.bubbles.last { proxy.scrollTo(l.id, anchor: .bottom) }
+                    }
+                }.padding(.horizontal, 28).padding(.bottom, 20)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                if m.paused {
+                    Text("Stopped. I won't do anything until you turn me back on.")
+                        .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
                 }
+                HStack(spacing: 12) {
+                    TextField("Tell \(m.name) what you need…", text: $draft)
+                        .textFieldStyle(.plain).font(.title3)
+                        .padding(12).background(Capsule().fill(.ultraThinMaterial))
+                        .onSubmit(go).disabled(m.paused)
+                    Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
+                        .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
+                }.padding(14)
             }
-            if m.paused {
-                Text("Stopped. I won't do anything until you turn me back on.")
-                    .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
-            }
-            HStack(spacing: 12) {
-                TextField("Ask \(m.name)…", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain).font(.title3).lineLimit(1...4)
-                    .padding(12).background(RoundedRectangle(cornerRadius: 22).stroke(.quaternary))
-                    .onSubmit(go).disabled(m.paused)
-                Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }
-                    .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
-            }.padding(16)
         }
         .toolbar {
-            ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "switch.2") } }
+            ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
+            ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }
             ToolbarItem {
                 Button { m.toggleStop() } label: {
-                    Label(m.paused ? "Turn on" : "Stop", systemImage: m.paused ? "play.circle.fill" : "stop.circle.fill")
+                    Label(m.paused ? "Turn on" : "Stop", systemImage: m.paused ? "play.circle" : "stop.circle")
                 }.tint(m.paused ? .green : .red)
             }
         }
         .navigationTitle(m.name)
+        .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .task { await m.ensureEngine() }
     }
     func go() { let t = draft; draft = ""; Task { await m.send(t) } }
@@ -1257,6 +1532,7 @@ struct Entry {
                 print("brain:", Brain.build(owner: "Omar", ai: "Juno", rooms: [.work]) ?? "built at \(Brain.root.path)")
                 print("rooms:", Brain.rooms.map(\.folder))
                 print("backup:", Brain.backupToICloud() ?? "copied to iCloud Drive")
+                Access.override = []
                 Persona.write(assistant: "Juno", user: "Omar", connections: ["Gmail"], passwords: "use 1Password")
                 let t0 = Date()
                 if let e = await Engine.shared.start() { print("engine start failed:", e); return }
@@ -1267,7 +1543,8 @@ struct Entry {
                 Engine.shared.onPermission = { q, opts, ans in print("  permission asked:", q, opts.map(\.0)); ans("deny") }
                 for q in ["Who are you, and what's my name? One sentence.",
                           "How does your memory work, and which rooms do I have? Two short sentences.",
-                          "Remember that my daughter's birthday is March 3."] {
+                          "Remember that my daughter's birthday is March 3.",
+                          "List 3 file names in my Downloads folder."] {
                     out.v = ""
                     let t1 = Date()
                     let stop = await Engine.shared.prompt(q)

@@ -7,7 +7,8 @@ rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macosx14.0 \
   -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -swift-version 5 \
   Sources/main.swift -o "$APP/Contents/MacOS/One"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+VERSION=$(tr -d ' \n' < VERSION)
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -17,7 +18,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>One</string>
   <key>CFBundleIconFile</key><string>One</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.6</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -46,4 +47,6 @@ fi
 if [[ "${1:-}" == "--package" ]]; then
   rm -rf build/dmg && mkdir -p build/dmg && cp -R "$APP" build/dmg/ && ln -s /Applications build/dmg/Applications
   rm -f build/One.dmg && hdiutil create -quiet -volname "One" -srcfolder build/dmg -ov -format UDZO build/One.dmg && echo "packaged build/One.dmg"
+  # The in-app updater downloads this zip.
+  rm -f build/One.zip && ditto -c -k --keepParent "$APP" build/One.zip && echo "packaged build/One.zip"
 fi

@@ -18,5 +18,13 @@
  "askEach": "bf35c79cc1c775f9a0548b2ce6b510f5cb336aff",
  "thanks": "a089d3b7701b9433956e41f2ca9bcff97dac5411",
  "notNow": "7adc1ad21d91fa4ff25772308e9c6364dddd2c42",
- "allSet": "ffd3ee7319747921dfdeb0ac9733b2e851e93ab9"
+ "allSet": "ffd3ee7319747921dfdeb0ac9733b2e851e93ab9",
+ "memory": "32bef8db86264233fa04e194e6b2792367d1819b",
+ "personalRoom": "0019420e8b1b3e366a3f55468ee50a4927818a75",
+ "roomsQuestion": "08b51f4ce8a3913e7ec5ff6b61f71671f42b5417",
+ "roomsSimple": "7d7c6aaf93a31417ecd7355a94d5936cf07d390f",
+ "roomsDone": "e9335e90e9aa32e42243c74e9d1149e74a60f057",
+ "backupQuestion": "59d68956ccb89d5c9ce5f0e6acf9a3777ec09124",
+ "backupOn": "71189190ff8ac94fa2e1c4d91351ec11ebc98cc3",
+ "backupOff": "13a63d43b6cc48f9c9e98bc1cd7f01c49e81d667"
 }

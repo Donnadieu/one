@@ -207,6 +207,17 @@ final class Engine: @unchecked Sendable {
     /// (question, options[(id, label)], answer)
     var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)?
 
+    static func isBrainEdit(_ title: String) -> Bool {
+        let prefix = "Approve edit: "
+        guard title.hasPrefix(prefix), Brain.exists else { return false }
+        let paths = title.dropFirst(prefix.count).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let root = Brain.root.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        return !paths.isEmpty && paths.allSatisfy { p in
+            let r = URL(fileURLWithPath: p).standardizedFileURL.resolvingSymlinksInPath().path
+            return r.hasPrefix(root) && !r.contains("/.git/") && !r.contains("/confidential/")
+        }
+    }
+
     var running: Bool { lock.lock(); defer { lock.unlock() }; return proc?.isRunning == true && sessionID != nil }
 
     func stop() {
@@ -223,7 +234,8 @@ final class Engine: @unchecked Sendable {
         p.executableURL = URL(fileURLWithPath: hp)
         p.arguments = ["acp"]
         p.environment = Env.vars()
-        p.currentDirectoryURL = Env.support
+        let cwd = Brain.exists ? Brain.root : Env.support
+        p.currentDirectoryURL = cwd
         let o = Pipe(), i = Pipe()
         p.standardOutput = o; p.standardInput = i
         p.standardError = FileHandle(forWritingAtPath: "/dev/null")
@@ -235,7 +247,7 @@ final class Engine: @unchecked Sendable {
         lock.lock(); proc = p; stdin = i.fileHandleForWriting; buf = Data(); lock.unlock()
         let ini = await call("initialize", ["protocolVersion": 1, "clientCapabilities": [String: Any]()], timeout: 120)
         guard ini["result"] != nil else { return "The assistant didn't start." }
-        let new = await call("session/new", ["cwd": Env.support.path, "mcpServers": [Any]()], timeout: 120)
+        let new = await call("session/new", ["cwd": (Brain.exists ? Brain.root : Env.support).path, "mcpServers": [Any]()], timeout: 120)
         guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
             return "The assistant couldn't open a conversation."
         }
@@ -320,10 +332,151 @@ final class Engine: @unchecked Sendable {
                 let outcome: [String: Any] = choice.map { ["outcome": "selected", "optionId": $0] } ?? ["outcome": "cancelled"]
                 self.write(["jsonrpc": "2.0", "id": id, "result": ["outcome": outcome]])
             }
+            // Writing to their own brain (memory, notes) needs no yes. Anything else still asks.
+            if Engine.isBrainEdit(title), opts.contains(where: { $0.0 == "allow_once" }) { reply("allow_once"); return }
             if let ask = onPermission { ask(title, opts, reply) } else { reply(nil) }
         } else {
             write(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "not supported by One"]])
         }
+    }
+}
+
+// MARK: - The brain (built from the AI Brain Starter, kept as local folders)
+
+enum RoomKind: String, CaseIterable, Identifiable {
+    case personal, work, cofounder, privateRoom
+    var id: String { rawValue }
+    var folder: String {
+        switch self { case .personal: "personal-room"; case .work: "work-room"; case .cofounder: "cofounder-room"; case .privateRoom: "private-room" }
+    }
+    var title: String {
+        switch self { case .personal: "personal room"; case .work: "work room"; case .cofounder: "co-founder room"; case .privateRoom: "private room" }
+    }
+    var chip: String {
+        switch self { case .personal: "No, start simple"; case .work: "My job"; case .cofounder: "A business I'm starting"; case .privateRoom: "Something just for me" }
+    }
+    var hub: String {
+        switch self { case .personal: "brain/life.md"; case .work: "brain/jobs.md"; case .cofounder: "brain/company.md"; case .privateRoom: "brain/notes.md" }
+    }
+    var holds: String {
+        switch self {
+        case .personal: "home, family, health, money, relationships, hobbies, creative work, learning, long-term goals, community."
+        case .work: "your own notes about your job or jobs: commitments, people, wins, how you work best."
+        case .cofounder: "a business you run or are starting: ideas, buyers, the offer, the pipeline."
+        case .privateRoom: "whatever you want kept just for you."
+        }
+    }
+    var never: String {
+        switch self {
+        case .personal: "a job's work, a business."
+        case .work: "your employer's code, data, documents or customer information. Personal life. A business of your own."
+        case .cofounder: "personal life, a job's work."
+        case .privateRoom: "anything from the other rooms. It never appears in summaries or cross-room answers."
+        }
+    }
+    var rule: String {
+        switch self {
+        case .personal: "it's the default room: everything personal starts here."
+        case .work: "an employer's material never enters the brain. Only your own notes about your work."
+        case .cofounder: "it pushes toward buyers and revenue, and it may one day be shared with a partner."
+        case .privateRoom: "it's private. Other rooms don't read it, and it's left out of every brief and summary."
+        }
+    }
+    var hubText: String {
+        switch self {
+        case .personal: "# My life, as it stands\n\n## This week\n- **The one thing that matters:** [not yet]\n- **Dates coming up:** [not yet]\n\n## By area\n| Area | What's active | Next step | Note |\n|---|---|---|---|\n\n## Long projects\n\n## Parked\n"
+        case .work: "# My jobs, as they stand\n\n## This week\n- **The one thing that matters:** [not yet]\n\n## By job\n| Job | Hours | What's due | Who I owe | Note |\n|---|---|---|---|---|\n\n## Wins to remember\n"
+        case .cofounder: ""
+        case .privateRoom: "# Just for me\n\n[not yet]\n"
+        }
+    }
+}
+
+enum Brain {
+    static var root: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return Env.selfTest ? Env.support.appendingPathComponent("selftest-brain") : docs.appendingPathComponent("My Brain")
+    }
+    static var starter: URL? { Bundle.main.url(forResource: "brain-starter", withExtension: nil) }
+    static var exists: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent("AGENTS.md").path) }
+    static var rooms: [RoomKind] {
+        RoomKind.allCases.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0.folder).path) }
+    }
+
+    /// Creates the brain (once) and any rooms asked for that don't exist yet.
+    static func build(owner: String, ai: String, rooms want: [RoomKind]) -> String? {
+        let fm = FileManager.default
+        guard let st = starter else { return "The brain starter isn't inside the app." }
+        if !exists {
+            try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+            for f in ["AGENTS.md", "BRAIN.md", "HELP.md", "LICENSE.md", "README.md", "CLAUDE.md", "GEMINI.md", "owner.yaml", "starter.yaml", "agents", "skills", "templates"] {
+                let src = st.appendingPathComponent(f)
+                if fm.fileExists(atPath: src.path) { try? fm.copyItem(at: src, to: root.appendingPathComponent(f)) }
+            }
+            let today = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+            let oy = root.appendingPathComponent("owner.yaml")
+            if var y = try? String(contentsOf: oy, encoding: .utf8) {
+                y = y.replacingOccurrences(of: "name: \"\"   ", with: "name: \"\(owner)\"", options: [], range: y.range(of: "name: \"\"   "))
+                y = y.replacingOccurrences(of: "computer: \"\"", with: "computer: \"mac\"")
+                y = y.replacingOccurrences(of: "tool: \"\"", with: "tool: \"one-app\"")
+                y = y.replacingOccurrences(of: "set_up: \"\"", with: "set_up: \"\(today)\"")
+                y += "\n# Kept by the One app: rooms are local folders on this Mac. Backup is the app's job.\nstorage: local\n"
+                try? y.write(to: oy, atomically: true, encoding: .utf8)
+            }
+        }
+        var all = Set(rooms); all.insert(.personal); want.forEach { all.insert($0) }
+        let ordered = RoomKind.allCases.filter { all.contains($0) }
+        for k in ordered where !fm.fileExists(atPath: root.appendingPathComponent(k.folder).path) {
+            let dest = root.appendingPathComponent(k.folder)
+            let tpl = st.appendingPathComponent(k == .cofounder ? "templates/cofounder-room" : "templates/room")
+            do { try fm.copyItem(at: tpl, to: dest) } catch { return "Couldn't make the \(k.title): \(error.localizedDescription)" }
+            let others = ordered.filter { $0 != k }.map { "the \($0.title) (`../\($0.folder)/`)" }.joined(separator: ", ")
+            let fill: [String: String] = [
+                "{{OWNER}}": owner, "{{AI}}": ai, "{{ROOM}}": k.folder, "{{ROOM_TITLE}}": k.title,
+                "{{HOLDS}}": k.holds, "{{NEVER}}": k.never, "{{HUB}}": k.hub, "{{RULE}}": k.rule,
+                "{{OTHER_ROOMS}}": others.isEmpty ? "No other rooms yet." : "Other rooms: \(others).",
+                "{{CONFIDENTIAL}}": "money figures, health detail, other people's private information, anything \(owner) wouldn't want read out loud.",
+            ]
+            if let en = fm.enumerator(at: dest, includingPropertiesForKeys: nil) {
+                for case let f as URL in en where ["md", "yaml", "json"].contains(f.pathExtension) {
+                    guard var t = try? String(contentsOf: f, encoding: .utf8), t.contains("{{") else { continue }
+                    for (a, b) in fill { t = t.replacingOccurrences(of: a, with: b) }
+                    try? t.write(to: f, atomically: true, encoding: .utf8)
+                }
+            }
+            if !k.hubText.isEmpty {
+                let hub = dest.appendingPathComponent(k.hub)
+                try? fm.createDirectory(at: hub.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if !fm.fileExists(atPath: hub.path) { try? k.hubText.write(to: hub, atomically: true, encoding: .utf8) }
+            }
+            // One row per room in the brain's table.
+            let ag = root.appendingPathComponent("AGENTS.md")
+            if var t = try? String(contentsOf: ag, encoding: .utf8) {
+                let row = "| \(k.title.capitalized) | `\(k.folder)/` | \(ai) | `\(k.hub)` | \(k.holds) | \(k.never) |\n"
+                t = t.replacingOccurrences(of: "<!-- add-room adds one row per room above this line -->", with: row + "<!-- add-room adds one row per room above this line -->")
+                try? t.write(to: ag, atomically: true, encoding: .utf8)
+            }
+            let mem = dest.appendingPathComponent("memory")
+            try? fm.createDirectory(at: mem, withIntermediateDirectories: true)
+            let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+            let line = "- Decided (\(owner), \(day)): the \(k.title) was set up in the One app.\n"
+            let mf = mem.appendingPathComponent("\(day).md")
+            if let h = try? FileHandle(forWritingTo: mf) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+            else { try? line.write(to: mf, atomically: true, encoding: .utf8) }
+        }
+        return nil
+    }
+
+    /// Mirrors the brain into iCloud Drive (plain copy, newest wins). Returns an error or nil.
+    static func backupToICloud() -> String? {
+        let icloud = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        guard FileManager.default.fileExists(atPath: icloud.path) else { return "iCloud Drive isn't turned on for this Mac." }
+        let dest = icloud.appendingPathComponent(Env.selfTest ? "One selftest backup" : "My Brain (backup)")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
+        p.arguments = ["-a", "--exclude", ".DS_Store", root.path + "/", dest.path + "/"]
+        do { try p.run(); p.waitUntilExit() } catch { return error.localizedDescription }
+        return p.terminationStatus == 0 ? nil : "The copy to iCloud didn't finish."
     }
 }
 
@@ -343,6 +496,8 @@ enum Persona {
         Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
 
         If the Mac is closed or off, you're off. Say so if they ask why you didn't do something.
+
+        Your memory is their brain: the folder "\(Brain.root.path)". Its AGENTS.md says how it works: one room at a time, the personal room by default, a new room only when the rules differ, never just for a topic. Follow it. In this app the rooms are local folders: skip any GitHub, repository, git-crypt or key steps in its skills; backup is handled by the app. When they ask what you remember, read the room first. If they ask how your memory works, say it in plain words: it's theirs, it lives on this Mac as files, and it stays even if they switch AIs.
         """
         try? soul.write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
 
@@ -367,7 +522,7 @@ struct Ask: Identifiable {
 }
 
 enum Step: Equatable {
-    case pickAI, signingIn, nameAssistant, nameUser, connect, whichEmail, passwords, passwordsOK, wrapUp, done
+    case pickAI, signingIn, nameAssistant, nameUser, rooms, connect, whichEmail, passwords, passwordsOK, backup, wrapUp, done
 }
 
 @MainActor
@@ -378,6 +533,8 @@ final class Model: ObservableObject {
     @AppStorage("provider") var providerRaw = ""
     @AppStorage("connections") var connectionsRaw = ""
     @AppStorage("passwords") var passwords = ""
+    @AppStorage("backup") var backup = ""
+    @Published var pickedRooms: Set<RoomKind> = []
 
     @Published var bubbles: [Bubble] = []
     @Published var step: Step = .pickAI
@@ -515,8 +672,23 @@ final class Model: ObservableObject {
 
     func nameUser(_ n: String) async {
         let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
-        me(n); userName = n; step = .connect
+        me(n); userName = n; step = .rooms
         await say("Nice to meet you, \(n).", voice: "niceToMeet")
+        await say("I also have a memory, and it's yours. It lives on this Mac as plain files, so even if you switch AIs, I still remember.", voice: "memory")
+        await say("Everything starts in your personal room: family, home, health, plans.", voice: "personalRoom")
+        await say("Is there a part of your life you'd like kept separate from the rest? Each one gets its own room, with its own rules.", voice: "roomsQuestion")
+    }
+
+    func roomsChosen(_ simple: Bool) async {
+        let extra = simple ? [] : RoomKind.allCases.filter { pickedRooms.contains($0) && $0 != .personal }
+        me(extra.isEmpty ? "Start simple" : extra.map(\.chip).joined(separator: ", "))
+        busy = true
+        let err = Brain.build(owner: userName, ai: assistantName, rooms: extra)
+        busy = false
+        if let err { await say("I couldn't set up your memory: \(err)") }
+        else if extra.isEmpty { await say("Your personal room is ready. If you ever want another one, just ask.", voice: "roomsSimple") }
+        else { await say("Done. Your rooms are ready, and each one keeps to its own rules.", voice: "roomsDone") }
+        step = .connect
         await say("Want me to connect anything? Pick as many as you like, or tell me in your own words.", voice: "connect")
     }
 
@@ -570,11 +742,31 @@ final class Model: ObservableObject {
         await wrapUp()
     }
 
+    func backupChosen(_ yes: Bool) async {
+        me(yes ? "Yes, back it up" : "Not now")
+        if yes {
+            busy = true
+            let err = await Task.detached { Brain.backupToICloud() }.value
+            busy = false
+            if let err { backup = "off"; await say("I couldn't turn it on: \(err) We can try again later.") }
+            else { backup = "icloud"; await say("Backup is on. I'll keep a copy in your iCloud Drive.", voice: "backupOn") }
+        } else {
+            backup = "off"
+            await say("Okay. Your memory stays only on this Mac. Ask me any time to turn backup on.", voice: "backupOff")
+        }
+        await wrapUp()
+    }
+
     private func addConnection(_ c: String) {
         var l = connections; if !l.contains(c) { l.append(c) }; connectionsRaw = l.joined(separator: ",")
     }
 
     private func wrapUp() async {
+        if backup.isEmpty {
+            step = .backup
+            await say("One last thing. Want me to back up your memory to iCloud, so it's safe if something happens to this Mac?", voice: "backupQuestion")
+            return
+        }
         step = .wrapUp
         busy = true
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
@@ -600,6 +792,7 @@ final class Model: ObservableObject {
 
     func ensureEngine() async {
         guard onboarded, !Engine.shared.running else { return }
+        if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
         if let e = await Engine.shared.start() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
@@ -859,6 +1052,27 @@ struct OnboardingView: View {
             }
         case .nameUser:
             field("Your name") { await m.nameUser($0) }
+        case .rooms:
+            VStack(spacing: 12) {
+                Button("No, start simple") { Task { await m.roomsChosen(true) } }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                Text("or pick any that should be kept separate").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    ForEach([RoomKind.work, .cofounder, .privateRoom]) { k in
+                        Chip(label: k.chip, selected: m.pickedRooms.contains(k)) {
+                            if m.pickedRooms.contains(k) { m.pickedRooms.remove(k) } else { m.pickedRooms.insert(k) }
+                        }
+                    }
+                }
+                if !m.pickedRooms.isEmpty {
+                    Button("Continue") { Task { await m.roomsChosen(false) } }.buttonStyle(.borderedProminent)
+                }
+            }.disabled(m.busy)
+        case .backup:
+            HStack(spacing: 16) {
+                Button("Yes, back it up") { Task { await m.backupChosen(true) } }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button("Not now") { Task { await m.backupChosen(false) } }.controlSize(.large)
+            }.disabled(m.busy)
         case .connect:
             VStack(spacing: 12) {
                 Text("Pick as many as you like").font(.caption).foregroundStyle(.secondary)
@@ -1039,6 +1253,10 @@ struct Entry {
                 print("hermes:", Env.hermesPath ?? "missing")
                 for p in Provider.allCases { print("[\(p.title)] signed in (selftest home):", await SignIn.isSignedIn(p)) }
                 await SignIn.makeDefault(.openrouter)
+                try? FileManager.default.removeItem(at: Brain.root)
+                print("brain:", Brain.build(owner: "Omar", ai: "Juno", rooms: [.work]) ?? "built at \(Brain.root.path)")
+                print("rooms:", Brain.rooms.map(\.folder))
+                print("backup:", Brain.backupToICloud() ?? "copied to iCloud Drive")
                 Persona.write(assistant: "Juno", user: "Omar", connections: ["Gmail"], passwords: "use 1Password")
                 let t0 = Date()
                 if let e = await Engine.shared.start() { print("engine start failed:", e); return }
@@ -1048,8 +1266,8 @@ struct Entry {
                 Engine.shared.onTool = { print("  tool:", $0) }
                 Engine.shared.onPermission = { q, opts, ans in print("  permission asked:", q, opts.map(\.0)); ans("deny") }
                 for q in ["Who are you, and what's my name? One sentence.",
-                          "What did I say I want connected? Short.",
-                          "What's in my Downloads folder? List 3 names."] {
+                          "How does your memory work, and which rooms do I have? Two short sentences.",
+                          "Remember that my daughter's birthday is March 3."] {
                     out.v = ""
                     let t1 = Date()
                     let stop = await Engine.shared.prompt(q)

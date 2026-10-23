@@ -21,6 +21,14 @@
     "askEach": "Okay. I'll ask you each time, and I won't keep anything.",
     "thanks": "Thanks. Noted.",
     "notNow": "No problem. I'll ask again when it's needed.",
-    "allSet": "You're all set. Here are a few things I can do right now. Tap one, or just ask."
+    "allSet": "You're all set. Here are a few things I can do right now. Tap one, or just ask.",
+    "memory": "I also have a memory, and it's yours. It lives on this Mac as plain files, so even if you switch AIs, I still remember.",
+    "personalRoom": "Everything starts in your personal room: family, home, health, plans.",
+    "roomsQuestion": "Is there a part of your life you'd like kept separate from the rest? Each one gets its own room, with its own rules.",
+    "roomsSimple": "Your personal room is ready. If you ever want another one, just ask.",
+    "roomsDone": "Done. Your rooms are ready, and each one keeps to its own rules.",
+    "backupQuestion": "One last thing. Want me to back up your memory to iCloud, so it's safe if something happens to this Mac?",
+    "backupOn": "Backup is on. I'll keep a copy in your iCloud Drive.",
+    "backupOff": "Okay. Your memory stays only on this Mac. Ask me any time to turn backup on."
   }
 }

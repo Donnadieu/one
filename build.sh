@@ -23,6 +23,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
+git -C ~/Repos/brain-starter archive --prefix=brain-starter/ HEAD | tar -x -C "$APP/Contents/Resources"
 codesign --force --deep -s - "$APP"
 echo "built $APP"
 if [[ "${1:-}" == "--install" ]]; then

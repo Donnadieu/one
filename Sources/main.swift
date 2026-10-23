@@ -1113,6 +1113,18 @@ final class Model: ObservableObject {
     // Helpers
     @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
     @Published var openHelper: UUID?
+    @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
+    @Published var openedShelf: UUID?
+    @Published var draftSeed: String?
+    func openShelf(_ id: UUID) {
+        openedShelf = id
+        if let k = shelf.firstIndex(where: { $0.id == id }) { shelf[k].fresh = false }
+    }
+    func removeShelf(_ id: UUID) { if openedShelf == id { openedShelf = nil }; shelf.removeAll { $0.id == id } }
+    func putOnShelf(title: String, body: String, from: String) {
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let it = Shelf.keep(title: title, body: body, from: from) else { return }
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { shelf.insert(it, at: 0) }
+    }
     var openedHelper: Helper? { openHelper.flatMap { id in helpers.first { $0.id == id } } }
     /// Is whatever you're talking to right now busy?
     var busyHere: Bool { if let h = openedHelper { return h.state == "working" }; return thinking }
@@ -1159,7 +1171,7 @@ final class Model: ObservableObject {
 
     func runHelper(_ id: UUID, _ text: String, images: [String]) async {
         guard let sid = helpers.first(where: { $0.id == id })?.sid else { return }
-        update(id) { $0.state = "working"; $0.reply = ""; $0.line = "Working on it…"; $0.finishedAway = false }
+        update(id) { $0.state = "working"; $0.reply = ""; $0.line = "Working on it…"; $0.finishedAway = false; $0.toldNova = false }
         let stop = await Engine.shared.promptSession(sid, text, images: images,
             onText: { s in Task { @MainActor in self.update(id) { $0.reply += s } } },
             onTool: { s in Task { @MainActor in self.update(id) { $0.line = Plain.step(s) } } })
@@ -1172,9 +1184,36 @@ final class Model: ObservableObject {
             else { h.state = "done"; h.line = "Done · " + Helpers.summary(parts.body, 30) }
             h.finishedAway = away || (self.openHelper != id && h.state == "needsYes")
         }
+        if let h = helpers.first(where: { $0.id == id }), h.state == "done", !stop.hasPrefix("error") {
+            putOnShelf(title: h.title, body: Choices.split(h.reply).body, from: "\(h.title) helper")
+        }
         if away, let h = helpers.first(where: { $0.id == id }) {
             Floater.shared.note(h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done.")
         }
+    }
+
+    /// What Nova should know about her helpers: who's still working, and full results she hasn't seen yet.
+    func helperNews() -> String {
+        guard !helpers.isEmpty else { return "" }
+        var lines: [String] = []
+        for k in helpers.indices {
+            let h = helpers[k]
+            switch h.state {
+            case "working": lines.append("- \(h.title): still working (\(h.line)).")
+            case "stopped": lines.append("- \(h.title): paused, not finished.")
+            default:
+                let what = h.state == "needsYes" ? "is waiting for the user's yes" : "is DONE"
+                if h.toldNova == true {
+                    lines.append("- \(h.title): \(what) (you were already given its result).")
+                } else {
+                    var r = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if r.count > 2500 { r = String(r.prefix(2500)) + "…" }
+                    lines.append("- \(h.title): \(what). Its result:\n\(r.isEmpty ? "(no text)" : r)")
+                    helpers[k].toldNova = true
+                }
+            }
+        }
+        return "\n\n(One app note, not from the user: status of your helpers right now. Trust this over anything said earlier.\n" + lines.joined(separator: "\n") + ")"
     }
 
     /// Turn what you typed/said plus any pictures and files into (what you see, what the engine gets, images).
@@ -1224,7 +1263,7 @@ final class Model: ObservableObject {
         }
         // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
         let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer.)"
-        let stop = await Engine.shared.prompt(c.engine + note, images: c.images)
+        let stop = await Engine.shared.prompt(c.engine + note + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         thinking = false; working = nil
         if idx < bubbles.count {
@@ -2282,6 +2321,7 @@ struct Helper: Identifiable, Codable {
     var reply: String = ""
     var asked: String?
     var finishedAway = false
+    var toldNova: Bool?          // has Nova been given this result yet?
     var viewState: HelperState {
         switch state { case "working": .working; case "needsYes": .needsYes; case "stopped": .stopped; default: .done }
     }
@@ -2421,6 +2461,160 @@ struct AwayCard: View {
     }
 }
 
+
+
+// MARK: - Ready for you: what Nova and her helpers made, kept on a shelf and saved as real files.
+
+struct ShelfItem: Identifiable, Codable {
+    var id = UUID()
+    var title: String
+    var detail: String
+    var from: String
+    var path: String
+    var made = Date()
+    var fresh = true
+    var url: URL { URL(fileURLWithPath: path) }
+    var icon: String {
+        let t = (title + " " + detail).lowercased()
+        if t.contains("flight") || t.contains("trip") || t.contains("hotel") { return "airplane" }
+        if t.contains("receipt") || t.contains("$") || t.contains("budget") { return "receipt" }
+        if t.contains("email") || t.contains("reply") || t.contains("draft") { return "envelope" }
+        if t.contains("folder") || t.contains("download") || t.contains("files") { return "folder" }
+        return "doc.text"
+    }
+    var when: String {
+        let c = Calendar.current
+        if Date().timeIntervalSince(made) < 120 { return "just now" }
+        let f = DateFormatter()
+        f.dateFormat = c.isDateInToday(made) ? "h:mm a" : (c.isDateInYesterday(made) ? "'yesterday'" : "EEE")
+        return f.string(from: made)
+    }
+}
+
+enum Shelf {
+    static var folder: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return Env.selfTest ? Env.support.appendingPathComponent("selftest-made") : docs.appendingPathComponent("Made by Nova")
+    }
+    static func load() -> [ShelfItem] {
+        guard let d = UserDefaults.standard.data(forKey: "shelf"), let v = try? JSONDecoder().decode([ShelfItem].self, from: d) else { return [] }
+        return v.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+    static func save(_ v: [ShelfItem]) { UserDefaults.standard.set(try? JSONEncoder().encode(v), forKey: "shelf") }
+    /// Save a finished result as a file in Documents › Made by Nova.
+    static func keep(title: String, body: String, from: String) -> ShelfItem? {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:\\?*\"<>|")).joined(separator: "-").trimmingCharacters(in: .whitespaces)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var url = folder.appendingPathComponent("\(f.string(from: Date())) \(safe).md")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) { url = folder.appendingPathComponent("\(f.string(from: Date())) \(safe) \(n).md"); n += 1 }
+        let text = "# \(title)\n\n\(body.trimmingCharacters(in: .whitespacesAndNewlines))\n\n— \(from), \(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short))\n"
+        guard (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return ShelfItem(title: title, detail: Helpers.summary(body, 60), from: from, path: url.path)
+    }
+}
+
+struct ShelfCardView: View {
+    let item: ShelfItem
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.07))
+                .frame(width: 34, height: 34)
+                .overlay(Image(systemName: item.icon).font(.system(size: 14)).foregroundStyle(Color(hex: 0xFFE2C2)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(2)
+                Text(item.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text("\(item.from) · \(item.when)").font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            if item.fresh { Circle().fill(Color(hex: 0xFFE2C2)).frame(width: 6, height: 6).padding(.top, 4) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(item.fresh ? 0.07 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, item.fresh ? 0.22 : 0.07)))
+        .shadow(color: Color(hex: 0xFFE2C2, item.fresh ? 0.12 : 0), radius: 10)
+        .contentShape(Rectangle())
+    }
+}
+
+struct ShelfPanel: View {
+    @ObservedObject var m: Model
+    var body: some View {
+        let fresh = m.shelf.filter(\.fresh).count
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Ready for you").font(.system(size: 13, weight: .semibold))
+                if fresh > 0 {
+                    Text("\(fresh) new").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Color(hex: 0x141416))
+                        .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color(hex: 0xFFE2C2)))
+                }
+                Spacer()
+            }
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(m.shelf) { it in
+                        ShelfCardView(item: it)
+                            .onTapGesture { m.openShelf(it.id) }
+                            .onDrag { NSItemProvider(contentsOf: it.url) ?? NSItemProvider() }
+                            .help("Click to open. Drag into Mail or Messages to share.")
+                            .contextMenu {
+                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([it.url]) }
+                                Button("Take off the shelf (the file stays)") { m.removeShelf(it.id) }
+                            }
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
+            }
+            Button { NSWorkspace.shared.open(Shelf.folder) } label: {
+                HStack(spacing: 5) { Image(systemName: "folder").font(.system(size: 10)); Text("All saved in Documents › Made by Nova").font(.system(size: 10.5)) }
+            }.buttonStyle(.plain).foregroundStyle(.secondary)
+        }
+        .padding(14).frame(width: 250)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.07)))
+        .padding(.vertical, 14).padding(.trailing, 14)
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelf.map(\.id))
+    }
+}
+
+struct ShelfOpened: View {
+    @ObservedObject var m: Model
+    let item: ShelfItem
+    var body: some View {
+        let body = (try? String(contentsOf: item.url, encoding: .utf8)) ?? "This file was moved or deleted."
+        let shown = body.components(separatedBy: "\n").drop { $0.hasPrefix("# ") || $0.isEmpty }.joined(separator: "\n")
+        ZStack {
+            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { m.openedShelf = nil }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: item.icon).foregroundStyle(Color(hex: 0xFFE2C2))
+                    Text(item.title).font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                    Button { m.openedShelf = nil } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction)
+                }
+                ScrollView { MarkdownText(text: shown, size: 14).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 340)
+                HStack(spacing: 8) {
+                    Button("Open") { NSWorkspace.shared.open(item.url) }.buttonStyle(.borderedProminent)
+                        .tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }.buttonStyle(.bordered)
+                    Button("Ask Nova about it") {
+                        m.openedShelf = nil; m.openHelper = nil
+                        m.draftSeed = "About \"\(item.title)\" (\(item.path)): "
+                    }.buttonStyle(.bordered)
+                }
+                Text("Tip: drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            }
+            .padding(18).frame(width: 440)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x1E1E22, 0.98)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
+            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+        }
+    }
+}
 
 // MARK: - "Ready for you" shelf (render-only design preview): what Nova and her helpers made.
 struct ShelfCard: View {
@@ -3318,6 +3512,7 @@ struct HomeView: View {
     var lastAsk: Bubble? { m.bubbles.last(where: { $0.fromMe }) }
     var lastReply: Bubble? { m.bubbles.last.flatMap { $0.fromMe ? nil : $0 } }
     var body: some View {
+        HStack(spacing: 0) {
         ZStack {
             Mist()
             ScrollView {
@@ -3379,6 +3574,16 @@ struct HomeView: View {
                 }.padding(.horizontal, 28).padding(.bottom, 20)
             }
         }
+            if !m.shelf.isEmpty { ShelfPanel(m: m).background(Mist()).transition(.move(edge: .trailing)) }
+        }
+        .frame(minWidth: m.shelf.isEmpty ? 560 : 830)
+        .animation(.spring(response: 0.6, dampingFraction: 0.85), value: m.shelf.isEmpty)
+        .overlay {
+            if let id = m.openedShelf, let it = m.shelf.first(where: { $0.id == id }) {
+                ShelfOpened(m: m, item: it).transition(.opacity)
+            }
+        }
+        .onChange(of: m.draftSeed) { _, v in if let v { draft = v; m.draftSeed = nil; typing = true } }
         .safeAreaInset(edge: .bottom) {
             if m.paused {
                 Text("Stopped. I won't do anything until you turn me back on.")

@@ -1,3 +1,4 @@
+import Quartz
 // One — a one-button personal assistant (test build 0.2).
 // The face is this app. The engine is Hermes, run privately for One via ACP.
 // Setup is a conversation the assistant leads. The user never sees a terminal.
@@ -1335,7 +1336,20 @@ final class Model: ObservableObject {
         openedShelf = id
         if let k = shelf.firstIndex(where: { $0.id == id }) { shelf[k].fresh = false }
     }
-    func removeShelf(_ id: UUID) { if openedShelf == id { openedShelf = nil }; shelf.removeAll { $0.id == id } }
+    func removeShelf(_ id: UUID) {
+        if openedShelf == id { openedShelf = nil }
+        if let it = shelf.first(where: { $0.id == id }) {
+            var h = UserDefaults.standard.stringArray(forKey: "shelfHidden") ?? []
+            h.append(it.url.standardizedFileURL.path); UserDefaults.standard.set(h, forKey: "shelfHidden")
+        }
+        shelf.removeAll { $0.id == id }
+    }
+    /// Puts any new file in the results folder on the shelf. Runs every few seconds and after each reply.
+    func scanShelf() {
+        let new = Shelf.adopt(shelf)
+        guard !new.isEmpty else { return }
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { shelf.insert(contentsOf: new, at: 0) }
+    }
     func putOnShelf(title: String, body: String, from: String) {
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let it = Shelf.keep(title: title, body: body, from: from) else { return }
         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { shelf.insert(it, at: 0) }
@@ -1517,7 +1531,7 @@ final class Model: ObservableObject {
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
         // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
-        let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer.)"
+        let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
         let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
@@ -2767,6 +2781,13 @@ struct ShelfItem: Identifiable, Codable {
     var fresh = true
     var url: URL { URL(fileURLWithPath: path) }
     var icon: String {
+        switch url.pathExtension.lowercased() {
+        case "pdf": return "doc.richtext"
+        case "png", "jpg", "jpeg", "heic", "gif", "webp": return "photo"
+        case "csv", "xlsx", "numbers": return "tablecells"
+        case "docx", "doc", "pages", "rtf": return "doc.text"
+        default: break
+        }
         let t = (title + " " + detail).lowercased()
         if t.contains("flight") || t.contains("trip") || t.contains("hotel") { return "airplane" }
         if t.contains("receipt") || t.contains("$") || t.contains("budget") { return "receipt" }
@@ -2810,6 +2831,26 @@ enum Shelf {
     }
     static func save(_ v: [ShelfItem]) { UserDefaults.standard.set(try? JSONEncoder().encode(v), forKey: "shelf") }
     /// Save a finished result as a file in Documents › Made by Nova.
+    /// Files the assistant made directly (PDFs, documents…) that aren't on the shelf yet.
+    static func adopt(_ have: [ShelfItem]) -> [ShelfItem] {
+        let fm = FileManager.default
+        let known = Set(have.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+        let hidden = Set(UserDefaults.standard.stringArray(forKey: "shelfHidden") ?? [])
+        let items = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles])) ?? []
+        var out: [ShelfItem] = []
+        for u in items {
+            let path = u.standardizedFileURL.path
+            guard !known.contains(path), !hidden.contains(path),
+                  (try? u.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  !u.lastPathComponent.hasSuffix(".part"), !u.lastPathComponent.hasPrefix("~") else { continue }
+            let made = (try? u.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
+            var title = u.deletingPathExtension().lastPathComponent
+            if let r = title.range(of: #"^\d{4}-\d{2}-\d{2} "#, options: .regularExpression) { title.removeSubrange(r) }
+            let kind = u.pathExtension.uppercased()
+            out.append(ShelfItem(title: title, detail: kind.isEmpty ? "A file \(who) made" : "\(kind) · ready to share", from: who, path: path, made: made, fresh: true))
+        }
+        return out.sorted { $0.made > $1.made }
+    }
     static func keep(title: String, body: String, from: String) -> ShelfItem? {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         let safe = title.components(separatedBy: CharacterSet(charactersIn: "/:\\?*\"<>|")).joined(separator: "-").trimmingCharacters(in: .whitespaces)
@@ -2932,6 +2973,15 @@ struct FileViewer: View {
     static let readable: Set<String> = ["md", "markdown", "txt", "text", "csv", "json", "yaml", "yml", "log"]
 }
 
+struct QuickLookView: NSViewRepresentable {
+    let url: URL
+    func makeNSView(context: Context) -> QLPreviewView {
+        let v = QLPreviewView(frame: .zero, style: .normal)!
+        v.autostarts = true; v.previewItem = url as NSURL; return v
+    }
+    func updateNSView(_ v: QLPreviewView, context: Context) { if (v.previewItem as? NSURL) as URL? != url { v.previewItem = url as NSURL } }
+}
+
 struct ShelfOpened: View {
     @ObservedObject var m: Model
     let item: ShelfItem
@@ -2954,11 +3004,15 @@ struct ShelfOpened: View {
                     }
                     .padding(.horizontal, 22).padding(.vertical, 16)
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                    if !FileViewer.readable.contains(item.url.pathExtension.lowercased()) {
+                        QuickLookView(url: item.url).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
                     ScrollView {
                         MarkdownText(text: shown, size: 15)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 22).padding(.vertical, 18)
+                    }
                     }
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                     HStack(spacing: 8) {
@@ -4592,6 +4646,7 @@ struct AskCard: View {
 
 final class OneDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in while true { Model.shared.scanShelf(); try? await Task.sleep(for: .seconds(3)) } }
         if Speaker.shared.installed { Speaker.shared.start() }
         else if Env.hermesPath != nil { Task.detached { if await Speaker.shared.install() { Speaker.shared.start() } } }
         MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply() }

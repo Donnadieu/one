@@ -1329,6 +1329,7 @@ final class Model: ObservableObject {
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     @Published var openedShelf: UUID?
     @Published var draftSeed: String?
+    @Published var about: (title: String, url: URL)?
     @Published var viewing: URL?
     func openShelf(_ id: UUID) {
         openedShelf = id
@@ -1464,7 +1465,10 @@ final class Model: ObservableObject {
     /// Turn what you typed/said plus any pictures and files into (what you see, what the engine gets, images).
     private func compose(_ text: String) -> (display: String, engine: String, images: [String])? {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !(t.isEmpty && pictures.isEmpty && files.isEmpty) else { return nil }
+        let ref = about
+        guard !(t.isEmpty && pictures.isEmpty && files.isEmpty && ref == nil) else { return nil }
+        about = nil
+        if t.isEmpty, let ref { t = "Tell me what's in \"\(ref.title)\" in a few lines, then ask what I'd like to do with it." }
         let pics = pictures; pictures = []
         let docs = files; files = []
         if t.isEmpty {
@@ -1472,9 +1476,11 @@ final class Model: ObservableObject {
                              : (pics.count + docs.count == 1 ? "Have a look at this and tell me what it is." : "Have a look at these and tell me what they are.")
         }
         var tags: [String] = []
+        if let ref { tags.append("📄 " + ref.title) }
         if !pics.isEmpty { tags.append("🖼 " + (pics.count == 1 ? "1 picture" : "\(pics.count) pictures")) }
         tags += docs.map { "📄 " + $0.name }
         var forEngine = t
+        if let ref { forEngine += "\n\n(This is about \"\(ref.title)\". Read it first: \(ref.url.path))" }
         if !docs.isEmpty {
             forEngine += "\n\n(I'm sharing these files. Copies are saved here and you can open them:"
             for d in docs {
@@ -1976,8 +1982,22 @@ struct SharedFile: Identifiable {
 struct PictureStrip: View {
     @ObservedObject var m: Model
     var body: some View {
-        if !m.pictures.isEmpty || !m.files.isEmpty {
+        if !m.pictures.isEmpty || !m.files.isEmpty || m.about != nil {
             HStack(spacing: 8) {
+                if let a = m.about {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text").foregroundStyle(Color(hex: 0xFFE2C2))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Asking about").font(.caption2).foregroundStyle(.secondary)
+                            Text(a.title).font(.callout).lineLimit(1).truncationMode(.middle).frame(maxWidth: 180, alignment: .leading)
+                        }
+                        Button { m.about = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                            .buttonStyle(.plain).help("Remove")
+                    }
+                    .padding(.horizontal, 10).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.15)))
+                }
                 ForEach(m.files) { f in
                     HStack(spacing: 6) {
                         Image(nsImage: f.icon).resizable().frame(width: 26, height: 26)
@@ -2898,7 +2918,7 @@ struct FileViewer: View {
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                     HStack(spacing: 8) {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Label("Show in Finder", systemImage: "folder") }.buttonStyle(.bordered)
-                        Button { m.viewing = nil; m.draftSeed = "About \"\(title)\" (\(url.path)): " } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }.buttonStyle(.bordered)
+                        Button { m.viewing = nil; m.openHelper = nil; m.about = (title, url); m.draftSeed = "" } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }.buttonStyle(.bordered)
                         Spacer()
                     }.padding(.horizontal, 22).padding(.vertical, 14)
                 }
@@ -2944,7 +2964,7 @@ struct ShelfOpened: View {
                     HStack(spacing: 8) {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([item.url]) } label: { Label("Show in Finder", systemImage: "folder") }
                             .buttonStyle(.bordered)
-                        Button { m.openedShelf = nil; m.openHelper = nil; m.draftSeed = "About \"\(item.title)\" (\(item.path)): " } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }
+                        Button { m.openedShelf = nil; m.openHelper = nil; m.about = (item.title, item.url); m.draftSeed = "" } label: { Label("Ask \(m.name) about it", systemImage: "bubble.left") }
                             .buttonStyle(.bordered)
                         Spacer()
                         Text("Drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
@@ -4429,7 +4449,7 @@ struct HomeView: View {
             if let f { NSWorkspace.shared.activateFileViewerSelecting([f]); return .handled }
             return .systemAction
         })
-        .onChange(of: m.draftSeed) { _, v in if let v { draft = v; m.draftSeed = nil; typing = true } }
+        .onChange(of: m.draftSeed) { _, v in if let v { if !v.isEmpty { draft = v }; m.draftSeed = nil; typing = true } }
         .safeAreaInset(edge: .bottom) {
             if m.paused {
                 Text("Stopped. I won't do anything until you turn me back on.")
@@ -4515,14 +4535,14 @@ struct HomeView: View {
         HStack(spacing: 12) {
             Button { PictureIn.pick() } label: { Image(systemName: "paperclip").font(.system(size: 20, weight: .light)) }
                 .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)").disabled(m.paused)
-            TextField(m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…"), text: $draft)
+            TextField(m.about != nil ? "What do you want to know? Or just press send." : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…"), text: $draft)
                 .textFieldStyle(.plain).font(.title3).focused($typing)
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
                 .onSubmit(go).disabled(m.paused)
             micButton
             Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                .buttonStyle(.plain).disabled(m.paused || m.busyHere || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty))
+                .buttonStyle(.plain).disabled(m.paused || m.busyHere || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil))
         }
         }
     }

@@ -717,8 +717,11 @@ enum Access {
         func q(_ p: String) -> String {
             "(subpath \"" + p.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\")"
         }
-        let rw = [Env.support.path, Brain.root.path, "\(h)/.cache", "\(h)/Library/Caches"] + folders + Shared.paths
-        var ro = ["\(h)/.local"]
+        // GitHub and git logins the person already has on this Mac (so "connect my GitHub" just works).
+        let logins = ["\(h)/.config/gh", "\(h)/.gitconfig", "\(h)/.config/git", "\(h)/.ssh", "\(h)/.git-credentials"]
+        let rw = [Env.support.path, Brain.root.path, "\(h)/.cache", "\(h)/Library/Caches", "\(h)/.config/gh"] + folders + Shared.paths
+        // The GitHub login token itself sits in the macOS keychain.
+        var ro = ["\(h)/.local", "\(h)/Library/Keychains"] + logins
         if Env.hermesPath != Env.ownHermes { ro += ["\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"] }
         return """
         (version 1)
@@ -1451,7 +1454,14 @@ final class Model: ObservableObject {
         }
     }
 
-    func sharedNote() -> String { let n = Shared.note(clashes: clashes); clashes = []; return n }
+    func sharedNote() -> String { let n = Shared.note(clashes: clashes); clashes = []; return n + Model.githubNote }
+    /// If they're signed in to GitHub on this Mac, say so every turn so the assistant never claims it can't.
+    static var githubNote: String {
+        let h = NSHomeDirectory()
+        guard let hosts = try? String(contentsOfFile: "\(h)/.config/gh/hosts.yml", encoding: .utf8), hosts.contains("github.com"),
+              let gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"].first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return "" }
+        return "\n\n(One app note, not from the user: GITHUB IS CONNECTED. They're signed in on this Mac; use \(gh) (gh repo list, gh repo clone, gh api) and git directly, including private repos. Clone into \(Env.support.path)/work or the brain. Never tell them GitHub can't be connected or ask them to download zips.)"
+    }
 
     /// Extra guidance when they talk about rooms or start the welcome interview (not shown to them).
     func roomNotes(_ text: String) -> String {
@@ -4943,6 +4953,7 @@ struct AskCard: View {
 
 final class OneDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--print-profile") { print(Access.profile()); exit(0) }
         if CommandLine.arguments.contains("--test-shared") {
             Env.selfTest = true   // brain goes to a scratch copy, never the real one
             // Two people, one cloud folder: Omar makes a room, Sam joins, both add entries.

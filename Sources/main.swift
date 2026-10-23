@@ -2973,6 +2973,18 @@ struct FileViewer: View {
     static let readable: Set<String> = ["md", "markdown", "txt", "text", "csv", "json", "yaml", "yml", "log"]
 }
 
+/// PDFs: Apple's own PDF reader, scrolls with the trackpad and mouse wheel.
+struct PDFReader: NSViewRepresentable {
+    let url: URL
+    func makeNSView(context: Context) -> PDFView {
+        let v = PDFView()
+        v.autoScales = true; v.displayMode = .singlePageContinuous; v.displayDirection = .vertical
+        v.displaysPageBreaks = true; v.backgroundColor = NSColor(white: 0.12, alpha: 1)
+        v.document = PDFDocument(url: url); return v
+    }
+    func updateNSView(_ v: PDFView, context: Context) { if v.document?.documentURL != url { v.document = PDFDocument(url: url) } }
+}
+
 struct QuickLookView: NSViewRepresentable {
     let url: URL
     func makeNSView(context: Context) -> QLPreviewView {
@@ -3005,7 +3017,9 @@ struct ShelfOpened: View {
                     .padding(.horizontal, 22).padding(.vertical, 16)
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                     if !FileViewer.readable.contains(item.url.pathExtension.lowercased()) {
-                        QuickLookView(url: item.url).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        Group {
+                            if item.url.pathExtension.lowercased() == "pdf" { PDFReader(url: item.url) } else { QuickLookView(url: item.url) }
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                     ScrollView {
                         MarkdownText(text: shown, size: 15)

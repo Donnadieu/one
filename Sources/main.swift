@@ -1202,8 +1202,9 @@ final class Model: ObservableObject {
         return (tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t, forEngine, pics.map { $0.data.base64EncodedString() })
     }
 
-    func send(_ text: String) async {
-        if let hid = openHelper, let h = openedHelper {
+    /// toNova: the floating orb always talks to Nova, never to an open helper.
+    func send(_ text: String, toNova: Bool = false) async {
+        if !toNova, let hid = openHelper, let h = openedHelper {
             guard !paused, h.state != "working", let c = compose(text) else { return }
             await ensureEngine()
             update(hid) { $0.asked = c.display }
@@ -2187,7 +2188,7 @@ final class OrbHost: NSView {
                 self.tuckIfOneInFront(after: 4); return
             }
             Task { @MainActor in
-                await Model.shared.send(heard)
+                await Model.shared.send(heard, toNova: true)
                 if NSApp.isActive { self.tuckIfOneInFront(after: 0) } else { self.showReply() }
             }
         }
@@ -2208,7 +2209,7 @@ final class OrbHost: NSView {
                 return
             }
             Task { @MainActor in
-                await Model.shared.send(heard)
+                await Model.shared.send(heard, toNova: true)
                 self.showReply()
             }
         }
@@ -2417,6 +2418,121 @@ struct AwayCard: View {
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+    }
+}
+
+
+// MARK: - "Ready for you" shelf (render-only design preview): what Nova and her helpers made.
+struct ShelfCard: View {
+    let icon: String; let title: String; let detail: String; let from: String; var fresh = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.07))
+                .frame(width: 34, height: 34)
+                .overlay(Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Color(hex: 0xFFE2C2)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.95))
+                Text(detail).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.7)).fixedSize(horizontal: false, vertical: true)
+                Text(from).font(.system(size: 10)).foregroundStyle(WorldLook.cream.opacity(0.45))
+            }
+            Spacer(minLength: 0)
+            if fresh { Circle().fill(Color(hex: 0xFFE2C2)).frame(width: 6, height: 6).padding(.top, 4) }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(fresh ? 0.07 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(WorldLook.cream.opacity(fresh ? 0.22 : 0.07)))
+        .shadow(color: Color(hex: 0xFFE2C2, fresh ? 0.12 : 0), radius: 10)
+    }
+}
+
+struct ShelfScene: View {
+    var t: Double = 21.7
+    var open = false
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            WorldLook.bg
+            RadialGradient(colors: [Color(hex: 0x24262A, 0.6), .clear], center: UnitPoint(x: 0.36, y: 0.48), startRadius: 10, endRadius: 280)
+            Text("Good afternoon, Omar.").font(.system(size: 17, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                .position(x: 290, y: 34)
+            Presence(t: t, lean: .zero, voice: 0.2, energy: 0.15).frame(width: 280, height: 280).scaleEffect(0.6).position(x: 290, y: 224)
+            Text("Nova").font(.system(size: 12, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.8)).position(x: 290, y: 290)
+            HelperOrb(state: .working, t: t, size: 40).position(x: 140, y: 150)
+            HelperLabel(title: "Flight to Quebec", line: "Checking Google Flights…").position(x: 140, y: 198)
+            // done helper flying to the shelf
+            Path { p in p.move(to: CGPoint(x: 330, y: 250)); p.addQuadCurve(to: CGPoint(x: 548, y: 112), control: CGPoint(x: 450, y: 160)) }
+                .stroke(LinearGradient(colors: [WorldLook.cream.opacity(0), WorldLook.cream.opacity(0.3)], startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [1, 6]))
+            HStack {
+                Text("Talk to Nova…").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                Spacer(); Image(systemName: "mic").foregroundStyle(WorldLook.cream.opacity(0.65))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10).frame(width: 340)
+            .background(Capsule().fill(Color.white.opacity(0.06)))
+            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.1)))
+            .position(x: 290, y: 404)
+
+            // the shelf
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Ready for you").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                    Text("2 new").font(.system(size: 10.5, weight: .medium)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color(hex: 0xFFE2C2)))
+                    Spacer()
+                }.padding(.bottom, 2)
+                ShelfCard(icon: "receipt", title: "Receipts 2026", detail: "23 receipts · $1,284 total", from: "Receipts helper · just now", fresh: true)
+                ShelfCard(icon: "airplane", title: "Quebec flight prices", detail: "Newark $3,104 · Philadelphia $3,416", from: "Flight helper · 1:17 PM", fresh: true)
+                ShelfCard(icon: "envelope", title: "Reply to the school", detail: "Draft, not sent", from: "Nova · yesterday")
+                ShelfCard(icon: "folder", title: "Downloads, tidied", detail: "9 folders · nothing deleted", from: "Downloads helper · Mon")
+                Spacer()
+                HStack(spacing: 5) {
+                    Image(systemName: "folder").font(.system(size: 10))
+                    Text("All saved in Documents › Made by Nova").font(.system(size: 10.5))
+                }.foregroundStyle(WorldLook.cream.opacity(0.5))
+            }
+            .padding(14).frame(width: 250, height: 410, alignment: .top)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.07)))
+            .position(x: 680, y: 225)
+
+            if open {
+                Color.black.opacity(0.45)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "receipt").foregroundStyle(Color(hex: 0xFFE2C2))
+                        Text("Receipts 2026").font(.system(size: 15, weight: .semibold)).foregroundStyle(WorldLook.cream)
+                        Spacer()
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                    }
+                    Text("23 receipts from this year, $1,284 in total.").font(.system(size: 13.5)).foregroundStyle(WorldLook.cream.opacity(0.9))
+                    VStack(spacing: 6) {
+                        ForEach([("Amazon", "Mar 4", "$212.40"), ("Apple", "Jun 18", "$129.00"), ("Costco", "Aug 2", "$318.40"), ("Target", "Sep 9", "$64.15")], id: \.0) { r in
+                            HStack { Text(r.0); Spacer(); Text(r.1).foregroundStyle(WorldLook.cream.opacity(0.5)); Text(r.2).frame(width: 70, alignment: .trailing) }
+                                .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.85))
+                        }
+                        Text("+ 19 more").font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.5)).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.05)))
+                    HStack(spacing: 8) {
+                        Text("Open in Numbers").font(.system(size: 12, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                            .padding(.horizontal, 12).padding(.vertical, 6).background(Capsule().fill(WorldLook.cream))
+                        ForEach(["Show in Finder", "Ask Nova about it"], id: \.self) { c in
+                            Text(c).font(.system(size: 12, weight: .medium)).foregroundStyle(WorldLook.cream)
+                                .padding(.horizontal, 11).padding(.vertical, 6)
+                                .background(Capsule().fill(Color.white.opacity(0.08)))
+                                .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.14)))
+                        }
+                    }
+                    Text("Tip: drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45))
+                }
+                .padding(18).frame(width: 420)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x1E1E22, 0.98)))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.14)))
+                .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                .position(x: 410, y: 225)
+            }
+        }
+        .frame(width: 820, height: 450)
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -3439,6 +3555,8 @@ struct Entry {
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
+                    ("shelf", AnyView(ShelfScene())),
+                    ("shelf-open", AnyView(ShelfScene(open: true))),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
                     ("away", AnyView(AwayScene())),
@@ -3448,7 +3566,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: 620, height: 440)); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name.hasPrefix("shelf") ? 820 : 620, height: name.hasPrefix("shelf") ? 450 : 440)); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

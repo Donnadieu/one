@@ -39,6 +39,11 @@ enum Env {
         e["PATH"] = "\(engineDir.path)/.hermes/bin:\(h)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         e["HERMES_HOME"] = hermesHome.path
         e["PYTHONUNBUFFERED"] = "1"; e["NO_COLOR"] = "1"; e["TERM"] = "dumb"
+        // One's folder lock already wraps everything; Chrome can't start a second sandbox inside it.
+        e["AGENT_BROWSER_ARGS"] = "--no-sandbox,--disable-dev-shm-usage"
+        // The browser helper keeps its files in ~/.config by default, which the folder lock closes.
+        e["BH_HOME"] = support.appendingPathComponent("browser").path
+        e["BH_RUNTIME_DIR"] = "/tmp/one-bh-\(getuid())"   // short path: socket names have a length limit
         for k in ["ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] {
             e.removeValue(forKey: k)
         }

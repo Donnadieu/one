@@ -15,6 +15,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>One</string>
   <key>CFBundleIdentifier</key><string>ai.forjado.one</string>
   <key>CFBundleExecutable</key><string>One</string>
+  <key>CFBundleIconFile</key><string>One</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.6</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -23,6 +24,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
+cp assets/One.icns "$APP/Contents/Resources/One.icns"
 # Hermes's official installer (MIT, Nous Research), run by One on first launch.
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"
 curl -fsSL "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"

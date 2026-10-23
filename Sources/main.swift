@@ -738,6 +738,7 @@ final class Model: ObservableObject {
     @AppStorage("onboarded") var onboarded = false
     @AppStorage("assistantName") var assistantName = ""
     @AppStorage("userName") var userName = ""
+    @AppStorage("interviewOffered") var interviewOffered = false
     @AppStorage("provider") var providerRaw = ""
     @AppStorage("connections") var connectionsRaw = ""
     @AppStorage("passwords") var passwords = ""
@@ -962,7 +963,7 @@ final class Model: ObservableObject {
         await say("Nice to meet you, \(n).", voice: "niceToMeet")
         await say("I also have a memory, and it's yours. It lives on this Mac as plain files, so even if you switch AIs, I still remember.", voice: "memory")
         await say("Everything starts in your personal room: family, home, health, plans.", voice: "personalRoom")
-        await say("Is there a part of your life you'd like kept separate from the rest? Each one gets its own room, with its own rules.", voice: "roomsQuestion")
+        await say("Want to keep part of your life separate, like a job or a business? I'll give it its own room, where I act differently and keep its notes apart.", voice: "roomsQuestion")
     }
 
     func roomsChosen(_ simple: Bool) async {
@@ -973,7 +974,7 @@ final class Model: ObservableObject {
         busy = false
         if let err { await say("I couldn't set up your memory: \(err)") }
         else if extra.isEmpty { await say("Your personal room is ready. If you ever want another one, just ask.", voice: "roomsSimple") }
-        else { await say("Done. Your rooms are ready, and each one keeps to its own rules.", voice: "roomsDone") }
+        else { await say("Done. Each room keeps its own notes, and I act the way you want in each one.", voice: "roomsDone") }
         step = .world
     }
 
@@ -1192,6 +1193,19 @@ final class Model: ObservableObject {
         }
     }
 
+    /// Extra guidance when they talk about rooms or start the welcome interview (not shown to them).
+    func roomNotes(_ text: String) -> String {
+        let t = text.lowercased()
+        var out = ""
+        if t.contains("room") {
+            out += "\n\n(One app note, not from the user: ROOMS. A room is one part of their life where you act differently and keep its notes apart. A new room is only for different rules, not a new topic. To add one, follow the brain's skills/add-room/SKILL.md, but local only: no GitHub, git or keys; the One app handles backup. First say in one plain line what a room is. Then ask these one per message, each ending with a [choices: ...] line: 1) what you should be for them in this room, 2) who might ever see it, 3) how private it is, 4) what you should push them toward. Then show the room in a short summary: its name, your job there, who might see it, how private it is, what you push toward, and the rules (on your own: read and draft; needs their yes: send, spend, delete; only them: change these rules), ending with [choices: Make the room | Change something]. Build nothing before 'Make the room'. If it's only a topic, say which room and folder it fits in instead. After making it, offer a short get-to-know-you for that room, run from its skills/setup/SKILL.md, with Skip and That's enough for now on every question.)"
+        }
+        if t.contains("welcome interview") || t.contains("get to know me") {
+            out += "\n\n(One app note, not from the user: WELCOME INTERVIEW. Run the personal room's setup (\(Brain.root.path)/personal-room/skills/setup/SKILL.md) as a friendly get-to-know-you interview. Start with what makes the room's purpose clear: what you should be for them in this room, and what you should push them toward. Then its setup questions. One question per message. End every question with a [choices: ...] line whose last two answers are exactly Skip | That's enough for now. Write each answer into the room as it comes. On 'That's enough for now', thank them, say in one line what you saved, and that they can say 'get to know me' any time to continue.)"
+        }
+        return out
+    }
+
     /// What Nova should know about her helpers: who's still working, and full results she hasn't seen yet.
     func helperNews() -> String {
         guard !helpers.isEmpty else { return "" }
@@ -1263,7 +1277,7 @@ final class Model: ObservableObject {
         }
         // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
         let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer.)"
-        let stop = await Engine.shared.prompt(c.engine + note + helperNews(), images: c.images)
+        let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         thinking = false; working = nil
         if idx < bubbles.count {
@@ -2498,8 +2512,23 @@ enum Shelf {
         return Env.selfTest ? Env.support.appendingPathComponent("selftest-made") : docs.appendingPathComponent("Made by \(Shelf.who)")
     }
     static func load() -> [ShelfItem] {
-        guard let d = UserDefaults.standard.data(forKey: "shelf"), let v = try? JSONDecoder().decode([ShelfItem].self, from: d) else { return [] }
-        return v.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard let d = UserDefaults.standard.data(forKey: "shelf"), var v = try? JSONDecoder().decode([ShelfItem].self, from: d) else { return [] }
+        // The assistant was renamed: move results from the old "Made by …" folder into the new one.
+        let fm = FileManager.default
+        for k in v.indices where !v[k].path.hasPrefix(folder.path + "/") {
+            let old = URL(fileURLWithPath: v[k].path)
+            guard fm.fileExists(atPath: old.path), old.deletingLastPathComponent().lastPathComponent.hasPrefix("Made by ") else { continue }
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            let dest = folder.appendingPathComponent(old.lastPathComponent)
+            if (try? fm.moveItem(at: old, to: dest)) != nil {
+                v[k].path = dest.path
+                let dir = old.deletingLastPathComponent()
+                if (try? fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }.isEmpty) == true { try? fm.removeItem(at: dir) }
+            }
+        }
+        let kept = v.filter { FileManager.default.fileExists(atPath: $0.path) }
+        save(kept)
+        return kept
     }
     static func save(_ v: [ShelfItem]) { UserDefaults.standard.set(try? JSONEncoder().encode(v), forKey: "shelf") }
     /// Save a finished result as a file in Documents › Made by Nova.
@@ -2617,6 +2646,268 @@ struct ShelfOpened: View {
     }
 }
 
+
+
+// MARK: - Your rooms: a live map of the brain, one cluster per room, one dot per note.
+
+struct RoomNote: Identifiable { let id: String; let title: String; let room: Int; let hub: Bool; var links: [String] }
+struct RoomInfo: Identifiable { let id: String; let title: String; let color: Color; var notes: [RoomNote]; var crossed: [Int: Int] }
+struct LaidNote { let n: RoomNote; let p: CGPoint; let r: CGFloat; let color: Color; let degree: Int }
+
+enum RoomMap {
+    static let palette: [UInt32] = [0xFFE2C2, 0x9FC9B0, 0xA9C1E8, 0xE6A9C4, 0xD8D08F, 0xC9B2E8]
+    static let skipFiles: Set<String> = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md", "UNLOCK-CHECK.md"]
+    static let skipDirs: Set<String> = ["skills", "agents", "templates", "confidential", ".git", "node_modules"]
+    static let wiki = try! NSRegularExpression(pattern: #"\[\[([^\]\|#]+)"#)
+    static let mdLink = try! NSRegularExpression(pattern: #"\]\(([^)\s]+\.md)\)"#)
+
+    static func roomFolders() -> [URL] {
+        let items = (try? FileManager.default.contentsOfDirectory(at: Brain.root, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        let rooms = items.filter { $0.lastPathComponent.hasSuffix("-room") && ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false) }
+        return rooms.sorted { a, b in
+            if a.lastPathComponent == "personal-room" { return true }
+            if b.lastPathComponent == "personal-room" { return false }
+            return a.lastPathComponent < b.lastPathComponent
+        }
+    }
+    static func roomTitle(_ folder: String) -> String {
+        if let k = RoomKind.allCases.first(where: { $0.folder == folder }) { return k.title.prefix(1).uppercased() + k.title.dropFirst() }
+        let base = folder.replacingOccurrences(of: "-room", with: "").replacingOccurrences(of: "-", with: " ")
+        return base.prefix(1).uppercased() + base.dropFirst() + " room"
+    }
+    static func noteTitle(_ url: URL, _ text: String) -> String {
+        for l in text.split(separator: "\n").prefix(20) where l.hasPrefix("# ") { return String(l.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
+        return url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "-", with: " ")
+    }
+    static func matches(_ re: NSRegularExpression, _ t: String) -> [String] {
+        re.matches(in: t, range: NSRange(t.startIndex..., in: t)).compactMap { Range($0.range(at: 1), in: t).map { String(t[$0]) } }
+    }
+    static func load() -> [RoomInfo] {
+        let fm = FileManager.default
+        let folders = roomFolders()
+        var out: [RoomInfo] = []
+        var allTexts: [Int: [String]] = [:]
+        for (ri, r) in folders.enumerated() {
+            let folder = r.lastPathComponent
+            let hubPath = RoomKind.allCases.first { $0.folder == folder }.map { r.appendingPathComponent($0.hub).path }
+            var notes: [RoomNote] = [], texts: [String: String] = [:]
+            if let en = fm.enumerator(at: r, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+                for case let f as URL in en {
+                    if skipDirs.contains(f.lastPathComponent) { en.skipDescendants(); continue }
+                    guard notes.count < 200, f.pathExtension == "md", !skipFiles.contains(f.lastPathComponent),
+                          let t = try? String(contentsOf: f, encoding: .utf8) else { continue }
+                    texts[f.path] = t
+                    notes.append(RoomNote(id: f.path, title: noteTitle(f, t), room: ri, hub: f.path == hubPath, links: []))
+                }
+            }
+            var byStem: [String: String] = [:]
+            for n in notes { byStem[URL(fileURLWithPath: n.id).deletingPathExtension().lastPathComponent.lowercased()] = n.id }
+            for k in notes.indices {
+                let t = texts[notes[k].id] ?? ""
+                var ls = Set<String>()
+                for w in matches(wiki, t) { if let id = byStem[w.trimmingCharacters(in: .whitespaces).lowercased()] { ls.insert(id) } }
+                for l in matches(mdLink, t) {
+                    let target = URL(fileURLWithPath: l, relativeTo: URL(fileURLWithPath: notes[k].id).deletingLastPathComponent()).standardizedFileURL.path
+                    if texts[target] != nil { ls.insert(target) }
+                    else if let id = byStem[URL(fileURLWithPath: l).deletingPathExtension().lastPathComponent.lowercased()] { ls.insert(id) }
+                }
+                ls.remove(notes[k].id)
+                notes[k].links = Array(ls)
+            }
+            if !notes.contains(where: \.hub) {
+                notes.insert(RoomNote(id: "room:" + folder, title: roomTitle(folder), room: ri, hub: true, links: []), at: 0)
+            }
+            allTexts[ri] = Array(texts.values)
+            out.append(RoomInfo(id: folder, title: roomTitle(folder), color: Color(hex: palette[ri % palette.count]), notes: notes, crossed: [:]))
+        }
+        // "(from <room>)" lines: facts that crossed between rooms.
+        for i in out.indices {
+            for j in out.indices where j != i {
+                let base = out[j].id.replacingOccurrences(of: "-room", with: "")
+                let n = (allTexts[i] ?? []).reduce(0) { $0 + $1.lowercased().components(separatedBy: "(from \(base)").count - 1 }
+                if n > 0 { out[i].crossed[j] = n }
+            }
+        }
+        return out
+    }
+    static func layout(_ rooms: [RoomInfo], _ size: CGSize) -> [LaidNote] {
+        let n = max(rooms.count, 1)
+        let w = size.width, h = size.height
+        var centers: [CGPoint] = []
+        if n == 1 { centers = [CGPoint(x: w / 2, y: h / 2)] }
+        else if n == 2 { centers = [CGPoint(x: w * 0.3, y: h * 0.55), CGPoint(x: w * 0.72, y: h * 0.42)] }
+        else { for i in 0..<n { let a = Double(i) / Double(n) * 2 * .pi - .pi / 2; centers.append(CGPoint(x: w / 2 + cos(a) * w * 0.3, y: h / 2 + sin(a) * h * 0.3)) } }
+        let spread = min(w / CGFloat(n == 1 ? 2.4 : Double(n) + 1.2), h / (n <= 2 ? 2.6 : 3.4))
+        var out: [LaidNote] = []
+        for (ri, room) in rooms.enumerated() {
+            let c = centers[ri]
+            var degree: [String: Int] = [:]
+            for x in room.notes { for l in x.links { degree[l, default: 0] += 1; degree[x.id, default: 0] += 1 } }
+            let others = room.notes.filter { !$0.hub }
+            for x in room.notes where x.hub { out.append(LaidNote(n: x, p: c, r: 9, color: room.color, degree: degree[x.id] ?? 0)) }
+            for (i, x) in others.enumerated() {
+                let a = Double(i) * 2.39996 + Double(ri)
+                let d = spread * CGFloat(sqrt((Double(i) + 1.2) / Double(others.count + 1))) * 0.95
+                let dg = degree[x.id] ?? 0
+                out.append(LaidNote(n: x, p: CGPoint(x: c.x + cos(a) * d, y: c.y + sin(a) * d * 0.85), r: dg > 0 ? 5 : 3.5, color: room.color, degree: dg))
+            }
+        }
+        return out
+    }
+}
+
+struct RoomsView: View {
+    @ObservedObject var m: Model
+    var close: () -> Void
+    @State var rooms: [RoomInfo] = []
+    @State var picked: String?
+    @State var hover: String?
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Text("Your rooms").font(.title3.weight(.semibold))
+                    Text("Each room is a part of your life where \(m.name) acts differently and keeps the notes apart.")
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    Spacer()
+                    Button { close(); Task { await m.send("I'd like to add a room.", toNova: true) } } label: { Label("Room", systemImage: "plus") }
+                        .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                        .help("Add a room")
+                    Button("Done") { close() }.keyboardShortcut(.cancelAction)
+                }
+                .padding(16)
+                if rooms.isEmpty {
+                    Spacer(); Text("Your rooms show up here once setup is done.").foregroundStyle(.secondary); Spacer()
+                } else {
+                    GeometryReader { g in
+                        let laid = RoomMap.layout(rooms, g.size)
+                        let at = Dictionary(laid.map { ($0.n.id, $0) }, uniquingKeysWith: { a, _ in a })
+                        let labelled = laid.count <= 14 ? Set(laid.map(\.n.id)) : Set(laid.sorted { $0.degree > $1.degree }.prefix(10).filter { $0.degree > 0 }.map(\.n.id))
+                        Canvas { ctx, _ in
+                            // facts that crossed between rooms
+                            for (i, r) in rooms.enumerated() {
+                                for (j, n) in r.crossed where j > i || rooms[j].crossed[i] == nil {
+                                    guard let a = laid.first(where: { $0.n.room == i && $0.n.hub }), let b = laid.first(where: { $0.n.room == j && $0.n.hub }) else { continue }
+                                    let mid = CGPoint(x: (a.p.x + b.p.x) / 2, y: min(a.p.y, b.p.y) - 60)
+                                    var path = Path(); path.move(to: a.p); path.addQuadCurve(to: b.p, control: mid)
+                                    ctx.stroke(path, with: .color(Color(hex: 0xF4EFE8, 0.3)), style: StrokeStyle(lineWidth: 1, dash: [2, 5]))
+                                    ctx.draw(Text(n == 1 ? "1 fact crossed" : "\(n) facts crossed").font(.system(size: 10)).foregroundColor(Color(hex: 0xF4EFE8, 0.5)), at: CGPoint(x: mid.x, y: mid.y + 22))
+                                }
+                            }
+                            for l in laid {
+                                let hub = laid.first { $0.n.room == l.n.room && $0.n.hub }
+                                if let hub, !l.n.hub {
+                                    var p = Path(); p.move(to: hub.p); p.addLine(to: l.p)
+                                    ctx.stroke(p, with: .color(l.color.opacity(0.12)), lineWidth: 0.8)
+                                }
+                                for t in l.n.links { if let o = at[t] {
+                                    var p = Path(); p.move(to: l.p); p.addLine(to: o.p)
+                                    ctx.stroke(p, with: .color(l.color.opacity(0.4)), lineWidth: 1)
+                                } }
+                            }
+                            for l in laid {
+                                let on = l.n.id == picked || l.n.id == hover
+                                if l.n.hub || on {
+                                    ctx.fill(Path(ellipseIn: CGRect(x: l.p.x - l.r * 2.4, y: l.p.y - l.r * 2.4, width: l.r * 4.8, height: l.r * 4.8)), with: .color(l.color.opacity(on ? 0.28 : 0.14)))
+                                }
+                                ctx.fill(Path(ellipseIn: CGRect(x: l.p.x - l.r, y: l.p.y - l.r, width: l.r * 2, height: l.r * 2)), with: .color(l.color.opacity(l.degree > 0 || l.n.hub ? 0.95 : 0.55)))
+                                if l.n.hub || on || labelled.contains(l.n.id) {
+                                    let txt = ctx.resolve(Text(l.n.title).font(.system(size: l.n.hub ? 12.5 : 11, weight: l.n.hub ? .semibold : .regular)).foregroundColor(Color(hex: 0xF4EFE8, l.n.hub || on ? 0.95 : 0.75)))
+                                    let sz = txt.measure(in: CGSize(width: 220, height: 40))
+                                    let pt = CGPoint(x: l.p.x, y: l.p.y + l.r * 2.4 + 8)
+                                    ctx.fill(Path(roundedRect: CGRect(x: pt.x - sz.width / 2 - 4, y: pt.y - sz.height / 2 - 1, width: sz.width + 8, height: sz.height + 2), cornerRadius: 5), with: .color(Color(hex: 0x141416, 0.85)))
+                                    ctx.draw(txt, at: pt)
+                                }
+                            }
+                            for (i, r) in rooms.enumerated() {
+                                guard let hub = laid.first(where: { $0.n.room == i && $0.n.hub }) else { continue }
+                                let maxY = laid.filter { $0.n.room == i }.map(\.p.y).max() ?? hub.p.y
+                                let count = r.notes.filter { !$0.id.hasPrefix("room:") }.count
+                                ctx.draw(Text(r.title).font(.system(size: 13, weight: .semibold)).foregroundColor(r.color), at: CGPoint(x: hub.p.x, y: maxY + 30))
+                                ctx.draw(Text(count == 1 ? "1 note" : "\(count) notes").font(.system(size: 10.5)).foregroundColor(Color(hex: 0xF4EFE8, 0.5)), at: CGPoint(x: hub.p.x, y: maxY + 46))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onContinuousHover { ph in
+                            if case .active(let pt) = ph { hover = nearest(pt, laid) } else { hover = nil }
+                        }
+                        .onTapGesture(coordinateSpace: .local) { pt in if let n = nearest(pt, laid), !n.hasPrefix("room:") { picked = n } }
+                    }
+                }
+            }
+            if let id = picked, let note = rooms.flatMap(\.notes).first(where: { $0.id == id }) {
+                NotePanel(note: note, rooms: rooms) { picked = $0 }
+                    .frame(width: 290).padding(.vertical, 14).padding(.trailing, 14)
+            }
+        }
+        .frame(minWidth: 900, minHeight: 580)
+        .background(Color(hex: 0x141416))
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            rooms = RoomMap.load()
+            picked = rooms.first?.notes.first { $0.hub && !$0.id.hasPrefix("room:") }?.id
+        }
+    }
+    func nearest(_ pt: CGPoint, _ laid: [LaidNote]) -> String? {
+        let best = laid.min { hypot($0.p.x - pt.x, $0.p.y - pt.y) < hypot($1.p.x - pt.x, $1.p.y - pt.y) }
+        guard let best, hypot(best.p.x - pt.x, best.p.y - pt.y) < 18 else { return nil }
+        return best.n.id
+    }
+}
+
+struct NotePanel: View {
+    let note: RoomNote
+    let rooms: [RoomInfo]
+    var go: (String) -> Void
+    var body: some View {
+        let raw = (try? String(contentsOfFile: note.id, encoding: .utf8)) ?? ""
+        var lines = raw.components(separatedBy: "\n")
+        if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines = Array(lines[(end + 1)...]) }
+        if let f = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }), lines[f].hasPrefix("# ") { lines.remove(at: f) }
+        let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let room = rooms[note.room]
+        let all = room.notes
+        let linked = Array(Set(note.links + all.filter { $0.links.contains(note.id) }.map(\.id))).compactMap { id in all.first { $0.id == id } }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Circle().fill(room.color).frame(width: 7, height: 7)
+                Text(room.title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            }
+            Text(note.title).font(.system(size: 16, weight: .semibold))
+            ScrollView {
+                MarkdownText(text: text.isEmpty ? "Nothing written here yet." : text, size: 13).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !linked.isEmpty {
+                Text("LINKED NOTES").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(.secondary)
+                FlowChips(items: linked.prefix(8).map { ($0.id, $0.title) }, tap: go)
+            }
+            Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: note.id)]) } label: { Label("Show in Finder", systemImage: "folder") }
+                .buttonStyle(.plain).foregroundStyle(.secondary).font(.callout)
+        }
+        .padding(16).frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.08)))
+    }
+}
+
+struct FlowChips: View {
+    let items: [(String, String)]
+    var tap: (String) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { i in
+                HStack(spacing: 6) {
+                    ForEach(items[i..<min(i + 2, items.count)], id: \.0) { it in
+                        Button { tap(it.0) } label: {
+                            Text(it.1).font(.system(size: 11)).lineLimit(1)
+                                .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Color.white.opacity(0.08)))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+}
 
 // MARK: - Rooms map + add a room (render-only design preview)
 struct MapNode { let p: CGPoint; let r: CGFloat; let label: String?; let hub: Bool }
@@ -3713,6 +4004,7 @@ struct HomeView: View {
     @State var draft = ""
     @State var folderSheet = false
     @State var talkKeySheet = false
+    @State var roomsSheet = false
     @ObservedObject var l = Listener.shared
     @State var micDownAt: Date?
     @State var micLatched = false
@@ -3734,6 +4026,23 @@ struct HomeView: View {
                     NovaWithHelpers(m: m)
                     if m.thinking && m.openHelper == nil {
                         Text(m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2).transition(.opacity)
+                    }
+                    if m.openHelper == nil && !m.interviewOffered && !m.thinking && Brain.exists {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Want me to get to know you?").font(.headline)
+                            Text("A few questions, one at a time, so I know what your personal room is for and how to help. You can skip any question, or stop whenever you like.")
+                                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                Button("Let's start") { m.interviewOffered = true; Task { await m.send("Let's do the welcome interview. Get to know me.", toNova: true) } }
+                                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                                Button("Maybe later") {
+                                    m.interviewOffered = true
+                                    m.bubbles.append(Bubble(fromMe: false, text: "Any time. Just say \"get to know me\"."))
+                                }.buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
                     }
                     if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
                         AwayCard(m: m, hs: away).transition(.opacity)
@@ -3804,6 +4113,7 @@ struct HomeView: View {
             }
         }
         .toolbar {
+            ToolbarItem { Button { roomsSheet = true } label: { Label("Rooms", systemImage: "circle.hexagongrid") }.help("See your rooms") }
             ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
             ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }
@@ -3816,6 +4126,7 @@ struct HomeView: View {
         .navigationTitle(m.name)
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
+        .sheet(isPresented: $roomsSheet) { RoomsView(m: m) { roomsSheet = false } }
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
         .overlay {
             if dropping {
@@ -3973,6 +4284,7 @@ struct Entry {
                     }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
+                    ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
                     ("map", AnyView(MapScene())),
                     ("room-add", AnyView(RoomAddScene())),
                     ("room-confirm", AnyView(RoomAddScene(confirm: true))),
@@ -3987,7 +4299,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name.hasPrefix("shelf") || name == "map" ? 820 : 620, height: name.hasPrefix("shelf") || name == "map" ? 450 : 440)); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" ? 960 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" ? 600 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

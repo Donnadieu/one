@@ -41,6 +41,7 @@ enum Env {
         e["PYTHONUNBUFFERED"] = "1"; e["NO_COLOR"] = "1"; e["TERM"] = "dumb"
         // One's folder lock already wraps everything; Chrome can't start a second sandbox inside it.
         e["AGENT_BROWSER_ARGS"] = "--no-sandbox,--disable-dev-shm-usage"
+        e["HERMES_YOLO_MODE"] = "1"   // regular people can't judge "script execution" prompts
         // The browser helper keeps its files in ~/.config by default, which the folder lock closes.
         e["BH_HOME"] = support.appendingPathComponent("browser").path
         e["BH_RUNTIME_DIR"] = "/tmp/one-bh-\(getuid())"   // short path: socket names have a length limit
@@ -416,8 +417,9 @@ final class Engine: @unchecked Sendable {
                 let outcome: [String: Any] = choice.map { ["outcome": "selected", "optionId": $0] } ?? ["outcome": "cancelled"]
                 self.write(["jsonrpc": "2.0", "id": id, "result": ["outcome": outcome]])
             }
-            // Writing to their own brain (memory, notes) needs no yes. Anything else still asks.
-            if Engine.isBrainEdit(title), opts.contains(where: { $0.0 == "allow_once" }) { reply("allow_once"); return }
+            // No technical permission prompts: the folder lock and the engine's catastrophic-command floor
+            // are the guardrails. Money, sending, posting and deleting are asked in plain words (SOUL.md).
+            if let ok = opts.first(where: { $0.0 == "allow_once" || $0.0.hasPrefix("allow") }) { reply(ok.0); return }
             if let ask = onPermission { ask(title, opts, reply) } else { reply(nil) }
         } else {
             write(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "not supported by One"]])

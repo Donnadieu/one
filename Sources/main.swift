@@ -5,6 +5,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 import Speech
+import PDFKit
 import Carbon
 import UniformTypeIdentifiers
 
@@ -1040,14 +1041,31 @@ final class Model: ObservableObject {
 
     /// Pictures waiting to go with the next message (dragged, pasted, picked or dropped on the orb).
     @Published var pictures: [Picture] = []
+    @Published var files: [SharedFile] = []
 
     func send(_ text: String) async {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !paused, !thinking, !(t.isEmpty && pictures.isEmpty) else { return }
+        guard !paused, !thinking, !(t.isEmpty && pictures.isEmpty && files.isEmpty) else { return }
         let pics = pictures; pictures = []
-        if t.isEmpty { t = pics.count == 1 ? "What's in this picture?" : "What's in these pictures?" }
+        let docs = files; files = []
+        if t.isEmpty {
+            t = docs.isEmpty ? (pics.count == 1 ? "What's in this picture?" : "What's in these pictures?")
+                             : (pics.count + docs.count == 1 ? "Have a look at this and tell me what it is." : "Have a look at these and tell me what they are.")
+        }
         await ensureEngine()
-        me(pics.isEmpty ? t : "🖼 \(pics.count == 1 ? "1 picture" : "\(pics.count) pictures")\n\(t)")
+        var tags: [String] = []
+        if !pics.isEmpty { tags.append("🖼 " + (pics.count == 1 ? "1 picture" : "\(pics.count) pictures")) }
+        tags += docs.map { "📄 " + $0.name }
+        me(tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t)
+        var forEngine = t
+        if !docs.isEmpty {
+            forEngine += "\n\n(I'm sharing these files. Copies are saved here and you can open them:"
+            for d in docs {
+                forEngine += "\n- \(d.copy.path)"
+                if let tx = d.textCopy { forEngine += " (plain-text version: \(tx.path))" }
+            }
+            forEngine += ")"
+        }
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true; working = nil
@@ -1056,7 +1074,7 @@ final class Model: ObservableObject {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let stop = await Engine.shared.prompt(t, images: pics.map { $0.data.base64EncodedString() })
+        let stop = await Engine.shared.prompt(forEngine, images: pics.map { $0.data.base64EncodedString() })
         try? await Task.sleep(for: .milliseconds(150))
         thinking = false; working = nil; saveBubbles()
         if idx < bubbles.count, bubbles[idx].text.isEmpty {
@@ -1393,16 +1411,60 @@ struct Picture: Identifiable {
     }
 }
 
+
+/// A file you hand to the assistant. It's copied into One's own folder so the assistant can open it
+/// without being given access to the folder it came from. PDFs also get a plain-text copy.
+struct SharedFile: Identifiable {
+    let id = UUID()
+    let name: String
+    let copy: URL
+    let textCopy: URL?
+    static let maxBytes = 200 * 1024 * 1024
+
+    static func from(url: URL) -> SharedFile? {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > maxBytes { return nil }
+        let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+        let dir = Env.support.appendingPathComponent("Shared with me/\(day)/\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent(url.lastPathComponent)
+        guard (try? FileManager.default.copyItem(at: url, to: dest)) != nil else { return nil }
+        var txt: URL? = nil
+        if url.pathExtension.lowercased() == "pdf", let doc = PDFDocument(url: dest), let text = doc.string,
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let t = dest.appendingPathExtension("txt")
+            if (try? text.write(to: t, atomically: true, encoding: .utf8)) != nil { txt = t }
+        }
+        return SharedFile(name: url.lastPathComponent, copy: dest, textCopy: txt)
+    }
+    var icon: NSImage { NSWorkspace.shared.icon(forFile: copy.path) }
+}
+
 @MainActor enum PictureIn {
     static func add(_ p: [Picture]) {
         guard !p.isEmpty else { return }
         Model.shared.pictures.append(contentsOf: p.prefix(max(0, 6 - Model.shared.pictures.count)))
     }
+    static func addFiles(_ f: [SharedFile]) {
+        guard !f.isEmpty else { return }
+        Model.shared.files.append(contentsOf: f.prefix(max(0, 10 - Model.shared.files.count)))
+    }
+    static func isImage(_ u: URL) -> Bool { (UTType(filenameExtension: u.pathExtension)?.conforms(to: .image)) ?? false }
+    /// Pictures go in as pictures; everything else goes in as a file.
+    static func addURLs(_ urls: [URL]) -> Int {
+        let pics = urls.filter(isImage).compactMap { Picture.from(url: $0) }
+        let files = urls.filter { !isImage($0) }.compactMap { SharedFile.from(url: $0) }
+        add(pics); addFiles(files)
+        let skipped = urls.count - pics.count - files.count
+        if skipped > 0 { Floater.shared.note("I can take files, not folders, and nothing over 200 MB.") }
+        return pics.count + files.count
+    }
     static func pick() {
         let o = NSOpenPanel()
-        o.allowedContentTypes = [.image]; o.allowsMultipleSelection = true
-        o.message = "Pick pictures to show your assistant"
-        if o.runModal() == .OK { add(o.urls.compactMap { Picture.from(url: $0) }) }
+        o.allowsMultipleSelection = true; o.canChooseDirectories = false
+        o.message = "Pick pictures or files to give your assistant"
+        if o.runModal() == .OK { _ = addURLs(o.urls) }
     }
     static func drop(_ providers: [NSItemProvider]) -> Bool {
         var any = false
@@ -1410,8 +1472,8 @@ struct Picture: Identifiable {
             if pr.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 any = true
                 _ = pr.loadObject(ofClass: URL.self) { u, _ in
-                    guard let u, let pic = Picture.from(url: u) else { return }
-                    DispatchQueue.main.async { add([pic]) }
+                    guard let u else { return }
+                    DispatchQueue.main.async { _ = addURLs([u]) }
                 }
             } else if pr.canLoadObject(ofClass: NSImage.self) {
                 any = true
@@ -1431,6 +1493,9 @@ struct Picture: Identifiable {
             let pb = NSPasteboard.general
             let hasText = pb.string(forType: .string) != nil && pb.availableType(from: [.png, .tiff, .fileURL]) == nil
             if hasText { return e }
+            if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+                return addURLs(urls) > 0 ? nil : e
+            }
             let pics = Picture.fromPasteboard(pb)
             if pics.isEmpty { return e }
             add(pics); return nil
@@ -1441,8 +1506,19 @@ struct Picture: Identifiable {
 struct PictureStrip: View {
     @ObservedObject var m: Model
     var body: some View {
-        if !m.pictures.isEmpty {
+        if !m.pictures.isEmpty || !m.files.isEmpty {
             HStack(spacing: 8) {
+                ForEach(m.files) { f in
+                    HStack(spacing: 6) {
+                        Image(nsImage: f.icon).resizable().frame(width: 26, height: 26)
+                        Text(f.name).font(.callout).lineLimit(1).truncationMode(.middle).frame(maxWidth: 140, alignment: .leading)
+                        Button { m.files.removeAll { $0.id == f.id } } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                            .buttonStyle(.plain).help("Remove")
+                    }
+                    .padding(.horizontal, 10).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.15)))
+                }
                 ForEach(m.pictures) { p in
                     Image(nsImage: p.thumb).resizable().aspectRatio(contentMode: .fill)
                         .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1770,7 +1846,11 @@ final class OrbHost: NSView {
     override func viewDidMoveToWindow() { registerForDraggedTypes([.fileURL, .png, .tiff]) }
     override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { .copy }
     override func performDragOperation(_ s: NSDraggingInfo) -> Bool {
-        let pics = Picture.fromPasteboard(s.draggingPasteboard)
+        let pb = s.draggingPasteboard
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            return MainActor.assumeIsolated { let n = PictureIn.addURLs(urls); if n > 0 { Floater.shared.gotPictures(n) }; return n > 0 }
+        }
+        let pics = Picture.fromPasteboard(pb)
         guard !pics.isEmpty else { return false }
         MainActor.assumeIsolated { PictureIn.add(pics); Floater.shared.gotPictures(pics.count) }
         return true
@@ -1952,7 +2032,7 @@ final class OrbHost: NSView {
         }
     }
     func gotPictures(_ n: Int) {
-        note(n == 1 ? "Got the picture. Hold me and say what to do with it." : "Got \(n) pictures. Hold me and say what to do with them.")
+        note(n == 1 ? "Got it. Hold me and say what to do with it." : "Got all \(n). Hold me and say what to do with them.")
     }
 
     func endTalk() {
@@ -2685,7 +2765,7 @@ struct HomeView: View {
         .overlay {
             if dropping {
                 RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                    .overlay(Text("Drop pictures here").font(.title3.weight(.medium)).padding(12).background(Capsule().fill(.ultraThinMaterial)))
+                    .overlay(Text("Drop pictures or files here").font(.title3.weight(.medium)).padding(12).background(Capsule().fill(.ultraThinMaterial)))
                     .padding(10).allowsHitTesting(false)
             }
         }
@@ -2695,15 +2775,15 @@ struct HomeView: View {
         VStack(spacing: 8) {
         PictureStrip(m: m)
         HStack(spacing: 12) {
-            Button { PictureIn.pick() } label: { Image(systemName: "photo.on.rectangle.angled").font(.system(size: 20, weight: .light)) }
-                .buttonStyle(.plain).help("Add a picture (or drag one in, or paste it)").disabled(m.paused)
+            Button { PictureIn.pick() } label: { Image(systemName: "paperclip").font(.system(size: 20, weight: .light)) }
+                .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)").disabled(m.paused)
             TextField(lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…", text: $draft)
                 .textFieldStyle(.plain).font(.title3).focused($typing)
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
                 .onSubmit(go).disabled(m.paused)
             Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                .buttonStyle(.plain).disabled(m.paused || m.thinking || (draft.isEmpty && m.pictures.isEmpty))
+                .buttonStyle(.plain).disabled(m.paused || m.thinking || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty))
         }
         }
     }

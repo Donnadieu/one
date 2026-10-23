@@ -332,11 +332,22 @@ final class Engine: @unchecked Sendable {
         lock.lock(); proc = p; stdin = i.fileHandleForWriting; buf = Data(); lock.unlock()
         let ini = await call("initialize", ["protocolVersion": 1, "clientCapabilities": [String: Any]()], timeout: 120)
         guard ini["result"] != nil else { return "The assistant didn't start." }
-        let new = await call("session/new", ["cwd": (Brain.exists ? Brain.root : Env.support).path, "mcpServers": [Any]()], timeout: 120)
+        let dir = (Brain.exists ? Brain.root : Env.support).path
+        // Pick up the same conversation after a restart, so it remembers what you were doing.
+        if let saved = UserDefaults.standard.string(forKey: "sessionID") {
+            onText = nil; onTool = nil
+            let r = await call("session/load", ["sessionId": saved, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
+            if r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) {
+                lock.lock(); sessionID = saved; lock.unlock()
+                return nil
+            }
+        }
+        let new = await call("session/new", ["cwd": dir, "mcpServers": [Any]()], timeout: 120)
         guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
             return "The assistant couldn't open a conversation."
         }
         lock.lock(); sessionID = sid; lock.unlock()
+        UserDefaults.standard.set(sid, forKey: "sessionID")
         return nil
     }
 
@@ -668,7 +679,15 @@ final class Model: ObservableObject {
     @AppStorage("backup") var backup = ""
     @Published var pickedRooms: Set<RoomKind> = []
 
-    @Published var bubbles: [Bubble] = []
+    @Published var bubbles: [Bubble] = Model.savedBubbles() { didSet { saveBubbles() } }
+    static func savedBubbles() -> [Bubble] {
+        guard let raw = UserDefaults.standard.array(forKey: "bubbles") as? [[String: Any]] else { return [] }
+        return raw.compactMap { d in (d["t"] as? String).map { Bubble(fromMe: d["me"] as? Bool ?? false, text: $0) } }
+    }
+    func saveBubbles() {
+        guard !thinking else { return }
+        UserDefaults.standard.set(bubbles.suffix(40).filter { !$0.text.isEmpty }.map { ["me": $0.fromMe, "t": $0.text] }, forKey: "bubbles")
+    }
     @Published var step: Step = .pickAI
     @Published var signedIn: [Provider: Bool] = [:]
     @Published var signInCode: String?
@@ -1015,7 +1034,7 @@ final class Model: ObservableObject {
         }
         let stop = await Engine.shared.prompt(t)
         try? await Task.sleep(for: .milliseconds(150))
-        thinking = false; working = nil
+        thinking = false; working = nil; saveBubbles()
         if idx < bubbles.count, bubbles[idx].text.isEmpty {
             bubbles[idx].text = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }

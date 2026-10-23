@@ -4370,6 +4370,7 @@ struct Entry {
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
+                    ("reader-noscroll", AnyView(ZStack { Color(hex: 0x141416); MarkdownText(text: (try? String(contentsOf: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md"), encoding: .utf8)) ?? "missing", size: 15).padding(22) }.environment(\.colorScheme, .dark))),
                     ("reader", AnyView(ZStack { Color(hex: 0x141416); FileViewer(m: Model.shared, url: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md")) }.environment(\.colorScheme, .dark))),
                     ("map", AnyView(MapScene())),
                     ("room-add", AnyView(RoomAddScene())),

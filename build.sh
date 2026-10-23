@@ -16,16 +16,21 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>ai.forjado.one</string>
   <key>CFBundleExecutable</key><string>One</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.6</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
+cp ~/.hermes/hermes-agent/scripts/install.sh "$APP/Contents/Resources/hermes-install.sh"
 git -C ~/Repos/brain-starter archive --prefix=brain-starter/ HEAD | tar -x -C "$APP/Contents/Resources"
 codesign --force --deep -s - "$APP"
 echo "built $APP"
 if [[ "${1:-}" == "--install" ]]; then
   mkdir -p ~/Applications && rm -rf ~/Applications/One.app && cp -R "$APP" ~/Applications/ && echo "installed ~/Applications/One.app"
+fi
+if [[ "${1:-}" == "--package" ]]; then
+  rm -rf build/dmg && mkdir -p build/dmg && cp -R "$APP" build/dmg/ && ln -s /Applications build/dmg/Applications
+  rm -f build/One.dmg && hdiutil create -quiet -volname "One" -srcfolder build/dmg -ov -format UDZO build/One.dmg && echo "packaged build/One.dmg"
 fi

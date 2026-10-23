@@ -4,7 +4,7 @@
  "welcome3": "93ee2f25029613fac339893fe2f07c8ffe60661f",
  "welcome4": "8bbf5150091f8271bf04cbc1832b6ee949fd73eb",
  "setup": "cce206a6a30e7b034626bb9f3c7cb590d4b451de",
- "pickAI": "53f4d54c78ceb5bdd6de655a0b525a918de72449",
+ "pickAI": "4bbd5b78c603e24d1af9fd2e6d51cb9dc03c5501",
  "signin": "073652c8f0e57cb9298b8e3d019bbd50aaebf18e",
  "signinFailed": "e7c3b800a26f26b503cdf8bca57671cccf33e498",
  "checking": "420d4245f4e4acfb939c082d4b4cfb97db8d611f",
@@ -36,5 +36,9 @@
  "tourPasswords": "859c202431e60cda4b2f7337ac0028ee231a329f",
  "worldPick": "200aff6e63086c70a08b24e31d5836f1e7acd879",
  "tourWeb": "9bc29da13ac4956313c334a8ae19eb56a6b6a0a8",
- "tourNews": "1f999c6223a691c207daf0946409b3775eb01d6d"
+ "tourNews": "1f999c6223a691c207daf0946409b3775eb01d6d",
+ "installing": "f59d92115b514ce8ee077824dca0b7ad8d4d8c9a",
+ "devTools": "2bf22828ec0d22b75a0b175df34d5ae72b71ce32",
+ "installFailed": "c084aa68ccc4a988e1d2d6abe55eca7ee0b70385",
+ "installDone": "3dcaa702e7d05f21d40971c34678a583cdddc4a4"
 }

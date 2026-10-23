@@ -10,7 +10,8 @@ import AVFoundation
 enum Env {
     nonisolated(unsafe) static var selfTest = false
     static var support: URL {
-        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let base = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) }
+        let u = base ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("One", isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
@@ -21,7 +22,13 @@ enum Env {
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }
+    /// One's own copy of Hermes, installed on first launch. Never the user's own Hermes.
+    static var engineDir: URL { support.appendingPathComponent("engine", isDirectory: true) }
+    static var ownHermes: String { engineDir.appendingPathComponent(".hermes/bin/hermes").path }
     static var hermesPath: String? {
+        if FileManager.default.isExecutableFile(atPath: ownHermes) { return ownHermes }
+        // Developer fallback (ONE_USE_SYSTEM_HERMES=1): use an existing install.
+        guard ProcessInfo.processInfo.environment["ONE_USE_SYSTEM_HERMES"] == "1" || selfTest else { return nil }
         let h = NSHomeDirectory()
         return ["\(h)/.local/bin/hermes", "/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
@@ -29,7 +36,7 @@ enum Env {
     static func vars() -> [String: String] {
         var e = ProcessInfo.processInfo.environment
         let h = NSHomeDirectory()
-        e["PATH"] = "\(h)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        e["PATH"] = "\(engineDir.path)/.hermes/bin:\(h)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         e["HERMES_HOME"] = hermesHome.path
         e["PYTHONUNBUFFERED"] = "1"; e["NO_COLOR"] = "1"; e["TERM"] = "dumb"
         for k in ["ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] {
@@ -41,6 +48,66 @@ enum Env {
 }
 
 final class Box<T>: @unchecked Sendable { var v: T; init(_ v: T) { self.v = v } }
+
+/// First launch: installs One's own private copy of Hermes, using Hermes's official installer
+/// (bundled in the app), into ~/Library/Application Support/One. No terminal, no questions.
+/// HOME points at a scratch folder during the install so it never touches the user's shell files
+/// or any Hermes they already have.
+enum Installer {
+    static var devToolsMissing: Bool {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); p.arguments = ["-p"]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run(); p.waitUntilExit() } catch { return true }
+        return p.terminationStatus != 0
+    }
+    /// Shows Apple's own "install developer tools" dialog (needed for git).
+    static func askForDevTools() {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); p.arguments = ["--install"]
+        try? p.run()
+    }
+    /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
+    static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
+        guard let script = Bundle.main.url(forResource: "hermes-install", withExtension: "sh") else { return "The installer is missing from the app." }
+        let scratch = Env.support.appendingPathComponent("install-home", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let log = Env.support.appendingPathComponent("install.log")
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/bin/bash")
+                p.arguments = [script.path, "--non-interactive", "--hermes-home", Env.hermesHome.path, "--dir", Env.engineDir.path]
+                p.environment = ["HOME": scratch.path, "USER": NSUserName(), "SHELL": "/bin/zsh", "LANG": "en_US.UTF-8",
+                                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": NSTemporaryDirectory()]
+                p.currentDirectoryURL = Env.support
+                let o = Pipe(); p.standardOutput = o; p.standardError = o; p.standardInput = FileHandle.nullDevice
+                FileManager.default.createFile(atPath: log.path, contents: nil)
+                let lh = try? FileHandle(forWritingTo: log)
+                let done = Box(0), all = Box("")
+                o.fileHandleForReading.readabilityHandler = { h in
+                    let d = h.availableData; guard !d.isEmpty else { return }
+                    lh?.write(d)
+                    let t = String(decoding: d, as: UTF8.self); all.v += t
+                    for line in t.split(separator: "\n") {
+                        let l = line.trimmingCharacters(in: .whitespaces)
+                        if l.hasPrefix("✓") { done.v += 1; progress(done.v, String(l.dropFirst(2))) }
+                        else if l.hasPrefix("→") { progress(done.v, String(l.dropFirst(2))) }
+                    }
+                }
+                do { try p.run() } catch { cont.resume(returning: error.localizedDescription); return }
+                p.waitUntilExit()
+                o.fileHandleForReading.readabilityHandler = nil
+                try? lh?.close()
+                if p.terminationStatus == 0 && FileManager.default.isExecutableFile(atPath: Env.ownHermes) {
+                    try? FileManager.default.removeItem(at: scratch)
+                    cont.resume(returning: nil)
+                } else {
+                    let last = all.v.split(separator: "\n").last(where: { $0.contains("✗") || $0.lowercased().contains("fail") || $0.lowercased().contains("error") })
+                    cont.resume(returning: last.map(String.init) ?? "The setup stopped (code \(p.terminationStatus)).")
+                }
+            }
+        }
+    }
+}
 
 /// Runs a short Hermes command (status, config) and returns its output.
 func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, String) {
@@ -369,7 +436,8 @@ enum Access {
             "(subpath \"" + p.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\")"
         }
         let rw = [Env.support.path, Brain.root.path, "\(h)/.cache", "\(h)/Library/Caches"] + folders
-        let ro = ["\(h)/.local", "\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"]
+        var ro = ["\(h)/.local"]
+        if Env.hermesPath != Env.ownHermes { ro += ["\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"] }
         return """
         (version 1)
         (allow default)
@@ -563,7 +631,7 @@ struct Ask: Identifiable {
 }
 
 enum Step: Equatable {
-    case pickAI, signingIn, nameAssistant, nameUser, rooms, world, connect, whichEmail, passwords, passwordsOK, backup, wrapUp, done
+    case installing, pickAI, signingIn, nameAssistant, nameUser, rooms, world, connect, whichEmail, passwords, passwordsOK, backup, wrapUp, done
 }
 
 @MainActor
@@ -615,6 +683,10 @@ final class Model: ObservableObject {
     }
     @Published var switchingAI = false
     @Published var speaking = false
+    @Published var installDone = 0
+    @Published var installLine = ""
+    @Published var installError: String?
+    @Published var needDevTools = false
     @Published var worldCaption = ""
     @Published var tourNode: String?
     @Published var touring = false
@@ -674,7 +746,36 @@ final class Model: ObservableObject {
     func beginOnboarding() async {
         guard bubbles.isEmpty else { return }
         await say("Let's get you set up. It only takes a couple of minutes.", voice: "setup")
-        await say("First, which AI do you already pay for? I'll use it as my brain. You can switch any time.", voice: "pickAI")
+        if Env.hermesPath == nil {
+            step = .installing
+            await say("First, I'm setting myself up on this Mac. It takes about three minutes, and only happens once.", voice: "installing")
+            await install()
+            return
+        }
+        await askAI()
+    }
+
+    func install() async {
+        installError = nil; needDevTools = false; installDone = 0; installLine = ""
+        if Installer.devToolsMissing {
+            needDevTools = true
+            Installer.askForDevTools()
+            await say("Your Mac needs one small Apple add-on first. Click Install on the box that just opened, then press Continue here when it's done.", voice: "devTools")
+            return
+        }
+        let err = await Installer.run { n, line in Task { @MainActor in self.installDone = n; self.installLine = line } }
+        if let err {
+            installError = err
+            await say("Something stopped the setup. Check your internet connection and try again.", voice: "installFailed")
+        } else {
+            await say("Done. I'm ready.", voice: "installDone")
+            await askAI()
+        }
+    }
+
+    func askAI() async {
+        step = .pickAI
+        await say("Which AI do you already pay for? I'll use it as my brain. You can switch any time.", voice: "pickAI")
         for p in Provider.allCases { signedIn[p] = await SignIn.isSignedIn(p) }
     }
 
@@ -1396,6 +1497,19 @@ struct OnboardingView: View {
 
     @ViewBuilder var answerArea: some View {
         switch m.step {
+        case .installing:
+            VStack(spacing: 14) {
+                if m.needDevTools {
+                    Button("Continue") { Task { await m.install() } }.buttonStyle(.borderedProminent).controlSize(.large)
+                } else if let e = m.installError {
+                    Text(e).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(3)
+                    Button("Try again") { Task { await m.install() } }.buttonStyle(.borderedProminent).controlSize(.large)
+                } else {
+                    ProgressView(value: Double(min(m.installDone, 26)), total: 26).frame(maxWidth: 320)
+                    Text(m.installLine.isEmpty ? "Starting…" : m.installLine)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).frame(maxWidth: 380)
+                }
+            }
         case .pickAI:
             VStack(spacing: 10) {
                 ForEach(Provider.allCases) { p in
@@ -1675,6 +1789,30 @@ struct Entry {
                 }
             }
             exit(0)
+        }
+        if args.contains("--install-test") {
+            // Fresh-user test: set ONE_SUPPORT_DIR to an empty folder and OPENROUTER_API_KEY.
+            runHeadless {
+                let t0 = Date()
+                print("devtools missing:", Installer.devToolsMissing)
+                let err: String? = Env.hermesPath != nil ? nil : await Installer.run { n, line in if line.hasPrefix("Install") || n % 5 == 0 { print("  [\(n)] \(line)") } }
+                if let k = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] {
+                    try? "OPENROUTER_API_KEY=\(k)\n".write(to: Env.hermesHome.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+                }
+                print("install:", err ?? "ok", "in \(Int(Date().timeIntervalSince(t0)))s", "hermes:", Env.hermesPath ?? "missing")
+                guard err == nil else { return }
+                await SignIn.makeDefault(.openrouter)
+                _ = await hermesRun(["config", "set", "model.default", "openai/gpt-4o-mini"])
+                Access.override = []
+                Persona.write(assistant: "Juno", user: "EK", connections: [], passwords: "ask each time")
+                if let e = await Engine.shared.start() { print("engine:", e); return }
+                Engine.shared.onText = { print($0, terminator: "") }
+                for q in ["Who are you and what's my name? One sentence.", "List 3 files in my Downloads folder."] {
+                    print("\nQ:", q); print("A:", terminator: " ")
+                    let stop = await Engine.shared.prompt(q); print(" [\(stop)]")
+                }
+                Engine.stopStrayGateway()
+            }
         }
         if args.contains("--reset") {
             if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }

@@ -599,6 +599,7 @@ enum Persona {
         - Like a helpful friend: short, warm, plain words. No jargon.
         - Never mention Hermes, models, terminals, config files or tools unless they ask how you work.
         - Offer one clear next step, not a menu.
+        - When you ask them to decide something, end your message with one last line listing 2 to 4 short answers they can tap, exactly like: [choices: Yes, go ahead | Not now | Change the plan]. Keep each answer under 5 words. Don't list them anywhere else in the message.
 
         Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
 
@@ -622,6 +623,21 @@ enum Persona {
 }
 
 // MARK: - App state
+
+/// Tap-to-answer choices the assistant puts on the last line: [choices: A | B | C]
+enum Choices {
+    static func split(_ text: String) -> (body: String, choices: [String]) {
+        var lines = text.components(separatedBy: "\n")
+        while let l = lines.last, l.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+        guard let last = lines.last?.trimmingCharacters(in: .whitespaces), last.lowercased().hasPrefix("[choice") else { return (text, []) }
+        lines.removeLast()
+        var inner = last.drop { $0 != ":" }.dropFirst()
+        guard inner.hasSuffix("]") else { return (lines.joined(separator: "\n"), []) }   // still streaming in
+        inner = inner.dropLast()
+        let opts = inner.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return (lines.joined(separator: "\n"), Array(opts.prefix(4)))
+    }
+}
 
 struct Bubble: Identifiable { let id = UUID(); let fromMe: Bool; var text: String }
 
@@ -1510,7 +1526,7 @@ struct BubbleView: View {
     var body: some View {
         HStack {
             if b.fromMe { Spacer(minLength: 80) }
-            Group { if b.fromMe || b.text.isEmpty { Text(b.text.isEmpty ? "…" : b.text) } else { MarkdownText(text: b.text, size: 17) } }
+            Group { if b.fromMe || b.text.isEmpty { Text(b.text.isEmpty ? "…" : b.text) } else { MarkdownText(text: Choices.split(b.text).body, size: 17) } }
                 .textSelection(.enabled)
                 .font(b.fromMe ? .body : .title3)
                 .padding(.horizontal, 14).padding(.vertical, 10)
@@ -1533,7 +1549,7 @@ struct Stage: View {
             ForEach(Array(recent.enumerated()), id: \.element.id) { i, b in
                 let age = recent.count - 1 - i        // 0 = newest
                 let on = appeared.contains(b.id)
-                Group { if b.fromMe { Text(b.text) } else { MarkdownText(text: b.text, size: age == 0 ? 20 : 16) } }
+                Group { if b.fromMe { Text(b.text) } else { MarkdownText(text: Choices.split(b.text).body, size: age == 0 ? 20 : 16) } }
                     .font(b.fromMe ? .title3 : (age == 0 ? .system(size: 26, weight: .medium) : .title3))
                     .foregroundStyle(b.fromMe ? Color.accentColor : .primary)
                     .multilineTextAlignment(.center)
@@ -1740,6 +1756,7 @@ struct HomeView: View {
     @ObservedObject var m: Model
     @State var draft = ""
     @State var folderSheet = false
+    @FocusState var typing: Bool
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
@@ -1766,13 +1783,20 @@ struct HomeView: View {
                         VStack(spacing: 12) {
                             Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
                             if let r = lastReply, !r.text.isEmpty {
-                                MarkdownText(text: r.text, size: 16)
+                                let parts = Choices.split(r.text)
+                                MarkdownText(text: parts.body, size: 16)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                                     .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
                                     .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
+                                if !parts.choices.isEmpty && !m.thinking {
+                                    ChoiceRow(choices: parts.choices, disabled: m.paused) { c in Task { await m.send(c) } }
+                                        onOther: { typing = true }
+                                        .transition(.opacity)
+                                }
                             }
                         }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
                     }
+                    askBox.padding(.top, 4)
                     VStack(alignment: .leading, spacing: 10) {
                         Text(lastAsk == nil ? "THINGS ONLY I CAN DO FROM YOUR MAC" : "TRY SOMETHING ELSE")
                             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -1797,19 +1821,9 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 0) {
-                if m.paused {
-                    Text("Stopped. I won't do anything until you turn me back on.")
-                        .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
-                }
-                HStack(spacing: 12) {
-                    TextField("Tell \(m.name) what you need…", text: $draft)
-                        .textFieldStyle(.plain).font(.title3)
-                        .padding(12).background(Capsule().fill(.ultraThinMaterial))
-                        .onSubmit(go).disabled(m.paused)
-                    Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                        .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
-                }.padding(14)
+            if m.paused {
+                Text("Stopped. I won't do anything until you turn me back on.")
+                    .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
             }
         }
         .toolbar {
@@ -1825,7 +1839,42 @@ struct HomeView: View {
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .task { await m.ensureEngine() }
     }
+    var askBox: some View {
+        HStack(spacing: 12) {
+            TextField(lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…", text: $draft)
+                .textFieldStyle(.plain).font(.title3).focused($typing)
+                .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
+                .onSubmit(go).disabled(m.paused)
+            Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
+                .buttonStyle(.plain).disabled(m.paused || m.thinking || draft.isEmpty)
+        }
+    }
     func go() { let t = draft; draft = ""; Task { await m.send(t) } }
+}
+
+/// The assistant's suggested answers as buttons, plus a way to just say something else.
+struct ChoiceRow: View {
+    let choices: [String]; var disabled = false
+    let pick: (String) -> Void
+    var onOther: () -> Void = {}
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(choices.enumerated()), id: \.offset) { i, c in
+                Button { pick(c) } label: {
+                    Text(c).font(.callout.weight(i == 0 ? .semibold : .regular))
+                        .padding(.horizontal, 16).padding(.vertical, 9)
+                        .foregroundStyle(i == 0 ? WorldLook.bg : .primary)
+                        .background(Capsule().fill(i == 0 ? WorldLook.cream : Color.white.opacity(0.08)))
+                        .overlay(Capsule().stroke(Color.white.opacity(i == 0 ? 0 : 0.16)))
+                }.buttonStyle(.plain)
+            }
+            Button(action: onOther) {
+                Text("Something else…").font(.callout).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.vertical, 9)
+            }.buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }.disabled(disabled)
+    }
 }
 
 struct AskCard: View {
@@ -1876,6 +1925,10 @@ struct Entry {
                 let views: [(String, AnyView)] = [
                     ("tour", AnyView(WorldCanvas(t: 30, lit: 1, picking: false, linked: [:], speaking: true).background(WorldLook.bg))),
                     ("md", AnyView(MarkdownText(text: "## Downloads, tidied\n\nI moved **42 files** into 5 folders:\n\n1. **Receipts** (12)\n2. *Screenshots* (18)\n3. Installers (`.dmg`, 6)\n\n- Kept on top: `resume.pdf`\n  - nested item\n\n| Folder | Files |\n|---|---|\n| Receipts | 12 |\n| Screenshots | 18 |\n\n> Nothing was deleted.\n\nSee [Finder](https://apple.com) for details.", size: 16).padding(18).frame(width: 520).background(RoundedRectangle(cornerRadius: 18).fill(Color.gray.opacity(0.15))).padding(20).background(WorldLook.bg).environment(\.colorScheme, .dark))),
+                    ("choices", AnyView(VStack(alignment: .leading, spacing: 12) {
+                        MarkdownText(text: Choices.split("I'll sort **555 files** into 12 folders by type. Nothing gets deleted.\n\n[choices: Yes, go ahead | Not now | Change the plan]").body, size: 16).padding(18).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.06)))
+                        ChoiceRow(choices: Choices.split("x\n[choices: Yes, go ahead | Not now | Change the plan]").choices) { _ in }
+                    }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]

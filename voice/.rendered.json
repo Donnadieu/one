@@ -1,0 +1,22 @@
+{
+ "welcome1": "25ebd613cb49fdd0df1ac6f38cc3ad6b9031cb7c",
+ "welcome2": "8c788e825b8393bb18ad3b0f7f9d52e2629edc39",
+ "welcome3": "93ee2f25029613fac339893fe2f07c8ffe60661f",
+ "welcome4": "8bbf5150091f8271bf04cbc1832b6ee949fd73eb",
+ "setup": "cce206a6a30e7b034626bb9f3c7cb590d4b451de",
+ "pickAI": "53f4d54c78ceb5bdd6de655a0b525a918de72449",
+ "signin": "073652c8f0e57cb9298b8e3d019bbd50aaebf18e",
+ "signinFailed": "e7c3b800a26f26b503cdf8bca57671cccf33e498",
+ "checking": "420d4245f4e4acfb939c082d4b4cfb97db8d611f",
+ "nameAssistant": "b224465e43f8588eae94d4be8084d45298d6ede1",
+ "nameUser": "2d83ee83c7e9975cae52fe15f8ec380b3b16cb94",
+ "niceToMeet": "24702d5891feadd4dffe1c1b5f773d835d0b5a18",
+ "connect": "77f645538533669ff0fb2e360d2efe77c3ddd3c0",
+ "whichEmail": "a04b6fe920bdfd6ee8aa0fff2345efdbc168995a",
+ "passwords": "15efcfb671e1244b38387c267eeda435e51d994a",
+ "passwordsOK": "58b15f8247c0138551fd3fc54ee6f823483f1ff8",
+ "askEach": "bf35c79cc1c775f9a0548b2ce6b510f5cb336aff",
+ "thanks": "a089d3b7701b9433956e41f2ca9bcff97dac5411",
+ "notNow": "7adc1ad21d91fa4ff25772308e9c6364dddd2c42",
+ "allSet": "ffd3ee7319747921dfdeb0ac9733b2e851e93ab9"
+}

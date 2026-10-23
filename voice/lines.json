@@ -1,0 +1,26 @@
+{
+  "voice_id": "EST9Ui6982FZPSi7gCHi",
+  "model_id": "eleven_multilingual_v2",
+  "lines": {
+    "welcome1": "Hi. I'm your assistant.",
+    "welcome2": "I live on this Mac, not in the cloud.",
+    "welcome3": "I ask before I do anything that matters.",
+    "welcome4": "And if this Mac is closed or off, I'm off too.",
+    "setup": "Let's get you set up. It only takes a couple of minutes.",
+    "pickAI": "First, which AI do you already pay for? I'll use it as my brain. You can switch any time.",
+    "signin": "I'm opening the sign-in page in your browser. Sign in there, then come back here.",
+    "signinFailed": "That sign-in didn't finish. Want to try again, or pick another one?",
+    "checking": "You're connected. Let me check I can think with it.",
+    "nameAssistant": "It works. Now, what would you like to call me? You can rename me any time.",
+    "nameUser": "I like it. And what should I call you?",
+    "niceToMeet": "Nice to meet you.",
+    "connect": "Want me to connect anything? People usually start with one of these. Or just tell me in your own words.",
+    "whichEmail": "Which email do you use? Pick all that apply. You can add as many accounts as you like.",
+    "passwords": "When I need to log in somewhere, where should I find your passwords?",
+    "passwordsOK": "I need your OK for that first. I'll only look up a login when a task needs it, and I'll tell you which one.",
+    "askEach": "Okay. I'll ask you each time, and I won't keep anything.",
+    "thanks": "Thanks. Noted.",
+    "notNow": "No problem. I'll ask again when it's needed.",
+    "allSet": "You're all set. Here are a few things I can do right now. Tap one, or just ask."
+  }
+}

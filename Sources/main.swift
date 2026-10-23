@@ -3,6 +3,7 @@
 // Setup is a conversation the assistant leads. The user never sees a terminal.
 import SwiftUI
 import AppKit
+import AVFoundation
 
 // MARK: - Paths and environment
 
@@ -59,6 +60,27 @@ func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, St
             cont.resume(returning: (p.terminationStatus, String(decoding: d, as: UTF8.self)))
         }
     }
+}
+
+// MARK: - Voice (pre-rendered ElevenLabs lines for onboarding)
+
+@MainActor
+final class Voice {
+    static let shared = Voice()
+    private var player: AVAudioPlayer?
+    var muted: Bool {
+        get { UserDefaults.standard.bool(forKey: "voiceMuted") }
+        set { UserDefaults.standard.set(newValue, forKey: "voiceMuted"); if newValue { player?.stop() } }
+    }
+    /// Plays a line and returns how long it lasts (0 if muted or missing).
+    @discardableResult
+    func play(_ key: String) -> Double {
+        guard !muted, let url = Bundle.main.url(forResource: key, withExtension: "mp3"),
+              let p = try? AVAudioPlayer(contentsOf: url) else { return 0 }
+        player?.stop(); player = p; p.play()
+        return p.duration
+    }
+    func stop() { player?.stop() }
 }
 
 // MARK: - The AIs the user can bring
@@ -366,24 +388,30 @@ final class Model: ObservableObject {
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
     @Published var switchingAI = false
+    @Published var speaking = false
 
     private var signIn: SignIn?
     var provider: Provider? { Provider(rawValue: providerRaw) }
     var connections: [String] { connectionsRaw.split(separator: ",").map(String.init) }
     var name: String { assistantName.isEmpty ? "Your assistant" : assistantName }
 
-    func say(_ text: String) async {
-        try? await Task.sleep(for: .milliseconds(450))
+    /// The assistant speaks: the line emerges on screen and, if a voice line exists, is spoken.
+    func say(_ text: String, voice: String? = nil) async {
+        speaking = true; defer { speaking = false }
+        try? await Task.sleep(for: .milliseconds(350))
         bubbles.append(Bubble(fromMe: false, text: text))
+        let d = voice.map { Voice.shared.play($0) } ?? 0
+        // Let the voice finish (or the text settle) before the next line emerges.
+        try? await Task.sleep(for: .milliseconds(Int(max(d, 1.1) * 1000) + 200))
     }
-    func me(_ text: String) { bubbles.append(Bubble(fromMe: true, text: text)) }
+    func me(_ text: String) { Voice.shared.stop(); bubbles.append(Bubble(fromMe: true, text: text)) }
 
     // Onboarding
 
     func beginOnboarding() async {
         guard bubbles.isEmpty else { return }
-        await say("Hi. Let's get you set up. It takes about two minutes.")
-        await say("First: which AI do you already pay for? I'll use it as my brain. You can switch any time.")
+        await say("Let's get you set up. It only takes a couple of minutes.", voice: "setup")
+        await say("First, which AI do you already pay for? I'll use it as my brain. You can switch any time.", voice: "pickAI")
         for p in Provider.allCases { signedIn[p] = await SignIn.isSignedIn(p) }
     }
 
@@ -392,7 +420,7 @@ final class Model: ObservableObject {
         providerRaw = p.rawValue
         if signedIn[p] == true { await verify(p); return }
         step = .signingIn; signInCode = nil; signInNeedsPaste = false; signInProblem = nil
-        await say("Great. I'm opening \(p.title)'s sign-in page in your browser. Sign in there and say yes, then come back here.")
+        await say("I'm opening \(p.title)'s sign-in page in your browser. Sign in there, then come back here.", voice: "signin")
         let s = SignIn(); signIn = s
         let result: (Bool, String) = await withCheckedContinuation { cont in
             let once = Box(false)
@@ -412,7 +440,7 @@ final class Model: ObservableObject {
         if result.0 { signedIn[p] = true; await verify(p) }
         else {
             step = .pickAI
-            await say("That sign-in didn't finish. Want to try again, or pick another one?")
+            await say("That sign-in didn't finish. Want to try again, or pick another one?", voice: "signinFailed")
             if !result.1.isEmpty { signInProblem = result.1 }
         }
     }
@@ -423,7 +451,7 @@ final class Model: ObservableObject {
     private func verify(_ p: Provider) async {
         busy = true; defer { busy = false }
         await SignIn.makeDefault(p)
-        await say("Connected to \(p.title). Let me check I can think with it…")
+        await say("You're connected to \(p.title). Let me check I can think with it…", voice: "checking")
         if let err = await Engine.shared.start() { step = .pickAI; await say("Something went wrong: \(err)"); return }
         let got = Box("")
         Engine.shared.onText = { t in got.v += t }
@@ -442,20 +470,20 @@ final class Model: ObservableObject {
             return
         }
         step = .nameAssistant
-        await say("It works. Now, what would you like to call me? You can rename me any time.")
+        await say("It works. Now, what would you like to call me? You can rename me any time.", voice: "nameAssistant")
     }
 
     func nameAssistant(_ n: String) async {
         let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
         me(n); assistantName = n; step = .nameUser
-        await say("\(n). I like it. And what should I call you?")
+        await say("\(n). I like it. And what should I call you?", voice: "nameUser")
     }
 
     func nameUser(_ n: String) async {
         let n = n.trimmingCharacters(in: .whitespaces); guard !n.isEmpty else { return }
         me(n); userName = n; step = .connect
-        await say("Nice to meet you, \(n).")
-        await say("Want me to connect anything? People usually start with one of these. Or tell me in your own words.")
+        await say("Nice to meet you, \(n).", voice: "niceToMeet")
+        await say("Want me to connect anything? People usually start with one of these. Or just tell me in your own words.", voice: "connect")
     }
 
     func connect(_ what: String) async {
@@ -464,7 +492,7 @@ final class Model: ObservableObject {
         let w = what.lowercased()
         if w.contains("email") || w.contains("mail") {
             step = .whichEmail
-            await say("Which email do you use? Pick all that apply. You can add as many accounts as you like.")
+            await say("Which email do you use? Pick all that apply. You can add as many accounts as you like.", voice: "whichEmail")
         } else if w == "not now" {
             await wrapUp()
         } else {
@@ -485,26 +513,26 @@ final class Model: ObservableObject {
 
     private func askPasswords() async {
         step = .passwords
-        await say("When I need to log in somewhere, where should I find your passwords?")
+        await say("When I need to log in somewhere, where should I find your passwords?", voice: "passwords")
     }
 
     func passwordsChosen(_ choice: String) async {
         me(choice)
         if choice == "Ask me each time" {
             passwords = "ask the user for each login; never store passwords"
-            await say("Okay. I'll ask you each time and won't keep anything.")
+            await say("Okay. I'll ask you each time, and I won't keep anything.", voice: "askEach")
             await wrapUp(); return
         }
         step = .passwordsOK
         passwords = choice
-        await say("To use \(choice) I need your OK first. I'll only look up a login when a task needs it, and I'll tell you which one.")
+        await say("To use \(choice) I need your OK first. I'll only look up a login when a task needs it, and I'll tell you which one.", voice: "passwordsOK")
     }
 
     func passwordsOK(_ yes: Bool) async {
         me(yes ? "Yes" : "Not now")
         if yes { passwords = "use \(passwords) (permission given \(Date().formatted(date: .abbreviated, time: .omitted)))" }
         else { passwords = "not set up yet; ask before using any password source" }
-        await say(yes ? "Thanks. Noted." : "No problem. I'll ask again when it's needed.")
+        await say(yes ? "Thanks. Noted." : "No problem. I'll ask again when it's needed.", voice: yes ? "thanks" : "notNow")
         await wrapUp()
     }
 
@@ -518,7 +546,7 @@ final class Model: ObservableObject {
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
         _ = await Engine.shared.start()      // restart so the new name and memory load
         busy = false
-        await say("You're all set, \(userName). Here are a few things I can do right now. Tap one, or just ask.")
+        await say("You're all set, \(userName). Here are a few things I can do right now. Tap one, or just ask.", voice: "allSet")
     }
 
     func finish() { onboarded = true; step = .done; bubbles.removeAll() }
@@ -589,19 +617,77 @@ struct RootView: View {
 
 struct WelcomeView: View {
     var start: () -> Void
+    @State var shown = 0
+    let lines: [(String, String)] = [
+        ("Hi. I'm your assistant.", "welcome1"),
+        ("I live on this Mac, not in the cloud.", "welcome2"),
+        ("I ask before I do anything that matters.", "welcome3"),
+        ("If this Mac is closed or off, I'm off too.", "welcome4"),
+    ]
     var body: some View {
-        VStack(spacing: 28) {
-            Spacer()
-            Text("Hi. I'm your assistant.").font(.system(size: 34, weight: .semibold))
-            VStack(spacing: 10) {
-                Text("I live on this Mac, not in the cloud.")
-                Text("I ask before I do anything that matters.")
-                Text("If this Mac is closed or off, I'm off too.")
-            }.font(.title3).foregroundStyle(.secondary)
-            Spacer()
-            BigButton(label: "Start", action: start).keyboardShortcut(.defaultAction)
-            Spacer()
-        }.padding(40)
+        ZStack {
+            Mist()
+            VStack(spacing: 28) {
+                Spacer()
+                Emerging(text: lines[0].0, visible: shown >= 1).font(.system(size: 36, weight: .semibold))
+                VStack(spacing: 12) {
+                    ForEach(1..<lines.count, id: \.self) { i in
+                        Emerging(text: lines[i].0, visible: shown >= i + 1)
+                    }
+                }.font(.title3).foregroundStyle(.secondary)
+                Spacer()
+                BigButton(label: "Start") { Voice.shared.stop(); start() }
+                    .keyboardShortcut(.defaultAction)
+                    .opacity(shown > lines.count ? 1 : 0).blur(radius: shown > lines.count ? 0 : 12)
+                    .scaleEffect(shown > lines.count ? 1 : 0.85)
+                    .animation(.easeOut(duration: 1.4), value: shown)
+                Button(Voice.shared.muted ? "Turn voice on" : "Mute voice") {
+                    Voice.shared.muted.toggle(); shown = shown + 0
+                }.buttonStyle(.link).font(.caption).opacity(shown > lines.count ? 0.7 : 0)
+                Spacer()
+            }.padding(40)
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(700))
+            for (i, l) in lines.enumerated() {
+                shown = i + 1
+                let d = Voice.shared.play(l.1)
+                try? await Task.sleep(for: .milliseconds(Int(max(d, 1.3) * 1000) + 250))
+            }
+            shown = lines.count + 1
+        }
+    }
+}
+
+/// Text that rises out of a blur, like something surfacing through water.
+struct Emerging: View {
+    let text: String; let visible: Bool
+    var body: some View {
+        Text(text).multilineTextAlignment(.center)
+            .opacity(visible ? 1 : 0)
+            .blur(radius: visible ? 0 : 14)
+            .scaleEffect(visible ? 1 : 0.94)
+            .offset(y: visible ? 0 : 14)
+            .animation(.easeOut(duration: 1.5), value: visible)
+    }
+}
+
+/// Soft, slowly drifting light behind the conversation.
+struct Mist: View {
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, size in
+                for i in 0..<3 {
+                    let k = Double(i)
+                    let x = size.width * (0.5 + 0.28 * sin(t * 0.07 + k * 2.1))
+                    let y = size.height * (0.45 + 0.22 * cos(t * 0.05 + k * 1.7))
+                    let r = min(size.width, size.height) * (0.55 + 0.1 * sin(t * 0.09 + k))
+                    ctx.fill(Path(ellipseIn: CGRect(x: x - r / 2, y: y - r / 2, width: r, height: r)),
+                             with: .color(Color.accentColor.opacity(0.10)))
+                }
+            }.blur(radius: 70)
+        }.ignoresSafeArea().allowsHitTesting(false)
     }
 }
 
@@ -631,6 +717,37 @@ struct BubbleView: View {
     }
 }
 
+/// Shows the last few things said: the newest line surfaces in the middle, older ones fade away above it.
+struct Stage: View {
+    let bubbles: [Bubble]; let busy: Bool
+    @State var appeared: Set<UUID> = []
+    var body: some View {
+        let recent = Array(bubbles.suffix(4))
+        VStack(spacing: 18) {
+            Spacer(minLength: 20)
+            ForEach(Array(recent.enumerated()), id: \.element.id) { i, b in
+                let age = recent.count - 1 - i        // 0 = newest
+                let on = appeared.contains(b.id)
+                Text(b.text)
+                    .font(b.fromMe ? .title3 : (age == 0 ? .system(size: 26, weight: .medium) : .title3))
+                    .foregroundStyle(b.fromMe ? Color.accentColor : .primary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 480)
+                    .opacity(on ? max(0.12, 1 - Double(age) * 0.32) : 0)
+                    .blur(radius: on ? Double(age) * 0.8 : 14)
+                    .scaleEffect(on ? 1 : 0.94)
+                    .offset(y: on ? 0 : 16)
+                    .onAppear { withAnimation(.easeOut(duration: 1.5)) { _ = appeared.insert(b.id) } }
+            }
+            if busy { ProgressView().controlSize(.small).padding(.top, 6) }
+            Spacer(minLength: 20)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: 1.0), value: bubbles.count)
+    }
+}
+
 struct Chip: View {
     let label: String; var selected = false; let action: () -> Void
     var body: some View {
@@ -649,19 +766,15 @@ struct OnboardingView: View {
     @State var paste = ""
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(m.bubbles) { BubbleView(b: $0).id($0.id) }
-                        if m.busy { HStack { ProgressView().controlSize(.small); Spacer() } }
-                    }.padding(24)
-                }.onChange(of: m.bubbles.count) { _, _ in
-                    if let l = m.bubbles.last { withAnimation { proxy.scrollTo(l.id, anchor: .bottom) } }
-                }
-            }
-            Divider()
-            answerArea.padding(20).frame(maxWidth: .infinity)
+            Stage(bubbles: m.bubbles, busy: m.busy)
+            answerArea.padding(24).frame(maxWidth: .infinity)
+                .opacity(m.speaking ? 0 : 1).blur(radius: m.speaking ? 8 : 0)
+                .allowsHitTesting(!m.speaking)
+                .animation(.easeOut(duration: 0.9), value: m.speaking)
+                .id(m.step).transition(.opacity.combined(with: .offset(y: 10)))
+                .animation(.easeOut(duration: 0.8), value: m.step)
         }
+        .background(Mist())
         .task { if m.switchingAI { m.bubbles.removeAll(); m.step = .pickAI; await m.say("Which AI should I use?") } else { await m.beginOnboarding() } }
     }
 

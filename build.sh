@@ -22,6 +22,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+cp voice/*.mp3 "$APP/Contents/Resources/"
 codesign --force --deep -s - "$APP"
 echo "built $APP"
 if [[ "${1:-}" == "--install" ]]; then

@@ -883,6 +883,9 @@ enum Access {
         // git's extra settings files (e.g. ~/.gitconfig-work pulled in by includeIf)
         ro += ((try? FileManager.default.contentsOfDirectory(atPath: h)) ?? []).filter { $0.hasPrefix(".gitconfig") }.map { "\(h)/\($0)" }
         if Env.hermesPath != Env.ownHermes { ro += ["\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"] }
+        // Each connection opens only what it needs (e.g. KeePass: its settings, the database, the key file).
+        ro += (UserDefaults.standard.string(forKey: "connectorReads") ?? "").split(separator: "\n").map { ($0 as NSString).expandingTildeInPath }
+        ro += ["\(h)/Library/Application Support/KeePassXC"]
         return """
         (version 1)
         (allow default)
@@ -1047,9 +1050,9 @@ enum Persona {
         - Offer one clear next step, not a menu.
         - When you ask them to decide something, end your message with one last line listing 2 to 4 short answers they can tap, exactly like: [choices: Yes, go ahead | Not now | Change the plan]. Keep each answer under 5 words. Don't list them anywhere else in the message.
 
-        Helpers: when they ask for a separate job that takes a while or runs in the background (watching a price, tidying files, digging through receipts, researching, checking something every day), don't do it yourself here. Say in one short line that you're sending a helper, then add a line exactly like:
+        Helpers: anything that needs work (looking something up, browsing, research, comparing, making a file, tidying, watching a price, checking something every day) goes to helpers, never done here, so you stay free to talk. Split a job with separate parts into several helpers so they run at the same time. Say in one short line that you're sending a helper, then add a line exactly like:
         [helper: Flight to Quebec | Find the cheapest flight from PHL or EWR to Quebec City (YQB), Dec 20 to 24 2026, and keep an eye on the price.]
-        The title is 2 to 4 words. After the | write the whole job with every detail, because the helper can't see this conversation. One line per job. You stay free to keep talking. Quick things (a question, one short lookup) you just do yourself.
+        The title is 2 to 4 words. After the | write the whole job with every detail, because the helper can't see this conversation. One line per job. You stay free to keep talking. Only answer yourself when you already know it or it's just conversation.
 
         Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
 
@@ -1759,7 +1762,7 @@ final class Model: ObservableObject {
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
         // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
-        let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
+        let note = "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
         let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
@@ -4712,14 +4715,17 @@ struct ConnectionsWorld: View {
         if Bridge.calendarOK { c.append("Calendar") }
         if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
         if UserDefaults.standard.string(forKey: "passwordsWith") != nil { c.append("Passwords") }
+        if UserDefaults.standard.bool(forKey: "googleConnected") { if !c.contains("Email") { c.append("Email") }; if !c.contains("Calendar") { c.append("Calendar") } }
         return c
     }
     static let soon: Set<String> = ["Phone", "News"]
     static let how: [String: [String]] = [
-        "Email": ["Gmail", "Outlook", "iCloud", "Yahoo"],
-        "Passwords": ["KeePass", "1Password", "Bitwarden", "Apple Passwords"],
-        "Calendar": ["Google", "iCloud", "Outlook"],
-        "Browser": ["Chrome", "Arc", "Safari"],
+        "Email": ["Gmail", "Outlook", "iCloud", "Yahoo", "Something else…"],
+        "Passwords": ["KeePass", "1Password", "Bitwarden", "Something else…"],
+        "Calendar": ["Google", "iCloud", "Outlook", "Something else…"],
+        "Browser": ["Chrome", "Arc", "Something else…"],
+        "News": ["Something else…"],
+        "Phone": ["Something else…"],
     ]
     func state(_ id: String) -> String { ConnectionsWorld.soon.contains(id) ? "soon" : on[id] != nil ? "on" : "off" }
     var body: some View {
@@ -4751,15 +4757,18 @@ struct ConnectionsWorld: View {
     @ViewBuilder func detail(_ sel: Node?) -> some View {
         if let n = sel {
             VStack(spacing: 12) {
-                if let opts = ConnectionsWorld.how[n.id], state(n.id) != "soon" {
+                if let opts = ConnectionsWorld.how[n.id] {
                     HStack(spacing: 8) {
                         ForEach(opts, id: \.self) { o in
-                            let chosen = UserDefaults.standard.string(forKey: "passwordsWith") == o || (n.id == "Passwords" && o == "KeePass" && fixedT != nil)
-                            Text(o).font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(chosen ? Color(hex: 0x141416) : WorldLook.cream.opacity(0.85))
+                            let chosen = UserDefaults.standard.string(forKey: "passwordsWith") == o || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
+                            HStack(spacing: 5) {
+                                if chosen { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
+                                Text(o).font(.system(size: 13, weight: .medium))
+                            }
+                                .foregroundStyle(chosen ? .white : WorldLook.cream.opacity(o.hasPrefix("Something") ? 0.55 : 0.85))
                                 .padding(.horizontal, 14).padding(.vertical, 7)
-                                .background(Capsule().fill(chosen ? WorldLook.cream : WorldLook.cream.opacity(0.07)))
-                                .overlay(Capsule().stroke(WorldLook.cream.opacity(chosen ? 0 : 0.14), lineWidth: 1))
+                                .background(Capsule().fill(WorldLook.cream.opacity(chosen ? 0.12 : 0.05)))
+                                .overlay(Capsule().stroke(WorldLook.cream.opacity(chosen ? 0.6 : 0.14), style: StrokeStyle(lineWidth: 1, dash: o.hasPrefix("Something") ? [3, 3] : [])))
                         }
                     }
                 }
@@ -4773,7 +4782,7 @@ struct ConnectionsWorld: View {
                     Text("Connect").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(hex: 0x141416))
                         .frame(minWidth: 150).padding(.vertical, 11).background(Capsule().fill(WorldLook.cream))
                 default:
-                    Text("Coming soon").font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                    Text("Not built yet. Tap Something else… to try building it together (experimental).").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.5))
                 }
                 if let note { Text(note).font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xE8B48A)).multilineTextAlignment(.center).frame(maxWidth: 440) }
             }

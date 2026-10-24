@@ -4993,9 +4993,9 @@ struct ConnectionsWorld: View {
 /// Sign in with Google from One itself: a small Python helper opens the browser and saves the login
 /// where the Google skill reads it (hermes/google_tokens/<email>.json). Returns the email, or nil.
 enum GoogleSignIn {
-    /// Parked: Google limits unverified apps to 100 test users, so the release uses the Mac's own accounts.
-    /// Turn on for a developer build with `defaults write ai.forjado.one googleSignIn -bool true`.
-    static var enabled: Bool { UserDefaults.standard.bool(forKey: "googleSignIn") && Bundle.main.url(forResource: "google_client_secret", withExtension: "json") != nil }
+    /// On by default. The Google app is published but unverified: people see Google's "not verified" screen once,
+    /// and at most 100 people can sign in until Google's review. Without the bundled client file it falls back to the Mac's accounts.
+    static var enabled: Bool { UserDefaults.standard.object(forKey: "googleSignIn") as? Bool ?? true && Bundle.main.url(forResource: "google_client_secret", withExtension: "json") != nil }
     static var venv: URL { Env.support.appendingPathComponent("tools-venv") }
     static func ensureVenv() -> Bool {
         let py = venv.appendingPathComponent("bin/python")

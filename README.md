@@ -53,7 +53,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | Piece | What it is |
 |---|---|
 | **Face** | A SwiftUI app (`Sources/main.swift`), built with `swiftc` for Apple Silicon, macOS 14+. |
-| **Engine** | [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research (MIT). It brings model routing to any provider, tools (files, browser, web, scheduling), memory, messaging gateways (Telegram, WhatsApp) and secret stores. One never shows it to the user. |
+| **Engine** | [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research (MIT). It brings model routing to any provider, tools (files, browser, web, scheduling), memory and secret stores. One never shows it to the user. |
 | **Talking to the engine** | Hermes's ACP adapter: JSON-RPC over stdio (`initialize`, `session/new`, `session/prompt`). Replies stream in; permission requests become "needs your yes" cards. |
 | **Isolation** | One runs its own Hermes in `~/Library/Application Support/One`, with its own `HERMES_HOME`, so it never mixes with another Hermes on the same Mac. |
 | **First-launch install** | Hermes's official installer, bundled in the app and run non-interactively with a scratch `HOME`, so nothing outside One's folder changes. |
@@ -89,11 +89,11 @@ To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 to
 
 ## Roadmap
 
-- Phone (Telegram or WhatsApp in one step) and News as built-in connections.
+- News as a built-in connection.
 - Email and calendar beyond Google (Outlook, iCloud) without the Mac Mail app.
 - A "Today" page: what it did, what needs your yes, what it noticed.
 - It reaches out first ("your flight dropped $80, book it?").
-- Your phone: link Telegram or WhatsApp in one step; later a small companion app.
+- Your phone: a small companion app for iPhone and Android, so you can reach your assistant away from the Mac.
 - Signed and notarised builds.
 - Maybe later: an optional hosted version for people who don't want to keep a Mac on. One stays free and open source.
 

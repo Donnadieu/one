@@ -21,6 +21,7 @@ check "app builds" ./build.sh
 
 echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
+check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
 check "no Google secret or sign-in in the app" bash -c "! ls $APP/Contents/Resources | grep -q google"
 check "no keys or tokens bundled" bash -c "! grep -rlI -E 'BEGIN (RSA |OPENSSH )?PRIVATE KEY|sk-ant-|ghp_[A-Za-z0-9]{20}' $APP/Contents/Resources"
@@ -64,6 +65,7 @@ if [ $FULL = 1 ] && [ $CI = 0 ]; then
   (cd "$T/fresh" && ONE_SUPPORT_DIR="$T/fresh" perl -e 'alarm 600; exec @ARGV' "$OLDPWD/$BIN" --install-test > "$T/fresh/out.txt" 2>&1)
   check "engine installs" grep -q "^install: ok" "$T/fresh/out.txt"
   check "installed into the empty folder" grep -q "hermes: $T/fresh" "$T/fresh/out.txt"
+  check "fresh engine is the pinned version" bash -c "[ \"$(cd $T/fresh/engine && git rev-parse HEAD)\" = \"$(cat $APP/Contents/Resources/hermes-commit.txt)\" ]"
   check "KeePass in the fresh engine" grep -q KeePassLoginBackend "$T/fresh/engine/agent/vault_backends/base.py"
   check "tools Python built" test -x "$T/fresh/tools-venv/bin/python"
 fi

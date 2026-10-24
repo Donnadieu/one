@@ -109,7 +109,11 @@ enum Installer {
             DispatchQueue.global().async {
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: "/bin/bash")
-                p.arguments = [script.path, "--non-interactive", "--hermes-home", Env.hermesHome.path, "--dir", Env.engineDir.path]
+                var args = [script.path, "--non-interactive", "--hermes-home", Env.hermesHome.path, "--dir", Env.engineDir.path]
+                // Install the Hermes version One was tested with, not whatever is newest (see build.sh HERMES_COMMIT).
+                if let c = Bundle.main.url(forResource: "hermes-commit", withExtension: "txt").flatMap({ try? String(contentsOf: $0, encoding: .utf8) })?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty { args += ["--commit", c] }
+                p.arguments = args
                 p.environment = ["HOME": scratch.path, "USER": NSUserName(), "SHELL": "/bin/zsh", "LANG": "en_US.UTF-8",
                                  "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": NSTemporaryDirectory()]
                 p.currentDirectoryURL = Env.support
@@ -134,6 +138,7 @@ enum Installer {
                 if p.terminationStatus == 0 && FileManager.default.isExecutableFile(atPath: Env.ownHermes) {
                     try? FileManager.default.removeItem(at: scratch)
                     applyOverlay()
+                    _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)
                 } else {
                     let last = all.v.split(separator: "\n").last(where: { $0.contains("✗") || $0.lowercased().contains("fail") || $0.lowercased().contains("error") })
@@ -1593,7 +1598,10 @@ final class Model: ObservableObject {
         guard onboarded, !Engine.shared.running else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
-        Installer.applyOverlay()
+        if !Installer.applyOverlay() && UserDefaults.standard.string(forKey: "passwordsWith") == "KeePass" {
+            bubbles.append(Bubble(fromMe: false, text: "Heads up: after an update I can't use your KeePass logins right now. Everything else works. Tell me and I'll look into it."))
+        }
+        Task.detached { _ = GoogleSignIn.ensureVenv() }
         if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
@@ -4656,38 +4664,48 @@ struct Presence: View {
     /// Ring stroke width; bigger when the rings are drawn scaled down (floating orb) so they stay crisp.
     var line: CGFloat = 1.1
     var body: some View {
-        Canvas { ctx, size in
-            let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            let breath = 1 + 0.035 * sin(t * .pi * 2 / 5)
-            let amp = 1.8 + voice * 3.6 + energy * 4
-            let glowC = CGPoint(x: c.x + lean.x, y: c.y + lean.y)
-            ctx.fill(Path(CGRect(origin: .zero, size: size)),
-                     with: .radialGradient(Gradient(colors: [Color(.sRGB, red: 1, green: 236 / 255, blue: 214 / 255, opacity: 0.10 + voice * 0.05 + energy * 0.06), .clear]),
-                                           center: glowC, startRadius: 10, endRadius: 130))
-            for k in stride(from: 6, through: 0, by: -1) {
-                let kd = Double(k)
-                let base = (40 + kd * 4.6) * breath
-                let o = CGPoint(x: c.x + lean.x * kd / 7, y: c.y + lean.y * kd / 7)
-                var path = Path()
-                for sidx in 0...120 {
-                    let a = Double(sidx) / 120 * 2 * .pi
-                    let w1 = 0.55 * sin(3 * a + t * 0.7 + kd * 0.9)
-                    let w2 = 0.3 * sin(5 * a - t * 0.9 + kd * 1.7)
-                    let w3 = 0.15 * sin(2 * a + t * 1.3)
-                    let r = base + amp * (1 + kd * 0.18) * (w1 + w2 + w3)
-                    let pt = CGPoint(x: o.x + cos(a) * r, y: o.y + sin(a) * r)
-                    if sidx == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
-                }
-                path.closeSubpath()
-                if k == 0 {
-                    ctx.fill(path, with: .radialGradient(Gradient(colors: [Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.20),
-                                                                          Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.03)]),
-                                                         center: CGPoint(x: o.x - 8, y: o.y - 10), startRadius: 2, endRadius: base * 1.1))
-                }
-                let hue = (32 + kd * 26) / 360
-                ctx.stroke(path, with: .color(Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(0.62 - kd * 0.07)), lineWidth: line)
-            }
+        Canvas { ctx, size in Presence.draw(&ctx, size, t: t, lean: lean, voice: voice, energy: energy, line: line) }
+    }
+    // Drawing is split into small typed steps: one big closure took slower Macs (CI) too long to type-check.
+    static func draw(_ ctx: inout GraphicsContext, _ size: CGSize, t: Double, lean: CGPoint, voice: Double, energy: Double, line: CGFloat) {
+        let c = CGPoint(x: size.width / 2, y: size.height / 2)
+        let breath: Double = 1 + 0.035 * sin(t * .pi * 2 / 5)
+        let amp: Double = 1.8 + voice * 3.6 + energy * 4
+        let glowC = CGPoint(x: c.x + lean.x, y: c.y + lean.y)
+        let glowA: Double = 0.10 + voice * 0.05 + energy * 0.06
+        let glow = Gradient(colors: [Color(.sRGB, red: 1, green: 236 / 255, blue: 214 / 255, opacity: glowA), .clear])
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(glow, center: glowC, startRadius: 10, endRadius: 130))
+        for k in stride(from: 6, through: 0, by: -1) {
+            ring(&ctx, k: Double(k), c: c, t: t, lean: lean, breath: breath, amp: amp, line: line)
         }
+    }
+    static func ringPath(o: CGPoint, base: Double, amp: Double, kd: Double, t: Double) -> Path {
+        var path = Path()
+        let scale: Double = amp * (1 + kd * 0.18)
+        for sidx in 0...120 {
+            let a: Double = Double(sidx) / 120 * 2 * .pi
+            let w1: Double = 0.55 * sin(3 * a + t * 0.7 + kd * 0.9)
+            let w2: Double = 0.3 * sin(5 * a - t * 0.9 + kd * 1.7)
+            let w3: Double = 0.15 * sin(2 * a + t * 1.3)
+            let r: Double = base + scale * (w1 + w2 + w3)
+            let pt = CGPoint(x: o.x + CGFloat(cos(a) * r), y: o.y + CGFloat(sin(a) * r))
+            if sidx == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+        }
+        path.closeSubpath()
+        return path
+    }
+    static func ring(_ ctx: inout GraphicsContext, k kd: Double, c: CGPoint, t: Double, lean: CGPoint, breath: Double, amp: Double, line: CGFloat) {
+        let base: Double = (40 + kd * 4.6) * breath
+        let o = CGPoint(x: c.x + lean.x * CGFloat(kd / 7), y: c.y + lean.y * CGFloat(kd / 7))
+        let path = ringPath(o: o, base: base, amp: amp, kd: kd, t: t)
+        if kd == 0 {
+            let fill = Gradient(colors: [Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.20),
+                                         Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.03)])
+            ctx.fill(path, with: .radialGradient(fill, center: CGPoint(x: o.x - 8, y: o.y - 10), startRadius: 2, endRadius: CGFloat(base * 1.1)))
+        }
+        let hue: Double = (32 + kd * 26) / 360
+        let col = Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(0.62 - kd * 0.07)
+        ctx.stroke(path, with: .color(col), lineWidth: line)
     }
 }
 
@@ -5033,7 +5051,17 @@ enum GoogleSignIn {
         let uv = tools.appendingPathComponent("\(uvDir)/uv").path
         guard shell(uv, ["venv", "-q", "--python", tools.appendingPathComponent("\(pyDir)/bin/python3").path, venv.path]) == 0 else { return false }
         var env = Env.vars(); env["VIRTUAL_ENV"] = venv.path
-        return shell(uv, ["pip", "install", "-q", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2", "websockets", "requests"], env: env) == 0
+        guard shell(uv, ["pip", "install", "-q", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2", "websockets", "requests", "pyyaml"], env: env) == 0 else { return false }
+        linkTools(); return true
+    }
+    /// Skills call `$HOME/.cache/one-py/bin/python`: a path with no spaces that points at One's tools Python.
+    static func linkTools() {
+        guard !Env.selfTest, ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] == nil else { return }
+        let link = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".cache/one-py")
+        try? FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == venv.path { return }
+        try? FileManager.default.removeItem(at: link)
+        try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: venv)
     }
     @discardableResult static func shell(_ exe: String, _ args: [String], env: [String: String]? = nil, out: Pipe? = nil) -> Int32 {
         let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args

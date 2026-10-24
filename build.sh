@@ -38,7 +38,10 @@ if [ "${ONE_GOOGLE:-0}" = 1 ] && [ -f "$HOME/.hermes/google_client_secret.json" 
 fi
 cp assets/One.icns "$APP/Contents/Resources/One.icns"
 # Hermes's official installer (MIT, Nous Research), run by One on first launch.
-HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"
+# The Hermes version One is tested with (v0.22.5). Bump only after tools/preflight.sh --full passes on the new one.
+HERMES_COMMIT="${HERMES_COMMIT:-bf0203a794a07aac3ff764972ab9087baa4e4f4e}"
+echo "$HERMES_COMMIT" > "$APP/Contents/Resources/hermes-commit.txt"
+HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/$HERMES_COMMIT/scripts/install.sh}"
 curl -fsSL "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"
 # Memory templates (rooms). Point BRAIN_STARTER at a checkout of the brain starter.
 BRAIN_STARTER="${BRAIN_STARTER:-$HOME/Repos/brain-starter}"

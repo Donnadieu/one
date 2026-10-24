@@ -271,7 +271,7 @@ final class Speaker: @unchecked Sendable {
             guard self.proc == nil, self.installed, let script = Bundle.main.url(forResource: "speak", withExtension: "py") else { return }
             let p = Process()
             p.executableURL = self.dir.appendingPathComponent("venv/bin/python")
-            p.arguments = ["-I", script.path, self.dir.path, "af_heart"]
+            p.arguments = ["-I", script.path, self.dir.path, Speaker.voiceID]
             let i = Pipe(), o = Pipe(); p.standardInput = i; p.standardOutput = o; p.standardError = FileHandle.nullDevice
             o.fileHandleForReading.readabilityHandler = { [weak self] h in
                 let d = h.availableData; guard let self, !d.isEmpty else { return }
@@ -351,6 +351,23 @@ final class Speaker: @unchecked Sendable {
         }
     }
     var talking: Bool { Date() < endsAt }
+    static var voiceID: String { UserDefaults.standard.string(forKey: "voiceID") ?? "af_heart" }
+    /// Switch voices: restart the voice process with the new one, then say a short line in it.
+    func use(voice: String, sample: String?) {
+        UserDefaults.standard.set(voice, forKey: "voiceID")
+        stop()
+        q.async {
+            self.proc?.terminate(); self.proc = nil; self.ready = false
+            DispatchQueue.main.async {
+                self.start()
+                guard let sample else { return }
+                Task { @MainActor in
+                    for _ in 0..<40 where !Speaker.shared.ready { try? await Task.sleep(for: .milliseconds(250)) }
+                    _ = await Speaker.shared.sayNow(sample)
+                }
+            }
+        }
+    }
     func stop() {
         gen += 1; pending = []; queue = []; nextIndex = 0
         if let f = onFirst { onFirst = nil; DispatchQueue.main.async { f() } }
@@ -413,6 +430,15 @@ enum Provider: String, CaseIterable, Identifiable {
         switch self { case .claude: "anthropic"; case .chatgpt: "openai-codex"; case .grok: "xai-oauth"; case .openrouter: "openrouter" }
     }
     var defaultModel: String { models[0] }
+    /// The three plain choices people see: Smartest, Balanced, Fastest.
+    var tiers: [(String, String)] {
+        switch self {
+        case .claude: [("Smartest", "claude-opus-5-5"), ("Balanced", "claude-sonnet-5"), ("Fastest", "claude-haiku-5-5")]
+        case .chatgpt: [("Smartest", "gpt-6.1-sol"), ("Balanced", "gpt-6-sol"), ("Fastest", "gpt-5.4-mini")]
+        case .grok: [("Smartest", "grok-4.6"), ("Balanced", "grok-4.20-0309-reasoning"), ("Fastest", "grok-4.20-0309-non-reasoning")]
+        case .openrouter: [("Smartest", "anthropic/claude-opus-5.5"), ("Balanced", "anthropic/claude-sonnet-5.5"), ("Fastest", "google/gemini-3-flash-preview")]
+        }
+    }
     /// Tried in order until one answers (plans don't all allow the same models).
     var models: [String] {
         switch self {
@@ -5238,6 +5264,111 @@ struct OnboardingView: View {
     }
 }
 
+/// Tap the assistant's name: one small card with its brain and its voice. Nothing else.
+struct MeCard: View {
+    @ObservedObject var m: Model
+    var close: () -> Void = {}
+    @State var model: String = MeCard.currentModel()
+    @State var voice: String = Speaker.voiceID
+    @State var gender: String = Speaker.voiceID.hasPrefix("am") || Speaker.voiceID.hasPrefix("bm") ? "Male" : "Female"
+    @State var anyModel = false
+    @State var search = ""
+    @State var busy = false
+    @AppStorage("voiceMuted") var muted = false
+    static let voices: [String: [(String, String)]] = [
+        "Female": [("af_heart", "Warm"), ("af_bella", "Bright"), ("bf_emma", "British")],
+        "Male": [("am_michael", "Calm"), ("am_fenrir", "Deep"), ("bm_george", "British")],
+    ]
+    static func currentModel() -> String {
+        let y = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
+        for l in y.split(separator: "\n") where l.trimmingCharacters(in: .whitespaces).hasPrefix("default:") {
+            return l.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+        }
+        return ""
+    }
+    var provider: Provider { Provider(rawValue: m.providerRaw) ?? .claude }
+    static func allOpenRouter() -> [String] {
+        guard let d = try? Data(contentsOf: Env.hermesHome.appendingPathComponent("models_dev_cache.json")),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let o = j["openrouter"] as? [String: Any], let ms = o["models"] as? [String: Any] else { return [] }
+        return ms.keys.sorted()
+    }
+    func pill(_ t: String, _ on: Bool, sub: String? = nil, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            VStack(spacing: 2) {
+                Text(t).font(.system(size: 13.5, weight: .medium))
+                if let sub { Text(sub).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(1) }
+            }
+            .foregroundStyle(on ? .white : WorldLook.cream.opacity(0.8))
+            .frame(maxWidth: .infinity).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(on ? 0.12 : 0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WorldLook.cream.opacity(on ? 0.55 : 0.1), lineWidth: 1))
+        }.buttonStyle(.plain)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(m.name).font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                    Text("To rename me, just ask.").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                }
+                Spacer()
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack { Text("BRAIN").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(WorldLook.cream.opacity(0.5)); Spacer()
+                    Text(provider.title).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.45)) }
+                HStack(spacing: 8) {
+                    ForEach(provider.tiers, id: \.1) { t in pill(t.0, model == t.1, sub: t.1) { pick(t.1) } }
+                }
+                if provider == .openrouter {
+                    Button(anyModel ? "Hide the full list" : "Pick any model…") { anyModel.toggle() }.buttonStyle(.plain)
+                        .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                    if anyModel {
+                        TextField("Search, e.g. gemini, llama, gpt", text: $search).textFieldStyle(.roundedBorder)
+                        ScrollView { VStack(alignment: .leading, spacing: 4) {
+                            ForEach(MeCard.allOpenRouter().filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }.prefix(60), id: \.self) { id in
+                                Button { pick(id) } label: { HStack { Text(id).font(.system(size: 12.5)); Spacer(); if model == id { Image(systemName: "checkmark") } } }
+                                    .buttonStyle(.plain).foregroundStyle(WorldLook.cream.opacity(0.85))
+                            }
+                        } }.frame(height: 140)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("VOICE").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(WorldLook.cream.opacity(0.5))
+                    Spacer()
+                    Button { muted.toggle(); if muted { Speaker.shared.stop() } } label: { Label(muted ? "Muted" : "Mute", systemImage: muted ? "speaker.slash" : "speaker.wave.2") }
+                        .buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(muted ? 0.9 : 0.5))
+                }
+                HStack(spacing: 8) { ForEach(["Female", "Male"], id: \.self) { g in pill(g, gender == g) { gender = g; let v = MeCard.voices[g]![0].0; choose(v) } } }
+                HStack(spacing: 8) {
+                    ForEach(MeCard.voices[gender]!, id: \.0) { v in
+                        pill(v.1, voice == v.0, sub: voice == v.0 ? "✓ chosen" : "▶ hear it") { choose(v.0) }
+                    }
+                }
+            }.opacity(muted ? 0.45 : 1)
+            HStack { Spacer(); Button("Done") { close() }.buttonStyle(.plain).font(.system(size: 13.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.7)) }
+        }
+        .padding(22).frame(width: 420)
+        .background(WorldLook.bg)
+        .preferredColorScheme(.dark)
+    }
+    func choose(_ v: String) {
+        voice = v
+        Speaker.shared.use(voice: v, sample: muted ? nil : "Hi \(m.userName.isEmpty ? "there" : m.userName), this is how I'll sound.")
+    }
+    func pick(_ id: String) {
+        guard id != model, !busy else { return }
+        model = id; busy = true
+        Task { @MainActor in
+            _ = await hermesRun(["config", "set", "model.default", id])
+            _ = await Engine.shared.start()
+            busy = false
+        }
+    }
+}
+
 struct HomeView: View {
     @ObservedObject var m: Model
     @State var draft = ""
@@ -5245,6 +5376,11 @@ struct HomeView: View {
     @State var talkKeySheet = false
     @State var connectionsSheet = false
     @State var roomsSheet = false
+    @State var meCard = false
+    @AppStorage("shelfCollapsed") var shelfCollapsed = false
+    @AppStorage("tryHidden") var tryHidden = false
+    @AppStorage("firstHome") var firstHome: Double = 0
+    var tryShown: Bool { !tryHidden && (firstHome == 0 || Date().timeIntervalSince1970 - firstHome < 3 * 86400) }
     @AppStorage("voiceMuted") var voiceOff = false
     @ObservedObject var l = Listener.shared
     @State var micDownAt: Date?
@@ -5264,6 +5400,7 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).padding(.top, 18)
+                        .onAppear { if firstHome == 0 { firstHome = Date().timeIntervalSince1970 } }
                     NovaWithHelpers(m: m)
                     if m.thinking && m.openHelper == nil {
                         Text(m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2).transition(.opacity)
@@ -5329,9 +5466,18 @@ struct HomeView: View {
                         }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
                     }
                     askBox.padding(.top, 4)
+                    if !tryShown {
+                        Button { tryHidden = false; firstHome = Date().timeIntervalSince1970 } label: { Label("Ideas to try", systemImage: "lightbulb") }
+                            .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                    } else {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(lastAsk == nil ? "THINGS ONLY I CAN DO FROM YOUR MAC" : "TRY SOMETHING ELSE")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        HStack {
+                            Text(lastAsk == nil ? "THINGS ONLY I CAN DO FROM YOUR MAC" : "TRY SOMETHING ELSE")
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Button { withAnimation { tryHidden = true } } label: { Image(systemName: "xmark").font(.caption.weight(.semibold)) }
+                                .buttonStyle(.plain).foregroundStyle(.secondary).help("Hide these. Bring them back with Ideas to try.")
+                        }
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                             ForEach(tryItems, id: \.self) { it in
                                 Button { Task { await m.send(it.text) } } label: {
@@ -5349,12 +5495,29 @@ struct HomeView: View {
                             }
                         }
                     }
+                    }
                 }.padding(.horizontal, 28).padding(.bottom, 20)
             }
         }
-            if !m.shelf.isEmpty { ShelfPanel(m: m).background(Mist()).transition(.move(edge: .trailing)) }
+            if !m.shelf.isEmpty {
+                if shelfCollapsed {
+                    Button { withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = false } } label: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                            Image(systemName: "tray.full").font(.system(size: 13))
+                            let fresh = m.shelf.filter(\.fresh).count
+                            if fresh > 0 { Text("\(fresh)").font(.system(size: 10, weight: .bold)).foregroundStyle(Color(hex: 0x141416)).padding(4).background(Circle().fill(Color(hex: 0xFFE2C2))) }
+                        }.foregroundStyle(.secondary).frame(width: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
+                    }.buttonStyle(.plain).background(Mist()).help("Show Ready for you").transition(.move(edge: .trailing))
+                } else {
+                    ShelfPanel(m: m).background(Mist()).overlay(alignment: .topTrailing) {
+                        Button { withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = true } } label: { Image(systemName: "sidebar.right").font(.system(size: 12)) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(.top, 14).padding(.trailing, 14).help("Hide Ready for you")
+                    }.transition(.move(edge: .trailing))
+                }
+            }
         }
-        .frame(minWidth: m.shelf.isEmpty ? 560 : 830)
+        .frame(minWidth: m.shelf.isEmpty || shelfCollapsed ? 560 : 830)
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: m.shelf.isEmpty)
         .overlay {
             if let id = m.openedShelf, let it = m.shelf.first(where: { $0.id == id }) {
@@ -5382,7 +5545,9 @@ struct HomeView: View {
                     Label(voiceOff ? "Voice off" : "Voice on", systemImage: voiceOff ? "speaker.slash" : "speaker.wave.2")
                 }.help(voiceOff ? "Let \(m.name) talk" : "Stop \(m.name) from talking")
             }
+            ToolbarItem(placement: .navigation) { Button { meCard = true } label: { Text(m.name).font(.headline) }.buttonStyle(.plain).help("\(m.name)'s brain and voice") }
             ToolbarItem { Button { roomsSheet = true } label: { Label("Rooms", systemImage: "circle.hexagongrid") }.help("See your rooms") }
+            ToolbarItem { Button { connectionsSheet = true } label: { Label("Connections", systemImage: "point.3.connected.trianglepath.dotted") }.help("What \(m.name) can reach") }
             ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
             ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }
@@ -5392,11 +5557,12 @@ struct HomeView: View {
                 }.tint(m.paused ? .green : .red)
             }
         }
-        .navigationTitle(m.name)
+        .navigationTitle("")
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
         .sheet(isPresented: $roomsSheet) { RoomsView(m: m) { roomsSheet = false } }
-        .sheet(isPresented: $connectionsSheet) { ConnectionsSheet(m: m) { connectionsSheet = false } }
+        .sheet(isPresented: $connectionsSheet) { ConnectionsWorld(m: m) { connectionsSheet = false }.frame(width: 720, height: 680) }
+        .popover(isPresented: $meCard, arrowEdge: .bottom) { MeCard(m: m) { meCard = false } }
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
         .overlay {
             if dropping {
@@ -5617,6 +5783,7 @@ struct Entry {
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
                     ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
+                    ("me-card", AnyView(MeCard(m: Model.shared))),
                     ("cw-passwords", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Passwords"))),
                     ("cw-calendar", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Calendar"))),
                     ("cw-news", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News"))),
@@ -5638,7 +5805,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : name.hasPrefix("connections") ? 560 : name.hasPrefix("cw-") ? 720 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : name == "connections" ? 600 : name.hasPrefix("cw-") ? 680 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : name.hasPrefix("connections") ? 560 : name.hasPrefix("cw-") ? 720 : name == "me-card" ? 420 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : name == "connections" ? 600 : name.hasPrefix("cw-") ? 680 : name == "me-card" ? 400 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

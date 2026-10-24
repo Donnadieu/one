@@ -1139,6 +1139,32 @@ final class Model: ObservableObject {
     @AppStorage("interviewOffered") var interviewOffered = false
     @Published var roomInvites: [URL] = []
     var clashes: [String] = []
+    /// Routines (scheduled jobs) finish into hermes/cron/output/<job>/<time>.md. Read each new result
+    /// out loud, wherever the person is, unless the voice is muted. Silent runs say nothing.
+    private var routineSeen: Set<String> = []
+    private var routineStarted = false
+    func tendRoutines() {
+        let root = Env.hermesHome.appendingPathComponent("cron/output")
+        let fm = FileManager.default
+        var found: [URL] = []
+        for job in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
+            for f in (try? fm.contentsOfDirectory(at: job, includingPropertiesForKeys: nil)) ?? [] where f.pathExtension == "md" { found.append(f) }
+        }
+        let fresh = found.filter { !routineSeen.contains($0.path) }
+        fresh.forEach { routineSeen.insert($0.path) }
+        guard routineStarted else { routineStarted = true; return }   // don't replay old results at launch
+        for f in fresh.sorted(by: { $0.path < $1.path }) {
+            guard let t = try? String(contentsOf: f, encoding: .utf8), let r = t.range(of: "## Response") else { continue }
+            var body = String(t[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let cut = body.range(of: "\n⚠️") { body = String(body[..<cut.lowerBound]) }
+            if body.isEmpty || body.hasPrefix("[SILENT]") { continue }
+            let title = t.split(separator: "\n").first.map { $0.replacingOccurrences(of: "# Cron Job: ", with: "") } ?? "A routine"
+            bubbles.append(Bubble(fromMe: false, text: "**\(title)**\n\n\(body)"))
+            Floater.shared.note("\(title) is done.")
+            if !thinking { Task { _ = await Speaker.shared.read(body) } }
+        }
+    }
+
     func tendShared() {
         clashes += Shared.tend()
         let inv = Shared.invites()
@@ -5766,7 +5792,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             var tick = 0
             while true {
                 Model.shared.scanShelf()
-                if tick % 5 == 0 { Model.shared.tendShared() }
+                if tick % 5 == 0 { Model.shared.tendShared(); Model.shared.tendRoutines() }
                 tick += 1
                 try? await Task.sleep(for: .seconds(3))
             }

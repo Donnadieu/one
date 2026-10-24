@@ -78,6 +78,27 @@ enum Installer {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select"); p.arguments = ["--install"]
         try? p.run()
     }
+    /// One's additions to the engine (the KeePass password backend). Copies keepass.py and registers it
+    /// in base.py by a small text patch, so it survives engine reinstalls and new installs. Safe to run often.
+    @discardableResult static func applyOverlay() -> Bool {
+        let fm = FileManager.default
+        let vb = Env.engineDir.appendingPathComponent("agent/vault_backends")
+        guard let src = Bundle.main.url(forResource: "keepass", withExtension: "py"),
+              fm.fileExists(atPath: vb.path) else { return false }
+        let dst = vb.appendingPathComponent("keepass.py")
+        if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
+            try? fm.removeItem(at: dst); try? fm.copyItem(at: src, to: dst)
+        }
+        let basef = vb.appendingPathComponent("base.py")
+        guard var t = try? String(contentsOf: basef, encoding: .utf8) else { return false }
+        if t.contains("KeePassLoginBackend") { return true }
+        let r1 = "    return (OnePasswordLoginBackend, BitwardenLoginBackend)"
+        let r2 = "    if name == \"onepassword\":"
+        guard t.contains(r1), t.contains(r2) else { return false }
+        t = t.replacingOccurrences(of: r1, with: "    from agent.vault_backends.keepass import KeePassLoginBackend\n    return (OnePasswordLoginBackend, BitwardenLoginBackend, KeePassLoginBackend)")
+        t = t.replacingOccurrences(of: r2, with: "    if name == \"keepass\":\n        from agent.vault_backends.keepass import find_cli\n        return find_cli(section if isinstance(section, dict) else {}) is not None and bool((section or {}).get(\"database\"))\n" + r2)
+        return (try? t.write(to: basef, atomically: true, encoding: .utf8)) != nil
+    }
     /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
     static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
         guard let script = Bundle.main.url(forResource: "hermes-install", withExtension: "sh") else { return "The installer is missing from the app." }
@@ -112,6 +133,7 @@ enum Installer {
                 try? lh?.close()
                 if p.terminationStatus == 0 && FileManager.default.isExecutableFile(atPath: Env.ownHermes) {
                     try? FileManager.default.removeItem(at: scratch)
+                    applyOverlay()
                     cont.resume(returning: nil)
                 } else {
                     let last = all.v.split(separator: "\n").last(where: { $0.contains("✗") || $0.lowercased().contains("fail") || $0.lowercased().contains("error") })
@@ -1562,6 +1584,7 @@ final class Model: ObservableObject {
         guard onboarded, !Engine.shared.running else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+        Installer.applyOverlay()
         if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
@@ -4674,6 +4697,8 @@ struct WorldTile: View {
                 .shadow(color: Color(hex: 0xFFECD6, selected ? 0.45 : lit ? 0.35 : 0), radius: 14)
             Text(n.id).font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(strong ? .white : WorldLook.cream.opacity(0.72)).fixedSize()
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(WorldLook.bg.opacity(0.9)))   // threads pass under the label to the tile
         }
         .frame(width: 88, height: 82, alignment: .top)
         .animation(.easeOut(duration: 0.45), value: selected)
@@ -4717,7 +4742,7 @@ struct WorldCanvas: View {
                     let ux = dx / d, uy = dy / d
                     let sx = WorldLook.CX + ux * 70, sy = WorldLook.CY + uy * 70
                     let sxx: CGFloat = abs(ux) > 1e-3 ? 27 / abs(ux) : 1e9
-                    let syy: CGFloat = uy < -1e-3 ? 50 / -uy : (uy > 1e-3 ? 27 / uy : 1e9)
+                    let syy: CGFloat = uy < -1e-3 ? 27 / -uy : (uy > 1e-3 ? 27 / uy : 1e9)
                     let cl = min(sxx, syy)
                     let ex = x - ux * cl, ey = y - uy * cl
                     let bend = 14 * CGFloat(sin(t * 0.5 + Double(i)))
@@ -4859,7 +4884,7 @@ struct ConnectionsWorld: View {
             }
             return
         }
-        if (id == "Email" && with == "Gmail") || (id == "Calendar" && with == "Google") {
+        if GoogleSignIn.enabled && ((id == "Email" && with == "Gmail") || (id == "Calendar" && with == "Google")) {
             note = "Opening Google in your browser. Sign in there, then come back."
             Task { @MainActor in
                 if let email = await GoogleSignIn.run() {
@@ -4872,11 +4897,16 @@ struct ConnectionsWorld: View {
             }
             return
         }
-        if id == "Calendar" && (with == "iCloud" || with == "Outlook") {
+        if id == "Calendar" {
             Task { @MainActor in
                 if await Bridge.askCalendar() { m.markConnected("Calendar"); picked = nil }
                 else { note = "Calendar is still off. Turn it on in System Settings › Privacy & Security › Calendars › One." }
             }
+            return
+        }
+        if id == "Email" && !with.hasPrefix("Something") {
+            if Bridge.mailAccounts > 0 { UserDefaults.standard.set(true, forKey: "mailConnected"); m.markConnected("Email"); picked = nil }
+            else { note = "Add your \(with) account in System Settings › Internet Accounts, then tap Connect again."; NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!) }
             return
         }
         let ask = with.hasPrefix("Something")
@@ -4963,6 +4993,9 @@ struct ConnectionsWorld: View {
 /// Sign in with Google from One itself: a small Python helper opens the browser and saves the login
 /// where the Google skill reads it (hermes/google_tokens/<email>.json). Returns the email, or nil.
 enum GoogleSignIn {
+    /// Parked: Google limits unverified apps to 100 test users, so the release uses the Mac's own accounts.
+    /// Turn on for a developer build with `defaults write ai.forjado.one googleSignIn -bool true`.
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "googleSignIn") && Bundle.main.url(forResource: "google_client_secret", withExtension: "json") != nil }
     static var venv: URL { Env.support.appendingPathComponent("tools-venv") }
     static func ensureVenv() -> Bool {
         let py = venv.appendingPathComponent("bin/python")
@@ -5998,6 +6031,7 @@ struct Entry {
             }
             exit(0)
         }
+        if args.contains("--apply-overlay") { print(Installer.applyOverlay() ? "overlay ok" : "overlay failed"); exit(0) }
         if args.contains("--install-test") {
             // Fresh-user test: set ONE_SUPPORT_DIR to an empty folder and OPENROUTER_API_KEY.
             runHeadless {

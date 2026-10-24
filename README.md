@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.8 plus unreleased work on `main`). It runs end to end on Apple Silicon Macs. Passwords (KeePass), Gmail, Google Calendar and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar (through the accounts already on your Mac) and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -41,7 +41,7 @@ This is a personal project, not a company. It is built for me, my friends and an
 12. **Brain and voice.** Tap the assistant's name: pick Smartest, Balanced or Fastest (or any OpenRouter model), and a female or male voice with three styles each. Tap one to hear it. To rename the assistant, just ask it.
 13. **Connections.** The same floating world as setup. Connected tiles are tied to the assistant by a thread; tap one to change it or disconnect.
     - **Passwords:** KeePass (1Password and Bitwarden through the engine's vault). Logins are filled without the model ever seeing the password.
-    - **Email and Calendar:** Sign in with Google, or Calendar on this Mac.
+    - **Email and Calendar:** the accounts already on your Mac (Gmail, Outlook, iCloud, Yahoo through System Settings › Internet Accounts). The assistant drafts; you always press Send.
     - **Browser:** your own Chrome, already signed in.
     - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
 14. **Rooms.** A live map of your rooms (personal, work, a shared room with a partner). Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
@@ -61,7 +61,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Sign-in** | Hermes's own OAuth/device-code flows (`hermes auth add <provider>`), so any provider Hermes supports becomes available to One. |
 | **Memory** | Rooms built from a "brain starter" template set: plain Markdown files, one folder per room, with rules for what each room may hold. Writes inside your memory need no yes; anything outside still asks. |
 | **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, default voice `af_heart`, six to choose from), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
-| **Connections** | Passwords use a KeePass vault backend for Hermes (`tools/overlay/agent/vault_backends/keepass.py`, via `keepassxc-cli`); the master password can come from the macOS Keychain and is held in memory only. Google uses `tools/google_signin.py` (installed-app OAuth, tokens saved per account). Each connection opens only the paths it needs in the sandbox. Connections built with the assistant are saved as skills under `skills/my-connections/` and listed in `connections.json`. |
+| **Connections** | Passwords use a KeePass vault backend for Hermes (`tools/overlay/agent/vault_backends/keepass.py`, via `keepassxc-cli`); the master password can come from the macOS Keychain and is held in memory only. One copies the KeePass backend into its engine after every install, so it survives engine updates. Each connection opens only the paths it needs in the sandbox. Connections built with the assistant are saved as skills under `skills/my-connections/` and listed in `connections.json`. |
 | **Routines** | Hermes scheduled jobs. One watches their results and reads new ones aloud. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
@@ -90,7 +90,7 @@ To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 to
 ## Roadmap
 
 - News as a built-in connection.
-- Email and calendar beyond Google (Outlook, iCloud) without the Mac Mail app.
+- Sign in with Google directly (waiting on Google's app review; until then email and calendar use the Mac's own accounts).
 - A "Today" page: what it did, what needs your yes, what it noticed.
 - It reaches out first ("your flight dropped $80, book it?").
 - Your phone: a small companion app for iPhone and Android, so you can reach your assistant away from the Mac.

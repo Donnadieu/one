@@ -4606,10 +4606,10 @@ enum WorldLook {
     static let W: CGFloat = 620, H: CGFloat = 440, CX: CGFloat = 310, CY: CGFloat = 220, RX: CGFloat = 222, RY: CGFloat = 150
     static let start = Date()
     /// Item centers: an upright orbit, one full turn every 200 s, with a little float on each.
-    static func positions(_ t: Double) -> [CGPoint] {
+    static func positions(_ t: Double, count: Int = worldNodes.count) -> [CGPoint] {
         let off = t * (2 * .pi / 200)
-        return (0..<worldNodes.count).map { i in
-            let th = off + Double(i) * 2 * .pi / Double(worldNodes.count) - .pi / 2
+        return (0..<count).map { i in
+            let th = off + Double(i) * 2 * .pi / Double(count) - .pi / 2
             return CGPoint(x: CX + RX * cos(th) + sin(t * 0.37 + Double(i) * 2.1) * 3,
                            y: CY + RY * sin(th) + sin(t * 0.6 + Double(i) * 1.3) * 4)
         }
@@ -4692,9 +4692,11 @@ struct WorldCanvas: View {
     var tap: (Node) -> Void = { _ in }
     var onHover: (String?) -> Void = { _ in }
     var dim: Set<String> = []          // not built yet: drawn faint, no thread
+    var nodes: [Node] = worldNodes
 
     var body: some View {
-        let pos = WorldLook.positions(t)
+        let worldNodes = nodes
+        let pos = WorldLook.positions(t, count: nodes.count)
         let prog: [Double] = worldNodes.map { n in linked[n.id].map { min(1, max(0, (t - $0) / 0.8)) } ?? 0 }
         let lastDone = worldNodes.compactMap { linked[$0.id].map { $0 + 0.8 } }.filter { $0 <= t }.max()
         let energy = lastDone.map { exp(-(t - $0) * 1.8) } ?? 0
@@ -4791,17 +4793,27 @@ struct ConnectionsWorld: View {
         "Passwords": ["KeePass", "1Password", "Bitwarden", "Something else…"],
         "Calendar": ["Google", "iCloud", "Outlook", "Something else…"],
         "Browser": ["Chrome", "Arc", "Something else…"],
+        "Files": ["This Mac", "Something else…"],
+        "Web": ["Built in", "Something else…"],
         "News": ["Something else…"],
         "Phone": ["Something else…"],
     ]
-    func state(_ id: String) -> String { on[id] != nil ? "on" : ConnectionsWorld.soon.contains(id) ? "soon" : "off" }
+    static let other = Node(id: "Something else", symbol: "plus", line: "Not on the list? Tell me what you use and we'll build it together.", voice: nil)
+    /// The usual connections, anything built together under a new name, and "Something else" last.
+    static func nodes() -> [Node] {
+        let known = Set(worldNodes.map(\.id))
+        let extra = custom().filter { !known.contains($0.id) }.map { Node(id: $0.id, symbol: "puzzlepiece.extension", line: "Built together with you: \($0.with).", voice: nil) }
+        return worldNodes + extra + [other]
+    }
+    func state(_ id: String) -> String { id == ConnectionsWorld.other.id ? "other" : on[id] != nil ? "on" : ConnectionsWorld.soon.contains(id) ? "soon" : "off" }
     func options(_ id: String) -> [String] {
         var o = ConnectionsWorld.how[id] ?? []
         for x in ConnectionsWorld.custom() where x.id == id && !o.contains(x.with) { o.insert(x.with, at: max(o.count - 1, 0)) }
         return o
     }
     var body: some View {
-        let sel = picked.flatMap { id in worldNodes.first { $0.id == id } }
+        let all = ConnectionsWorld.nodes()
+        let sel = picked.flatMap { id in all.first { $0.id == id } }
         ZStack {
             WorldLook.bg.ignoresSafeArea()
             VStack(spacing: 0) {
@@ -4818,9 +4830,9 @@ struct ConnectionsWorld: View {
                     let k = min(geo.size.width / WorldLook.W, geo.size.height / WorldLook.H, 1.2)
                     TimelineView(.animation) { tl in
                         WorldCanvas(t: fixedT ?? tl.date.timeIntervalSince(WorldLook.start),
-                                    lit: picked.flatMap { id in worldNodes.firstIndex { $0.id == id } }, picking: picked == nil,
+                                    lit: picked.flatMap { id in all.firstIndex { $0.id == id } }, picking: picked == nil,
                                     linked: on, speaking: false, tap: { n in withAnimation(.easeOut(duration: 0.3)) { picked = picked == n.id ? nil : n.id; note = nil } },
-                                    dim: ConnectionsWorld.soon.subtracting(on.keys))
+                                    dim: ConnectionsWorld.soon.subtracting(on.keys), nodes: all)
                     }.scaleEffect(k).frame(width: geo.size.width, height: geo.size.height)
                 }
                 detail(sel).frame(height: 120).padding(.bottom, 22)
@@ -4869,13 +4881,13 @@ struct ConnectionsWorld: View {
         }
         let ask = with.hasPrefix("Something")
             ? """
-              I want to connect my \(id) to something One doesn't support yet. Let's build it together.
+              \(id == "Something else" ? "I want to connect something new to you, something that isn't on the Connections list. Ask me what it is." : "I want to connect my \(id) to something One doesn't support yet.") Let's build it together.
               1. First tell me in one line: this is experimental, built by you, may break, use at my own risk.
               2. Ask what I use (one question), then find the simplest way in: an official app or command-line tool on this Mac, an API, an export file, or my own browser. Do every step you can yourself; only ask me for things only I can do (approve a login, pick a file).
               3. Never put a password or code into this chat. Logins go through my password manager or the app's own sign-in. Still ask before any money, sending, posting or deleting.
               4. Save it as a skill in skills/my-connections/<short-name>/SKILL.md (what it is, how to use it, what's off-limits).
               5. Test it in front of me with one real read-only check and tell me plainly what worked and what didn't.
-              6. Only if the test passed, add an entry to \(ConnectionsWorld.customFile.path) (a JSON list; keep existing entries): {"id": "\(id)", "with": "<what I use>", "skill": "my-connections/<short-name>", "tested": "<today YYYY-MM-DD>"}. That makes it show up in Connections tagged Experimental.
+              6. Only if the test passed, add an entry to \(ConnectionsWorld.customFile.path) (a JSON list; keep existing entries): {"id": "\(id == "Something else" ? "<a short name for it, e.g. Smart home>" : id)", "with": "<what I use>", "skill": "my-connections/<short-name>", "tested": "<today YYYY-MM-DD>"}. That makes it show up in Connections tagged Experimental.
               """
             : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
         close()
@@ -4899,7 +4911,7 @@ struct ConnectionsWorld: View {
                 if !opts.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(opts, id: \.self) { o in
-                            let chosen = option == o || (option == nil && (mine?.with == o || UserDefaults.standard.string(forKey: "passwordsWith") == o)) || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
+                            let chosen = option == o || (option == nil && (mine?.with == o || UserDefaults.standard.string(forKey: "passwordsWith") == o)) || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome") || (n.id == "Files" && o == "This Mac") || (n.id == "Web" && o == "Built in")
                             HStack(spacing: 5) {
                                 if chosen { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
                                 Text(o).font(.system(size: 13, weight: .medium))
@@ -4913,6 +4925,15 @@ struct ConnectionsWorld: View {
                     }
                 }
                 switch state(n.id) {
+                case "other":
+                    VStack(spacing: 8) {
+                        Button { connect("Something else", "Something else…") } label: {
+                            Text("Build one with \(m.name)").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(hex: 0x141416))
+                                .frame(minWidth: 190).padding(.vertical, 11).background(Capsule().fill(WorldLook.cream))
+                        }.buttonStyle(.plain)
+                        Text("Experimental. \(m.name) builds it with you and tests it first. Use at your own risk.")
+                            .font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                    }
                 case "on":
                     HStack(spacing: 18) {
                         if let mine {
@@ -5945,6 +5966,7 @@ struct Entry {
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
                     ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
                     ("cw-exp", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News", option: nil))),
+                    ("cw-other", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Something else", option: nil))),
                     ("me-card", AnyView(MeCard(m: Model.shared))),
                     ("cw-passwords", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Passwords"))),
                     ("cw-calendar", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Calendar"))),

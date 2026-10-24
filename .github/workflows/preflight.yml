@@ -1,17 +1,24 @@
-name: preflight
+name: check
 on:
   push:
     branches: [main]
   pull_request:
 jobs:
-  preflight:
+  check:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - name: Use the newest Xcode on the runner
         run: |
           X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           sudo xcode-select -s "$X"
           swiftc --version
+      - name: Formatting
+        run: xcrun swift-format lint -r -s -p Sources
+      - name: One's own rules
+        run: python3 tools/lint/one-lint.py
+      - name: Lint baseline only shrinks
+        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
       - name: Preflight (no login needed)
         run: tools/preflight.sh --ci

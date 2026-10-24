@@ -30,6 +30,25 @@ Goal: make what exists solid before adding anything. Feature freeze while this r
 9. Experimental connections stay off until their test passed.
 10. README lists honestly what still depends on the assistant following instructions.
 
+## D2. Harness engineering + guardrails (Omar: "like RuboCop with custom cops")
+Follows the Forge `harness-engineering` skill, adapted to Swift.
+- **Agent map:** `AGENTS.md` (+ `CLAUDE.md` = `@AGENTS.md`), `docs/INDEX.md`, `docs/ARCHITECTURE.md`
+  (areas + which may depend on which), `docs/DESIGN.md` (world look: colors, rings, tiles, plain words),
+  `docs/PRODUCT_SENSE.md` (non-technical user, simplicity, human in the loop), golden principles,
+  `docs/QUALITY_SCORE.md`, exec-plans (this plan moves there).
+- **Formatter + linter:** Apple's `swift-format` (ships with Xcode) with a repo config: `format` and `lint` commands.
+- **Custom rules ("cops")** in `tools/lint/one-lint.py`, each with a `FIX:` message an agent can follow:
+  max file length, no hardcoded assistant names in UI text (`m.name` only), no jargon words in user-facing
+  strings, no `pkill`/broad kills, no secrets or Google client files bundled, no Telegram/WhatsApp,
+  no direct `Process` calls outside the engine/bridge areas, every CLI test hook sets `Env.selfTest`,
+  no email-send path in Bridge, `private` areas don't reach into each other.
+- **Ratchet:** existing debt is recorded in a baseline and can only shrink; new code must be clean.
+  CI fails if the baseline grows.
+- **Enforcement:** `make check` = format check + lint + one-lint + preflight; git pre-commit hook for the
+  fast part; GitHub runs all of it.
+- **Teach the agents:** the rules live in AGENTS.md and a repo skill (`.agents/skills/`) with the
+  compound loop: load before work, update the skill when a lesson is learned, add a cop when a mistake repeats.
+
 ## F. The product plan
 11. Sign the app (Apple Developer ID + notarization) so first open needs no Open Anyway.
 12. Three jobs made flawless, with end-to-end checks: sort my files, handle my inbox,

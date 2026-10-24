@@ -81,6 +81,19 @@ Developer flags on the app binary: `--selftest` (runs the engine against a throw
 
 To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 
+## What is enforced, and what relies on the assistant
+
+Enforced by the Mac or by One's code (the assistant can't get around it):
+- **Folder lock:** the engine can only open One's own data, your memory and the folders you approved.
+- **Email can't be sent:** One only creates drafts; you press Send.
+- **Passwords stay out of the chat:** logins are filled from your password manager without the model seeing them.
+- **Updates and the engine version:** One installs the Hermes version it was tested with.
+
+Relies on the assistant following its instructions (usually works, not guaranteed):
+- Asking before paying, posting or deleting on a website.
+- Keeping each room's notes in that room.
+- Connections you build with it ("Something else…") doing only what they say.
+
 ## Privacy
 
 - Your files, memory and settings stay on your Mac.

@@ -1,0 +1,42 @@
+# One
+
+A one-button personal AI assistant for Mac, for people who have never opened a terminal.
+A SwiftUI app (the face) runs Hermes Agent (the engine) inside a macOS folder lock. Setup is
+spoken, the UI is an orb with things floating around it, and a person approves money, sending,
+posting and deleting. Open source (MIT), not a business.
+
+## Stack
+Swift 6 toolchain (language mode 5) / SwiftUI + AppKit / macOS 14+, Apple Silicon / no Xcode project:
+`swiftc` via `build.sh`. Engine: Hermes Agent over ACP (JSON-RPC on stdio). Voice: Kokoro (local).
+
+## Commands
+    make build         # build build/One.app
+    make format        # format Sources/ (swift-format, config in .swift-format)
+    make lint          # One's own rules + baseline ratchet
+    make check         # format-check + lint + preflight: must pass before every commit
+    make full          # check + a fresh install into an empty folder: before every release
+    make hooks         # once per clone: turn on the pre-commit hook
+
+## Map
+- [docs/INDEX.md](docs/INDEX.md): every doc
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the areas in `Sources/` and what may call what
+- [docs/PRODUCT_SENSE.md](docs/PRODUCT_SENSE.md): who One is for, what it must never do
+- [docs/DESIGN.md](docs/DESIGN.md): the world look, words, renders-before-install
+- [docs/design-docs/golden-principles.md](docs/design-docs/golden-principles.md): rules and the check that enforces each
+- [docs/QUALITY_SCORE.md](docs/QUALITY_SCORE.md): how solid each area is
+- [docs/exec-plans/](docs/exec-plans/README.md): plans in progress and done
+
+## Rules that bite
+- Every rule in `tools/lint/one-lint.py` prints a `FIX:`; follow it. List them: `tools/lint/one-lint.py --list`.
+- Old debt is in `tools/lint/baseline.json`. It may only shrink (`--update` after paying it down). Never add to it.
+- Max 600 lines per file. Split by area (see ARCHITECTURE.md); don't create a "Misc" file.
+- Never hardcode the assistant's name in UI text (`m.name`). Plain words only, no jargon.
+- Test hooks set `Env.selfTest = true` first. Never touch the user's real brain or settings in a test.
+- Never run One's `--install-test` without `ONE_SUPPORT_DIR=<empty dir>`.
+- Visual changes: render (`One --render-world <prefix>`), show, get a yes, then install.
+- Commits are signed. `main` has linear history.
+
+## Skills (the compound loop)
+Repo playbooks live in [.agents/skills/](.agents/skills/). Before work: load the one that matches.
+After work: if you learned something reusable, update that skill. If the same mistake shows up
+twice, add a rule to `tools/lint/one-lint.py` so it can't happen a third time.

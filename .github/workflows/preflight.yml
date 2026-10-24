@@ -1,0 +1,12 @@
+name: preflight
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  preflight:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight (no login needed)
+        run: tools/preflight.sh --ci

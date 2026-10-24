@@ -4735,6 +4735,7 @@ struct ConnectionsWorld: View {
     var fixedT: Double? = nil
     @State var picked: String? = nil
     @State var note: String? = nil
+    @State var option: String? = nil
     var on: [String: Double] { var d: [String: Double] = [:]; for (i, id) in ConnectionsWorld.connected().enumerated() { d[id] = -10 - Double(i) }; return d }
     static func connected() -> [String] {
         var c = ["Files", "Browser", "Web"]
@@ -4780,13 +4781,55 @@ struct ConnectionsWorld: View {
             }
         }.preferredColorScheme(.dark)
     }
+    /// Connect: things One can do itself (Calendar on this Mac, a KeePass file) happen right here.
+    /// Everything else is handed to the assistant, which walks them through it in the chat
+    /// ("Something else…" = build a new connection together, experimental).
+    func connect(_ id: String, _ with: String) {
+        note = nil
+        if id == "Passwords" && with == "KeePass" {
+            let p = NSOpenPanel(); p.message = "Pick your KeePass file (.kdbx)"; p.allowedContentTypes = []; p.allowsOtherFileTypes = true
+            guard p.runModal() == .OK, let db = p.url else { return }
+            var reads = (UserDefaults.standard.string(forKey: "connectorReads") ?? "").split(separator: "\n").map(String.init)
+            if !reads.contains(db.path) { reads.append(db.path) }
+            UserDefaults.standard.set(reads.joined(separator: "\n"), forKey: "connectorReads")
+            UserDefaults.standard.set("KeePass", forKey: "passwordsWith")
+            Task { @MainActor in
+                _ = await hermesRun(["config", "set", "vault.keepass.database", db.path])
+                _ = await Engine.shared.start()
+                close()
+                await m.send("I just connected my KeePass file (\(db.lastPathComponent)). Check that you can see my logins (names only), and if it needs my master password or a key file, help me set that up.", toNova: true)
+            }
+            return
+        }
+        if id == "Calendar" && (with == "iCloud" || with == "Outlook") {
+            Task { @MainActor in
+                if await Bridge.askCalendar() { m.markConnected("Calendar"); picked = nil }
+                else { note = "Calendar is still off. Turn it on in System Settings › Privacy & Security › Calendars › One." }
+            }
+            return
+        }
+        let ask = with.hasPrefix("Something")
+            ? "I want to connect \(id) to something you don't support yet. Ask me what I use, then try to build the connection with me. Tell me it's experimental first, and test it in front of me."
+            : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
+        close()
+        Task { @MainActor in await m.send(ask, toNova: true) }
+    }
+    func disconnect(_ id: String) {
+        let d = UserDefaults.standard
+        switch id {
+        case "Passwords": d.removeObject(forKey: "passwordsWith")
+        case "Email", "Calendar": d.set(false, forKey: "googleConnected"); d.set(false, forKey: "mailConnected")
+        default: break
+        }
+        picked = nil
+    }
     @ViewBuilder func detail(_ sel: Node?) -> some View {
         if let n = sel {
             VStack(spacing: 12) {
                 if let opts = ConnectionsWorld.how[n.id] {
                     HStack(spacing: 8) {
                         ForEach(opts, id: \.self) { o in
-                            let chosen = UserDefaults.standard.string(forKey: "passwordsWith") == o || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
+                            let chosen = option == o || (option == nil && UserDefaults.standard.string(forKey: "passwordsWith") == o) || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
                             HStack(spacing: 5) {
                                 if chosen { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
                                 Text(o).font(.system(size: 13, weight: .medium))
@@ -4795,6 +4838,7 @@ struct ConnectionsWorld: View {
                                 .padding(.horizontal, 14).padding(.vertical, 7)
                                 .background(Capsule().fill(WorldLook.cream.opacity(chosen ? 0.12 : 0.05)))
                                 .overlay(Capsule().stroke(WorldLook.cream.opacity(chosen ? 0.6 : 0.14), style: StrokeStyle(lineWidth: 1, dash: o.hasPrefix("Something") ? [3, 3] : [])))
+                                .contentShape(Capsule()).onTapGesture { option = o; if o.hasPrefix("Something") { connect(n.id, o) } }
                         }
                     }
                 }
@@ -4802,11 +4846,13 @@ struct ConnectionsWorld: View {
                 case "on":
                     HStack(spacing: 18) {
                         Label("Connected", systemImage: "checkmark").font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0xBFE3CC))
-                        Button("Disconnect") {}.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.55))
+                        Button("Disconnect") { disconnect(n.id) }.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.55))
                     }
                 case "off":
-                    Text("Connect").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(hex: 0x141416))
-                        .frame(minWidth: 150).padding(.vertical, 11).background(Capsule().fill(WorldLook.cream))
+                    Button { connect(n.id, option ?? ConnectionsWorld.how[n.id]?.first ?? n.id) } label: {
+                        Text("Connect").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(hex: 0x141416))
+                            .frame(minWidth: 150).padding(.vertical, 11).background(Capsule().fill(WorldLook.cream))
+                    }.buttonStyle(.plain)
                 default:
                     Text("Not built yet. Tap Something else… to try building it together (experimental).").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.5))
                 }

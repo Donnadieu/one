@@ -3073,6 +3073,7 @@ enum Helpers {
 
 struct NovaWithHelpers: View {
     @ObservedObject var m: Model
+    static func orbTime(_ t: Double, _ i: Int) -> Double { t + Double(i) * 3.1 }
     static let slots: [CGPoint] = [CGPoint(x: -168, y: -34), CGPoint(x: 168, y: -34), CGPoint(x: -150, y: 76), CGPoint(x: 150, y: 76)]
     var body: some View {
         let shown = Array(m.helpers.prefix(4).enumerated())
@@ -3088,7 +3089,7 @@ struct NovaWithHelpers: View {
                     let p = Self.slots[i]
                     Button { m.focusHelper(h.id) } label: {
                         VStack(spacing: -10) {
-                            HelperOrb(state: h.viewState, t: t + Double(i) * 3.1, size: 42)
+                            HelperOrb(state: h.viewState, t: Self.orbTime(t, i), size: 42)
                             HelperLabel(title: Helpers.short(h.title, 24), line: Helpers.short(h.line, 32), warm: h.state == "needsYes")
                         }.contentShape(Rectangle())
                     }
@@ -4648,11 +4649,17 @@ enum WorldLook {
     /// Item centers: an upright orbit, one full turn every 200 s, with a little float on each.
     static func positions(_ t: Double, count: Int = worldNodes.count) -> [CGPoint] {
         let off = t * (2 * .pi / 200)
-        return (0..<count).map { i in
-            let th = off + Double(i) * 2 * .pi / Double(count) - .pi / 2
-            return CGPoint(x: CX + RX * cos(th) + sin(t * 0.37 + Double(i) * 2.1) * 3,
-                           y: CY + RY * sin(th) + sin(t * 0.6 + Double(i) * 1.3) * 4)
+        var out: [CGPoint] = []
+        for i in 0..<count {
+            let di = Double(i)
+            let th: Double = off + di * 2 * .pi / Double(count) - .pi / 2
+            let fx: Double = sin(t * 0.37 + di * 2.1) * 3
+            let fy: Double = sin(t * 0.6 + di * 1.3) * 4
+            let x: CGFloat = CX + RX * CGFloat(cos(th)) + CGFloat(fx)
+            let y: CGFloat = CY + RY * CGFloat(sin(th)) + CGFloat(fy)
+            out.append(CGPoint(x: x, y: y))
         }
+        return out
     }
     static func ease(_ x: Double) -> Double { x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2 }
 }

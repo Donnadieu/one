@@ -130,6 +130,7 @@ enum Bridge {
             }
             return 0
         }
+        if FakeMail.path != nil { return FakeMail.run(cmd, rest) }
         switch cmd {
         case "accounts":
             out(
@@ -204,20 +205,26 @@ enum Bridge {
                 return "ok"
                 """
             out(applescript(src) == "ok" ? "Draft is open in Mail for them to read and press Send. Nothing was sent." : "Couldn't make the draft.")
-        default: out("Mail commands: accounts, list [n], read ID, search WORDS, draft TO SUBJECT BODY (opens a draft; never sends)")
+        default:
+            out(mailHelp)
+            return cmd == "help" ? 0 : 2
         }
         return 0
     }
+    /// Everything the assistant can do with email. There is deliberately no send.
+    static let mailCommands = ["accounts", "list", "read", "search", "draft"]
+    static let mailHelp = "Mail commands: accounts, list [n], read ID, search WORDS, draft TO SUBJECT BODY (opens a draft; never sends)"
 
     /// Told to the assistant every turn, so it knows what's connected and how to use it.
     static var note: String {
         var parts: [String] = []
-        if calendarOK {
+        let fake = FakeMail.path != nil  // a test inbox: nothing else from this Mac
+        if calendarOK && !fake {
             parts.append(
                 "CALENDAR is connected: run `\(exe) --cal list 7` (next 7 days), `--cal add \"title\" 2026-10-24T15:00 2026-10-24T16:00`, `--cal remove ID`, `--cal calendars`. Before adding, check for clashes and say them. Adding to their own calendar is fine on your own; inviting other people needs their yes."
             )
         }
-        if UserDefaults.standard.bool(forKey: "mailConnected") {
+        if fake || UserDefaults.standard.bool(forKey: "mailConnected") {
             parts.append(
                 "EMAIL is connected through the Mail app: `\(exe) --mail list 15`, `--mail read ID`, `--mail search WORDS`, `--mail draft TO SUBJECT BODY`. You can never send: draft opens in Mail and they press Send. Never claim you sent anything."
             )

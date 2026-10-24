@@ -67,7 +67,8 @@ def r_messaging(path, lines):
         if re.search(r'\b(Telegram|WhatsApp)\b', l, re.I):
             yield i, "Telegram/WhatsApp mentioned"
 
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared)')
+# JobsCheck: test-only, runs a local fake shop page for `--test-jobs`.
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck)')
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):

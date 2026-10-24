@@ -123,7 +123,7 @@ final class Engine: @unchecked Sendable {
         guard ini["result"] != nil else { return "The assistant didn't start." }
         let dir = (Brain.exists ? Brain.root : Env.support).path
         // Pick up the same conversation after a restart, so it remembers what you were doing.
-        if let saved = UserDefaults.standard.string(forKey: "sessionID") {
+        if !Env.selfTest, let saved = UserDefaults.standard.string(forKey: "sessionID") {
             onText = nil
             onTool = nil
             let r = await call("session/load", ["sessionId": saved, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
@@ -134,15 +134,29 @@ final class Engine: @unchecked Sendable {
                 return nil
             }
         }
-        let new = await call("session/new", ["cwd": dir, "mcpServers": [Any]()], timeout: 120)
+        let new = await newSession(dir)
         guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
+            if Env.selfTest { print("session/new answered:", new) }  // tests: show why
             return "The assistant couldn't open a conversation."
         }
         lock.lock()
         sessionID = sid
         lock.unlock()
-        UserDefaults.standard.set(sid, forKey: "sessionID")
+        if !Env.selfTest { UserDefaults.standard.set(sid, forKey: "sessionID") }
         return nil
+    }
+
+    /// Right after a cold start the engine's background helper can answer "draining" for a few
+    /// seconds while it finishes its own startup; wait it out instead of failing the first message.
+    private func newSession(_ dir: String) async -> [String: Any] {
+        var r: [String: Any] = [:]
+        for attempt in 0..<12 {
+            r = await call("session/new", ["cwd": dir, "mcpServers": [Any]()], timeout: 120)
+            let busy = "\(r["error"] ?? "")".lowercased().contains("draining")
+            guard r["result"] == nil, busy, attempt < 11 else { break }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        return r
     }
 
     /// Sends one message; text streams through onText. Returns the stop reason or "error: …".
@@ -171,7 +185,7 @@ final class Engine: @unchecked Sendable {
     /// A new background session for a helper.
     func openSession() async -> String? {
         if await ensureStarted() != nil { return nil }
-        let r = await call("session/new", ["cwd": Engine.workDir, "mcpServers": [Any]()], timeout: 120)
+        let r = await newSession(Engine.workDir)
         guard let res = r["result"] as? [String: Any], let sid = res["sessionId"] as? String else { return nil }
         lock.lock()
         loaded.insert(sid)

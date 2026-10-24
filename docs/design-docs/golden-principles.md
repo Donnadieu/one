@@ -23,3 +23,5 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | Private notes don't leak into shared rooms | `SharedGuard` + preflight "Guards" |
 | Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
 | Complaints are captured | `FrictionLog` + preflight "Guards" |
+| The three core jobs work end to end (sort files, inbox draft-only, price watch asks before buying) | `make jobs` (`tools/jobs-check.sh` → `One --test-jobs`) |
+| The mail bridge has no send command | `make jobs` ("bridge has no send command") |

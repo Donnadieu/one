@@ -26,6 +26,7 @@ extension Model {
         }
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
+        await SignIn.enableRoutines()
         if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
@@ -316,10 +317,8 @@ extension Model {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
-        let note =
-            "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
-        let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
+        let stop = await Engine.shared.prompt(
+            c.engine + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""

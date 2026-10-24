@@ -315,6 +315,13 @@ final class SignIn: @unchecked Sendable {
         let (_, out) = await hermesRun(["auth", "status", p.hermesID], timeout: 60)
         return out.lowercased().contains(": logged in")
     }
+    /// Routines ("check this every morning", "watch this price"): the engine's editor tool set leaves out
+    /// scheduling, so One adds it back. Their results land in hermes/cron/output, which One reads aloud.
+    static func enableRoutines() async {
+        let cfg = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
+        if cfg.contains("  acp:\n    - hermes-acp\n    - cronjob") { return }
+        _ = await hermesRun(["config", "set", "platform_toolsets.acp", "[\"hermes-acp\", \"cronjob\"]"])
+    }
     static func makeDefault(_ p: Provider, model: String? = nil) async {
         _ = await hermesRun(["config", "set", "model.provider", p.hermesID])
         _ = await hermesRun(["config", "set", "model.default", model ?? p.defaultModel])

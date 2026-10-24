@@ -35,6 +35,10 @@ struct Helper: Identifiable, Codable {
 }
 
 enum Helpers {
+    /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
+    static var note: String {
+        "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
+    }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     static func extract(_ text: String) -> (String, [(String, String)]) {
         var jobs: [(String, String)] = []
@@ -69,8 +73,8 @@ enum Helpers {
 
         The job: \(task)
 
-        Do it now. Finish with a short message (2 to 4 lines): what you found or did, in plain words. If you need their yes before going further (money, sending, posting, deleting), stop and ask, ending with a [choices: ...] line. If the job is to keep watching something, do the first check now, say what you found, and say how you'll keep watching.
-        """
+        Do it now. Finish with a short message (2 to 4 lines): what you found or did, in plain words. If you need their yes before going further (money, sending, posting, deleting), stop and ask, ending with a [choices: ...] line. If the job is to keep watching something, do the first check now, say what you found, then set up a routine for the repeat checks (your scheduling tool, e.g. every 6 hours) and say how often it runs. A routine runs with nobody there to ask: its instructions must only check and report, never buy, send or delete; buying waits for their yes.
+        """ + Bridge.note
     }
 }
 

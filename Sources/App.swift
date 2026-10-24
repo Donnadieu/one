@@ -296,6 +296,10 @@ struct Entry {
                 Engine.stopStrayGateway()
             }
         }
+        if args.contains("--test-jobs") {
+            Env.selfTest = true  // scratch brain and Hermes home; see JobsCheck.swift
+            JobsCheck.run()
+        }
         if args.contains("--reset") {
             if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
             print("reset onboarding")

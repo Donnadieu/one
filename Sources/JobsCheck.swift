@@ -163,7 +163,26 @@ enum JobsCheck {
             say("FAIL setup: scratch folder must not be in Downloads or Documents")
             return 1
         }
-        guard (env["OPENROUTER_API_KEY"] ?? "").count > 10 else {
+        // Default: the Claude subscription One already signed in to (no extra cost). ONE_JOBS_PROVIDER=openrouter uses the key.
+        let useClaude = (env["ONE_JOBS_PROVIDER"] ?? "claude") == "claude"
+        if useClaude {
+            let real = Env.support.appendingPathComponent("hermes/auth.json")
+            let dst = Env.hermesHome.appendingPathComponent("auth.json")
+            guard fm.fileExists(atPath: real.path) else {
+                say("FAIL setup: One isn't signed in to Claude on this Mac")
+                return 1
+            }
+            try? fm.removeItem(at: dst)
+            try? fm.copyItem(at: real, to: dst)
+        }
+        // The throwaway home uses One's own engine tools (as the real app does); without them the engine
+        // reaches for ~/.hermes/tools, which the folder lock closes.
+        let tools = Env.hermesHome.appendingPathComponent("tools")
+        if (try? fm.destinationOfSymbolicLink(atPath: tools.path)) == nil {
+            try? fm.removeItem(at: tools)
+            try? fm.createSymbolicLink(at: tools, withDestinationURL: Env.support.appendingPathComponent("hermes/tools"))
+        }
+        if !useClaude && (env["OPENROUTER_API_KEY"] ?? "").count <= 10 {
             say("FAIL setup: OPENROUTER_API_KEY is not set")
             return 1
         }
@@ -173,8 +192,9 @@ enum JobsCheck {
         let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
 
         // A clean throwaway home: brain, persona, model, no routines left from an earlier run.
-        let model = env["ONE_JOBS_MODEL"] ?? Provider.openrouter.tiers[1].1
-        await SignIn.makeDefault(.openrouter, model: model)
+        let provider: Provider = useClaude ? .claude : .openrouter
+        let model = env["ONE_JOBS_MODEL"] ?? provider.tiers[1].1
+        await SignIn.makeDefault(provider, model: model)
         await SignIn.enableRoutines()  // as the app does before every engine start
         try? fm.removeItem(at: Brain.root)
         _ = Brain.build(owner: user, ai: ai, rooms: [])

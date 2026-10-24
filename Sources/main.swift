@@ -1043,6 +1043,7 @@ enum Persona {
         How you talk:
         - Like a helpful friend: short, warm, plain words. No jargon.
         - Never mention Hermes, models, terminals, config files or tools unless they ask how you work.
+        - If they want to give you a new name, change the line `assistant: "…"` in ~/Documents/My Brain/owner.yaml to the new name (keep the quotes) and say it's done. The app shows the new name everywhere right after.
         - Offer one clear next step, not a menu.
         - When you ask them to decide something, end your message with one last line listing 2 to 4 short answers they can tap, exactly like: [choices: Yes, go ahead | Not now | Change the plan]. Keep each answer under 5 words. Don't list them anywhere else in the message.
 
@@ -1220,6 +1221,41 @@ final class Model: ObservableObject {
     var provider: Provider? { Provider(rawValue: providerRaw) }
     var connections: [String] { connectionsRaw.split(separator: ",").map(String.init) }
     var name: String { assistantName.isEmpty ? "Your assistant" : assistantName }
+    /// The assistant's name lives in the brain's owner.yaml (`assistant: "…"`), so "call yourself Elias" works from a chat:
+    /// the assistant edits that line, and the app picks it up everywhere (title, orb, voice lines, its own soul).
+    static var ownerFile: URL { Brain.root.appendingPathComponent("owner.yaml") }
+    static func nameInOwner() -> String? {
+        guard let y = try? String(contentsOf: ownerFile, encoding: .utf8) else { return nil }
+        for l in y.split(separator: "\n") where l.hasPrefix("assistant:") {
+            let v = l.dropFirst("assistant:".count).split(separator: "#")[0].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return v.isEmpty ? nil : v
+        }
+        return nil
+    }
+    static func writeNameToOwner(_ n: String) {
+        guard var y = try? String(contentsOf: ownerFile, encoding: .utf8) else { return }
+        var lines = y.components(separatedBy: "\n")
+        let row = "assistant: \"\(n)\"         # what your assistant is called. Change it here or just ask it to."
+        if let i = lines.firstIndex(where: { $0.hasPrefix("assistant:") }) { lines[i] = row }
+        else if let i = lines.firstIndex(where: { $0.hasPrefix("name:") }) { lines.insert(row, at: i + 1) } else { lines.append(row) }
+        y = lines.joined(separator: "\n"); try? y.write(to: ownerFile, atomically: true, encoding: .utf8)
+    }
+    func rename(_ n: String) {
+        let n = n.trimmingCharacters(in: .whitespacesAndNewlines); guard !n.isEmpty, n != assistantName else { return }
+        let old = assistantName
+        assistantName = n
+        Model.writeNameToOwner(n)
+        Persona.write(assistant: n, user: userName, connections: connections, passwords: passwords)
+        // its own memory of what it's called
+        let mem = Env.support.appendingPathComponent("hermes/memories/USER.md")
+        if !old.isEmpty, let t = try? String(contentsOf: mem, encoding: .utf8) {
+            try? t.replacingOccurrences(of: "call their assistant \(old)", with: "call their assistant \(n)").write(to: mem, atomically: true, encoding: .utf8)
+        }
+    }
+    func syncName() {
+        if let n = Model.nameInOwner() { if n != assistantName { rename(n) } }
+        else if !assistantName.isEmpty, onboarded { Model.writeNameToOwner(assistantName) }
+    }
 
     /// The assistant speaks: the line emerges on screen and, if a voice line exists, is spoken.
     func say(_ text: String, voice: String? = nil) async {
@@ -1743,7 +1779,7 @@ final class Model: ObservableObject {
             Task { try? await Task.sleep(for: .seconds(6)); reveal(tk) }
         } else {
             if idx < bubbles.count { bubbles[idx].text = full }
-            thinking = false; working = nil
+            thinking = false; working = nil; syncName()
             saveBubbles()
             if !voiceFirst, !stop.hasPrefix("error"), !paused { Speaker.shared.read(full) }
         }
@@ -1756,7 +1792,7 @@ final class Model: ObservableObject {
         guard let p = pendingReveal, token == nil || p.token == token else { return }
         pendingReveal = nil
         if p.idx < bubbles.count { bubbles[p.idx].text = p.text }
-        thinking = false; working = nil
+        thinking = false; working = nil; syncName()
         saveBubbles()
     }
 
@@ -4599,6 +4635,7 @@ struct WorldCanvas: View {
     var hover: String? = nil
     var tap: (Node) -> Void = { _ in }
     var onHover: (String?) -> Void = { _ in }
+    var dim: Set<String> = []          // not built yet: drawn faint, no thread
 
     var body: some View {
         let pos = WorldLook.positions(t)
@@ -4648,7 +4685,7 @@ struct WorldCanvas: View {
             .allowsHitTesting(false)
             ForEach(Array(worldNodes.enumerated()), id: \.element.id) { i, n in
                 let sel = linked[n.id] != nil, isLit = lit == i
-                let op: Double = picking ? 1 : (lit == nil ? 0.7 : (isLit ? 1 : 0.32))
+                let op: Double = dim.contains(n.id) ? (isLit ? 0.6 : 0.28) : picking ? 1 : (lit == nil ? 0.7 : (isLit ? 1 : 0.32))
                 WorldTile(n: n, selected: sel, lit: isLit, hover: picking && hover == n.id)
                     .opacity(op).animation(.easeOut(duration: 0.6), value: op)
                     .contentShape(Rectangle())
@@ -4658,6 +4695,91 @@ struct WorldCanvas: View {
             }
         }
         .frame(width: WorldLook.W, height: WorldLook.H)
+    }
+}
+
+/// Connections, drawn as the onboarding world: the assistant in the middle, what it can reach floating around it.
+/// Connected ones are tied to it by a living thread; ones not built yet hang faint at the edge.
+struct ConnectionsWorld: View {
+    @ObservedObject var m: Model
+    var close: () -> Void = {}
+    var fixedT: Double? = nil
+    @State var picked: String? = nil
+    @State var note: String? = nil
+    var on: [String: Double] { var d: [String: Double] = [:]; for (i, id) in ConnectionsWorld.connected().enumerated() { d[id] = -10 - Double(i) }; return d }
+    static func connected() -> [String] {
+        var c = ["Files", "Browser", "Web"]
+        if Bridge.calendarOK { c.append("Calendar") }
+        if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
+        if UserDefaults.standard.string(forKey: "passwordsWith") != nil { c.append("Passwords") }
+        return c
+    }
+    static let soon: Set<String> = ["Phone", "News"]
+    static let how: [String: [String]] = [
+        "Email": ["Gmail", "Outlook", "iCloud", "Yahoo"],
+        "Passwords": ["KeePass", "1Password", "Bitwarden", "Apple Passwords"],
+        "Calendar": ["Google", "iCloud", "Outlook"],
+        "Browser": ["Chrome", "Arc", "Safari"],
+    ]
+    func state(_ id: String) -> String { ConnectionsWorld.soon.contains(id) ? "soon" : on[id] != nil ? "on" : "off" }
+    var body: some View {
+        let sel = picked.flatMap { id in worldNodes.first { $0.id == id } }
+        ZStack {
+            WorldLook.bg.ignoresSafeArea()
+            VStack(spacing: 0) {
+                VStack(spacing: 8) {
+                    Text(sel?.id ?? "Connections").font(.system(size: 12, weight: .medium)).tracking(0.4)
+                        .foregroundStyle(WorldLook.cream.opacity(0.5))
+                    Text(sel?.line ?? "What \(m.name) can reach for you.").font(.system(size: 22, weight: .medium)).tracking(-0.2)
+                        .foregroundStyle(.white).multilineTextAlignment(.center).frame(maxWidth: 460)
+                    Text(sel == nil ? "\(on.count) connected. Tap one to see it or change it." : " ")
+                        .font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                }.frame(minHeight: 110).padding(.top, 26).padding(.horizontal, 24)
+                GeometryReader { geo in
+                    let k = min(geo.size.width / WorldLook.W, geo.size.height / WorldLook.H, 1.2)
+                    TimelineView(.animation) { tl in
+                        WorldCanvas(t: fixedT ?? tl.date.timeIntervalSince(WorldLook.start),
+                                    lit: picked.flatMap { id in worldNodes.firstIndex { $0.id == id } }, picking: picked == nil,
+                                    linked: on, speaking: false, tap: { n in withAnimation(.easeOut(duration: 0.3)) { picked = picked == n.id ? nil : n.id; note = nil } },
+                                    dim: ConnectionsWorld.soon)
+                    }.scaleEffect(k).frame(width: geo.size.width, height: geo.size.height)
+                }
+                detail(sel).frame(height: 120).padding(.bottom, 22)
+            }
+        }.preferredColorScheme(.dark)
+    }
+    @ViewBuilder func detail(_ sel: Node?) -> some View {
+        if let n = sel {
+            VStack(spacing: 12) {
+                if let opts = ConnectionsWorld.how[n.id], state(n.id) != "soon" {
+                    HStack(spacing: 8) {
+                        ForEach(opts, id: \.self) { o in
+                            let chosen = UserDefaults.standard.string(forKey: "passwordsWith") == o || (n.id == "Passwords" && o == "KeePass" && fixedT != nil)
+                            Text(o).font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(chosen ? Color(hex: 0x141416) : WorldLook.cream.opacity(0.85))
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .background(Capsule().fill(chosen ? WorldLook.cream : WorldLook.cream.opacity(0.07)))
+                                .overlay(Capsule().stroke(WorldLook.cream.opacity(chosen ? 0 : 0.14), lineWidth: 1))
+                        }
+                    }
+                }
+                switch state(n.id) {
+                case "on":
+                    HStack(spacing: 18) {
+                        Label("Connected", systemImage: "checkmark").font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0xBFE3CC))
+                        Button("Disconnect") {}.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.55))
+                    }
+                case "off":
+                    Text("Connect").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color(hex: 0x141416))
+                        .frame(minWidth: 150).padding(.vertical, 11).background(Capsule().fill(WorldLook.cream))
+                default:
+                    Text("Coming soon").font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.5))
+                }
+                if let note { Text(note).font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xE8B48A)).multilineTextAlignment(.center).frame(maxWidth: 440) }
+            }
+        } else {
+            Button("Done") { close() }.buttonStyle(.plain).font(.system(size: 14, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.7))
+        }
     }
 }
 
@@ -5429,7 +5551,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if Speaker.shared.installed { Speaker.shared.start() }
         else if Env.hermesPath != nil { Task.detached { if await Speaker.shared.install() { Speaker.shared.start() } } }
-        MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply(); Listener.shared.warm() }
+        MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply(); Listener.shared.warm(); Model.shared.syncName() }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         Floater.shared.openMain(); return true
@@ -5485,6 +5607,10 @@ struct Entry {
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
+                    ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
+                    ("cw-passwords", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Passwords"))),
+                    ("cw-calendar", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Calendar"))),
+                    ("cw-news", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News"))),
                     ("connections", AnyView(ConnectionsSheet(m: Model.shared, close: {}, rows: { var r = ConnectionsSheet.current(); r[0].state = "on"; r[1].state = "off"; return r }(), note: nil).background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("connections-mail", AnyView(ConnectionsSheet(m: Model.shared, close: {}, rows: { var r = ConnectionsSheet.current(); r[0].state = "on"; r[1].state = "off"; return r }(), note: "The Mail app on this Mac has no email account in it yet. Add yours in System Settings › Internet Accounts (Gmail, Outlook, iCloud and Yahoo all work), then tap Connect again.").background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("reader-noscroll", AnyView(ZStack { Color(hex: 0x141416); MarkdownText(text: (try? String(contentsOf: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md"), encoding: .utf8)) ?? "missing", size: 15).padding(22) }.environment(\.colorScheme, .dark))),
@@ -5503,7 +5629,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : name.hasPrefix("connections") ? 560 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : name == "connections" ? 600 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : name.hasPrefix("connections") ? 560 : name.hasPrefix("cw-") ? 720 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : name == "connections" ? 600 : name.hasPrefix("cw-") ? 680 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

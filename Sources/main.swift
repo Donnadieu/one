@@ -4764,8 +4764,21 @@ struct ConnectionsWorld: View {
     @State var note: String? = nil
     @State var option: String? = nil
     var on: [String: Double] { var d: [String: Double] = [:]; for (i, id) in ConnectionsWorld.connected().enumerated() { d[id] = -10 - Double(i) }; return d }
+    /// Connections the assistant built with the person ("Something else…"). It writes
+    /// hermes/connections.json after a test passes: [{"id":"News","with":"Feedly","skill":"my-connections/feedly","tested":"2026-10-24"}]
+    struct Custom: Codable, Hashable { var id: String; var with: String; var skill: String?; var tested: String? }
+    static var customFile: URL { Env.hermesHome.appendingPathComponent("connections.json") }
+    static func custom() -> [Custom] {
+        guard let d = try? Data(contentsOf: customFile) else { return [] }
+        return (try? JSONDecoder().decode([Custom].self, from: d)) ?? []
+    }
+    static func removeCustom(_ id: String) {
+        let left = custom().filter { $0.id != id }
+        if let d = try? JSONEncoder().encode(left) { try? d.write(to: customFile) }
+    }
     static func connected() -> [String] {
         var c = ["Files", "Browser", "Web"]
+        for x in custom() where !c.contains(x.id) { c.append(x.id) }
         if Bridge.calendarOK { c.append("Calendar") }
         if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
         if UserDefaults.standard.string(forKey: "passwordsWith") != nil { c.append("Passwords") }
@@ -4781,7 +4794,12 @@ struct ConnectionsWorld: View {
         "News": ["Something else…"],
         "Phone": ["Something else…"],
     ]
-    func state(_ id: String) -> String { ConnectionsWorld.soon.contains(id) ? "soon" : on[id] != nil ? "on" : "off" }
+    func state(_ id: String) -> String { on[id] != nil ? "on" : ConnectionsWorld.soon.contains(id) ? "soon" : "off" }
+    func options(_ id: String) -> [String] {
+        var o = ConnectionsWorld.how[id] ?? []
+        for x in ConnectionsWorld.custom() where x.id == id && !o.contains(x.with) { o.insert(x.with, at: max(o.count - 1, 0)) }
+        return o
+    }
     var body: some View {
         let sel = picked.flatMap { id in worldNodes.first { $0.id == id } }
         ZStack {
@@ -4792,7 +4810,8 @@ struct ConnectionsWorld: View {
                         .foregroundStyle(WorldLook.cream.opacity(0.5))
                     Text(sel?.line ?? "What \(m.name) can reach for you.").font(.system(size: 22, weight: .medium)).tracking(-0.2)
                         .foregroundStyle(.white).multilineTextAlignment(.center).frame(maxWidth: 460)
-                    Text(sel == nil ? "\(on.count) connected. Tap one to see it or change it." : " ")
+                    let exp = ConnectionsWorld.custom().count
+                    Text(sel == nil ? "\(on.count) connected\(exp > 0 ? ", \(exp) experimental" : ""). Tap one to see it or change it." : " ")
                         .font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.6))
                 }.frame(minHeight: 110).padding(.top, 26).padding(.horizontal, 24)
                 GeometryReader { geo in
@@ -4801,7 +4820,7 @@ struct ConnectionsWorld: View {
                         WorldCanvas(t: fixedT ?? tl.date.timeIntervalSince(WorldLook.start),
                                     lit: picked.flatMap { id in worldNodes.firstIndex { $0.id == id } }, picking: picked == nil,
                                     linked: on, speaking: false, tap: { n in withAnimation(.easeOut(duration: 0.3)) { picked = picked == n.id ? nil : n.id; note = nil } },
-                                    dim: ConnectionsWorld.soon)
+                                    dim: ConnectionsWorld.soon.subtracting(on.keys))
                     }.scaleEffect(k).frame(width: geo.size.width, height: geo.size.height)
                 }
                 detail(sel).frame(height: 120).padding(.bottom, 22)
@@ -4849,13 +4868,22 @@ struct ConnectionsWorld: View {
             return
         }
         let ask = with.hasPrefix("Something")
-            ? "I want to connect \(id) to something you don't support yet. Ask me what I use, then try to build the connection with me. Tell me it's experimental first, and test it in front of me."
+            ? """
+              I want to connect my \(id) to something One doesn't support yet. Let's build it together.
+              1. First tell me in one line: this is experimental, built by you, may break, use at my own risk.
+              2. Ask what I use (one question), then find the simplest way in: an official app or command-line tool on this Mac, an API, an export file, or my own browser. Do every step you can yourself; only ask me for things only I can do (approve a login, pick a file).
+              3. Never put a password or code into this chat. Logins go through my password manager or the app's own sign-in. Still ask before any money, sending, posting or deleting.
+              4. Save it as a skill in skills/my-connections/<short-name>/SKILL.md (what it is, how to use it, what's off-limits).
+              5. Test it in front of me with one real read-only check and tell me plainly what worked and what didn't.
+              6. Only if the test passed, add an entry to \(ConnectionsWorld.customFile.path) (a JSON list; keep existing entries): {"id": "\(id)", "with": "<what I use>", "skill": "my-connections/<short-name>", "tested": "<today YYYY-MM-DD>"}. That makes it show up in Connections tagged Experimental.
+              """
             : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
         close()
         Task { @MainActor in await m.send(ask, toNova: true) }
     }
     func disconnect(_ id: String) {
         let d = UserDefaults.standard
+        if ConnectionsWorld.custom().contains(where: { $0.id == id }) { ConnectionsWorld.removeCustom(id); picked = nil; return }
         switch id {
         case "Passwords": d.removeObject(forKey: "passwordsWith")
         case "Email", "Calendar": d.set(false, forKey: "googleConnected"); d.set(false, forKey: "mailConnected")
@@ -4866,10 +4894,12 @@ struct ConnectionsWorld: View {
     @ViewBuilder func detail(_ sel: Node?) -> some View {
         if let n = sel {
             VStack(spacing: 12) {
-                if let opts = ConnectionsWorld.how[n.id] {
+                let opts = options(n.id)
+                let mine = ConnectionsWorld.custom().first { $0.id == n.id }
+                if !opts.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(opts, id: \.self) { o in
-                            let chosen = option == o || (option == nil && UserDefaults.standard.string(forKey: "passwordsWith") == o) || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
+                            let chosen = option == o || (option == nil && (mine?.with == o || UserDefaults.standard.string(forKey: "passwordsWith") == o)) || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected")) || (n.id == "Browser" && o == "Chrome")
                             HStack(spacing: 5) {
                                 if chosen { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
                                 Text(o).font(.system(size: 13, weight: .medium))
@@ -4885,7 +4915,12 @@ struct ConnectionsWorld: View {
                 switch state(n.id) {
                 case "on":
                     HStack(spacing: 18) {
-                        Label("Connected", systemImage: "checkmark").font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0xBFE3CC))
+                        if let mine {
+                            Label("Experimental · built by \(m.name)\(mine.tested.map { ", tested \($0)" } ?? "")", systemImage: "flask")
+                                .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Color(hex: 0xE8C98A))
+                        } else {
+                            Label("Connected", systemImage: "checkmark").font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0xBFE3CC))
+                        }
                         Button("Disconnect") { disconnect(n.id) }.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.55))
                     }
                 case "off":
@@ -5909,6 +5944,7 @@ struct Entry {
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
                     ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
+                    ("cw-exp", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News", option: nil))),
                     ("me-card", AnyView(MeCard(m: Model.shared))),
                     ("cw-passwords", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Passwords"))),
                     ("cw-calendar", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Calendar"))),

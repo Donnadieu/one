@@ -2292,20 +2292,9 @@ struct TalkKey: Codable, Equatable {
             if let l = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp], handler: { e in handle(e); return e }) { mouseMonitors.append(l) }
         }
     }
-    private var pressedAt = Date()
-    private var latched = false
-    /// Hold = talk while held. Quick tap = keep listening until the next tap (like Wispr Flow).
-    func press() {
-        guard !paused, !down else { return }
-        down = true
-        if latched { latched = false; return }          // second tap: release() ends it
-        pressedAt = Date(); Floater.shared.keyTalkBegin()
-    }
-    func release() {
-        guard down else { return }; down = false
-        if Date().timeIntervalSince(pressedAt) < 0.35, Listener.shared.wanting, !latched { latched = true; return }
-        latched = false; Floater.shared.keyTalkEnd()
-    }
+    /// Push to talk: listening only while the key is held down; letting go sends.
+    func press() { guard !paused, !down else { return }; down = true; Floater.shared.keyTalkBegin() }
+    func release() { guard down else { return }; down = false; Floater.shared.keyTalkEnd() }
 }
 
 struct TalkKeySheet: View {
@@ -2417,7 +2406,6 @@ struct TalkKeySheet: View {
         req.addsPunctuation = true
         if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req; gotFinal = false
-        Listener.preferBuiltInMic(audio)
         let input = audio.inputNode
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0), block: Listener.tap(req) { lv in

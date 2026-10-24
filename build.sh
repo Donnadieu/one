@@ -31,8 +31,8 @@ PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
 cp tools/speak.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
-# Sign in with Google: an installed-app OAuth client (Google treats its secret as public). Kept out of git, bundled at build time.
-if [ "${ONE_GOOGLE:-1}" = 1 ] && [ -f "$HOME/.hermes/google_client_secret.json" ]; then
+# Sign in with Google is dropped from releases (email and calendar use the Mac's own accounts). Developer builds only: ONE_GOOGLE=1.
+if [ "${ONE_GOOGLE:-0}" = 1 ] && [ -f "$HOME/.hermes/google_client_secret.json" ]; then
   cp tools/google_signin.py "$APP/Contents/Resources/"
   cp "$HOME/.hermes/google_client_secret.json" "$APP/Contents/Resources/google_client_secret.json"
 fi

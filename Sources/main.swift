@@ -783,6 +783,15 @@ enum Bridge {
     static let store = EKEventStore()
     static var calendarOK: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
     static func askCalendar() async -> Bool { (try? await store.requestFullAccessToEvents()) ?? false }
+    /// Calendars from a real account (Google, iCloud, Outlook…), not only the empty one on this Mac.
+    static var calendarAccounts: Int {
+        let st = EKEventStore()
+        return Set(st.calendars(for: .event).compactMap { c -> String? in
+            guard let src = c.source, src.sourceType != .local, src.sourceType != .birthdays, c.type != .birthday else { return nil }
+            return src.sourceIdentifier
+        }).count
+    }
+    static let accountsPage = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!
     static var mailAccounts: Int {
         let r = applescript("tell application \"System Events\" to (name of processes) contains \"Mail\"")
         _ = r
@@ -4806,7 +4815,7 @@ struct ConnectionsWorld: View {
     static func connected() -> [String] {
         var c = ["Files", "Browser", "Web"]
         for x in custom() where !c.contains(x.id) { c.append(x.id) }
-        if Bridge.calendarOK { c.append("Calendar") }
+        if Bridge.calendarOK && Bridge.calendarAccounts > 0 { c.append("Calendar") }
         if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
         if UserDefaults.standard.string(forKey: "passwordsWith") != nil { c.append("Passwords") }
         if UserDefaults.standard.bool(forKey: "googleConnected") { if !c.contains("Email") { c.append("Email") }; if !c.contains("Calendar") { c.append("Calendar") } }
@@ -4897,16 +4906,8 @@ struct ConnectionsWorld: View {
             }
             return
         }
-        if id == "Calendar" {
-            Task { @MainActor in
-                if await Bridge.askCalendar() { m.markConnected("Calendar"); picked = nil }
-                else { note = "Calendar is still off. Turn it on in System Settings › Privacy & Security › Calendars › One." }
-            }
-            return
-        }
-        if id == "Email" && !with.hasPrefix("Something") {
-            if Bridge.mailAccounts > 0 { UserDefaults.standard.set(true, forKey: "mailConnected"); m.markConnected("Email"); picked = nil }
-            else { note = "Add your \(with) account in System Settings › Internet Accounts, then tap Connect again."; NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!) }
+        if (id == "Email" || id == "Calendar") && !with.hasPrefix("Something") {
+            Task { @MainActor in await connectMacAccount(id, with) }
             return
         }
         let ask = with.hasPrefix("Something")
@@ -4922,6 +4923,31 @@ struct ConnectionsWorld: View {
             : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
         close()
         Task { @MainActor in await m.send(ask, toNova: true) }
+    }
+    /// Email and Calendar use the accounts already on this Mac. If there's none yet, One opens
+    /// Internet Accounts, says what to do, and watches until the account shows up (up to 10 minutes).
+    func connectMacAccount(_ id: String, _ with: String) async {
+        let isMail = id == "Email"
+        if !isMail { guard await Bridge.askCalendar() else {
+            note = "Calendar is still off. Turn it on in System Settings › Privacy & Security › Calendars › One."; return } }
+        func have() -> Bool { isMail ? Bridge.mailAccounts > 0 : Bridge.calendarAccounts > 0 }
+        func done() {
+            if isMail { UserDefaults.standard.set(true, forKey: "mailConnected") }
+            m.markConnected(id); note = nil; picked = nil
+            Task { _ = await Speaker.shared.sayNow(isMail ? "Got it. I can see your email now." : "Got it. I can see your calendar now.") }
+        }
+        if have() { done(); return }
+        NSWorkspace.shared.open(Bridge.accountsPage)
+        let who = (with == "Gmail" || with == "Google") ? "Google" : with
+        let what = isMail ? "Mail" : "Calendars"
+        let line = "In the window that just opened, click \(who), sign in, and keep \(what) switched on. I'll notice when it's done."
+        note = line
+        Task { _ = await Speaker.shared.sayNow(line) }
+        for _ in 0..<200 {
+            try? await Task.sleep(for: .seconds(3))
+            if have() { done(); NSApp.activate(ignoringOtherApps: true); return }
+        }
+        note = "I didn't see a new account yet. Tap Connect when you've added it."
     }
     func disconnect(_ id: String) {
         let d = UserDefaults.standard
@@ -4995,7 +5021,7 @@ struct ConnectionsWorld: View {
 enum GoogleSignIn {
     /// On by default. The Google app is published but unverified: people see Google's "not verified" screen once,
     /// and at most 100 people can sign in until Google's review. Without the bundled client file it falls back to the Mac's accounts.
-    static var enabled: Bool { UserDefaults.standard.object(forKey: "googleSignIn") as? Bool ?? true && Bundle.main.url(forResource: "google_client_secret", withExtension: "json") != nil }
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "googleSignIn") && Bundle.main.url(forResource: "google_client_secret", withExtension: "json") != nil }
     static var venv: URL { Env.support.appendingPathComponent("tools-venv") }
     static func ensureVenv() -> Bool {
         let py = venv.appendingPathComponent("bin/python")

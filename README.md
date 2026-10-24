@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9). It runs end to end on Apple Silicon Macs. Passwords (KeePass), Gmail and Google Calendar (Sign in with Google), other email and calendars through the accounts on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.2). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -41,7 +41,7 @@ This is a personal project, not a company. It is built for me, my friends and an
 12. **Brain and voice.** Tap the assistant's name: pick Smartest, Balanced or Fastest (or any OpenRouter model), and a female or male voice with three styles each. Tap one to hear it. To rename the assistant, just ask it.
 13. **Connections.** The same floating world as setup. Connected tiles are tied to the assistant by a thread; tap one to change it or disconnect.
     - **Passwords:** KeePass (1Password and Bitwarden through the engine's vault). Logins are filled without the model ever seeing the password.
-    - **Email and Calendar:** Sign in with Google on Google's own page (Google shows a one-time "not verified" screen; up to 100 people until Google's review), or the accounts already on your Mac for Outlook, iCloud and Yahoo. The assistant drafts; you always press Send.
+    - **Email and Calendar:** the accounts already on your Mac (Gmail, Outlook, iCloud, Yahoo). No account yet? One opens the right Settings page, tells you what to click, and notices by itself when you're done. The assistant drafts; you always press Send.
     - **Browser:** your own Chrome, already signed in.
     - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
 14. **Rooms.** A live map of your rooms (personal, work, a shared room with a partner). Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
@@ -90,7 +90,6 @@ To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 to
 ## Roadmap
 
 - News as a built-in connection.
-- Outlook sign-in through Microsoft (needs a free Microsoft developer directory).
 - A "Today" page: what it did, what needs your yes, what it noticed.
 - It reaches out first ("your flight dropped $80, book it?").
 - Your phone: a small companion app for iPhone and Android, so you can reach your assistant away from the Mac.

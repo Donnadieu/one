@@ -210,11 +210,31 @@ final class Speaker: @unchecked Sendable {
             audio.attach(node)
             audio.connect(node, to: audio.mainMixerNode, format: fmt)
             NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: audio, queue: .main) { [weak self] _ in
-                self?.endsAt = .distantPast; self?.wakeAudio()
+                self?.rebuild()
             }
         }
         if !audio.isRunning { audio.prepare(); try? audio.start() }
         if !node.isPlaying { node.play() }
+        routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+    }
+    private var routeRate: Double = 0
+    var state: String { "engine=\(audio.isRunning) node=\(node.isPlaying) rate=\(audio.outputNode.outputFormat(forBus: 0).sampleRate)" }
+    /// Main thread. Rebuilds the audio line from scratch. Bluetooth headsets switch to "call mode" while the mic
+    /// is on and back afterwards; the old line can stay bound to the call-mode output and play into nothing.
+    func rebuild() {
+        node.stop(); audio.stop()
+        audio.disconnectNodeOutput(node)
+        audio.reset()
+        audio.connect(node, to: audio.mainMixerNode, format: fmt)
+        endsAt = .distantPast
+        audio.prepare(); try? audio.start(); node.play()
+        routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+    }
+    /// Main thread. Before speaking: if the output changed under us (headset mode, new device), rebuild.
+    func ensureRoute() {
+        guard audioUp else { wakeAudio(); return }
+        let now = audio.outputNode.outputFormat(forBus: 0).sampleRate
+        if !audio.isRunning || !node.isPlaying || now != routeRate { rebuild() }
     }
     private func buffer(_ url: URL) -> AVAudioPCMBuffer? {
         guard let f = try? AVAudioFile(forReading: url),
@@ -235,7 +255,7 @@ final class Speaker: @unchecked Sendable {
     /// Main thread. Queues a sound right after whatever is playing; returns its length.
     @discardableResult
     func enqueue(_ url: URL) -> Double {
-        wakeAudio()
+        if Date() >= endsAt { ensureRoute() } else { wakeAudio() }
         guard let b = buffer(url) else { return 0 }
         let d = Double(b.frameLength) / fmt.sampleRate
         node.scheduleBuffer(b, completionHandler: nil)
@@ -2474,6 +2494,7 @@ struct TalkKeySheet: View {
         guard listening else { done(""); return }
         listening = false
         audio.stop(); audio.inputNode.removeTap(onBus: 0)
+        for d in [0.6, 1.8] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { if !self.listening { Speaker.shared.rebuild() } } }
         request?.endAudio()
         var called = false
         let complete = {
@@ -5428,6 +5449,18 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
+            MainActor.assumeIsolated {
+                Speaker.shared.start()
+                Task { @MainActor in
+                    for _ in 0..<60 where !Speaker.shared.ready { try? await Task.sleep(for: .milliseconds(500)) }
+                    let d = await Speaker.shared.sayNow(args[k + 1])
+                    print("ready", Speaker.shared.ready, "seconds", d, Speaker.shared.state)
+                    try? await Task.sleep(for: .seconds(d + 1)); print("after", Speaker.shared.state); exit(0)
+                }
+            }
+            NSApplication.shared.run()
+        }
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {

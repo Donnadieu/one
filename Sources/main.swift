@@ -8,6 +8,8 @@ import AVFoundation
 import Speech
 import PDFKit
 import Carbon
+import EventKit
+import CoreAudio
 import UniformTypeIdentifiers
 
 // MARK: - Paths and environment
@@ -703,6 +705,142 @@ final class Engine: @unchecked Sendable {
 }
 
 // MARK: - Folder access (macOS sandbox around the engine)
+
+
+// MARK: - Connections: Calendar and Mail through the Mac's own apps
+// The engine runs inside the folder lock and can't touch Calendar or Mail itself, so it calls
+// One's own binary ("One --cal …" / "One --mail …"). macOS then asks the person once, in One's name.
+enum Bridge {
+    static var exe: String { Bundle.main.executablePath ?? "/Applications/One.app/Contents/MacOS/One" }
+    static let store = EKEventStore()
+    static var calendarOK: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess }
+    static func askCalendar() async -> Bool { (try? await store.requestFullAccessToEvents()) ?? false }
+    static var mailAccounts: Int {
+        let r = applescript("tell application \"System Events\" to (name of processes) contains \"Mail\"")
+        _ = r
+        return Int(applescript("tell application \"Mail\" to count of accounts") ?? "") ?? 0
+    }
+    @discardableResult static func applescript(_ src: String) -> String? {
+        var err: NSDictionary?
+        let out = NSAppleScript(source: src)?.executeAndReturnError(&err)
+        if let err { FileHandle.standardError.write("mail error: \(err[NSAppleScript.errorMessage] ?? err)\n".data(using: .utf8)!); return nil }
+        return out?.stringValue
+    }
+    static func esc(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+    static let iso: ISO8601DateFormatter = { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f }()
+    static func date(_ s: String) -> Date? {
+        if let d = iso.date(from: s) { return d }
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+        for fmt in ["yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] { f.dateFormat = fmt; if let d = f.date(from: s) { return d } }
+        return nil
+    }
+    static let show: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE MMM d, h:mm a"; return f }()
+
+    /// Handles "--cal" / "--mail" command lines. Returns an exit code, or nil if this isn't a bridge call.
+    static func run(_ a: [String]) -> Int32? {
+        guard let k = a.firstIndex(where: { $0 == "--cal" || $0 == "--mail" }) else { return nil }
+        let rest = Array(a[(k + 1)...]), cmd = rest.first ?? "help"
+        func out(_ s: String) { print(s) }
+        if a[k] == "--cal" {
+            guard calendarOK else { out("Calendar isn't connected yet. Tell them to open One and tap Connect next to Calendar."); return 3 }
+            switch cmd {
+            case "list":
+                let days = Double(rest.dropFirst().first ?? "7") ?? 7
+                let from = rest.count > 2 ? (date(rest[2]) ?? Date()) : Calendar.current.startOfDay(for: Date())
+                let pred = store.predicateForEvents(withStart: from, end: from.addingTimeInterval(days * 86400), calendars: nil)
+                let evs = store.events(matching: pred).sorted { $0.startDate < $1.startDate }
+                if evs.isEmpty { out("Nothing on the calendar in that time.") }
+                for e in evs {
+                    let when = e.isAllDay ? "all day " + show.string(from: e.startDate).components(separatedBy: ",").first! : show.string(from: e.startDate) + " to " + DateFormatter.localizedString(from: e.endDate, dateStyle: .none, timeStyle: .short)
+                    var line = "- \(when): \(e.title ?? "(no title)") [\(e.calendar.title)] id=\(e.eventIdentifier ?? "")"
+                    if let l = e.location, !l.isEmpty { line += " at \(l)" }
+                    out(line)
+                }
+            case "calendars":
+                for c in store.calendars(for: .event) { out("- \(c.title)\(c.allowsContentModifications ? "" : " (read only)")") }
+            case "add":
+                guard rest.count >= 4, let st = date(rest[2]), let en = date(rest[3]) else { out("usage: --cal add \"title\" START END [calendar]  (dates like 2026-10-24T15:00)"); return 2 }
+                let e = EKEvent(eventStore: store); e.title = rest[1]; e.startDate = st; e.endDate = en
+                e.calendar = rest.count > 4 ? (store.calendars(for: .event).first { $0.title == rest[4] } ?? store.defaultCalendarForNewEvents) : store.defaultCalendarForNewEvents
+                do { try store.save(e, span: .thisEvent); out("Added: \(rest[1]), \(show.string(from: st)) [\(e.calendar.title)] id=\(e.eventIdentifier ?? "")") }
+                catch { out("Couldn't add it: \(error.localizedDescription)"); return 1 }
+            case "remove":
+                guard rest.count > 1, let e = store.event(withIdentifier: rest[1]) else { out("No event with that id."); return 2 }
+                do { try store.remove(e, span: .thisEvent); out("Removed: \(e.title ?? "")") } catch { out("Couldn't remove it: \(error.localizedDescription)"); return 1 }
+            default: out("Calendar commands: list [days] [from], calendars, add \"title\" START END [calendar], remove ID")
+            }
+            return 0
+        }
+        switch cmd {
+        case "accounts":
+            out(applescript("tell application \"Mail\" to get name of every account as string") ?? "Mail isn't set up, or One isn't allowed to use it yet.")
+        case "list":
+            let n = Int(rest.dropFirst().first ?? "15") ?? 15
+            let src = """
+            set out to ""
+            tell application "Mail"
+              set msgs to messages of inbox
+              set c to count of msgs
+              if c > \(n) then set c to \(n)
+              repeat with i from 1 to c
+                set m to item i of msgs
+                set out to out & "- " & (date received of m as string) & " | from " & (sender of m) & " | " & (subject of m) & " | " & (read status of m as string) & " | id=" & (id of m) & linefeed
+              end repeat
+            end tell
+            return out
+            """
+            guard let r = applescript(src) else { out("Mail isn't set up, or One isn't allowed to use it yet."); return 3 }
+            out(r.isEmpty ? "The inbox is empty." : r.replacingOccurrences(of: "| true |", with: "| read |").replacingOccurrences(of: "| false |", with: "| NEW |"))
+        case "read":
+            guard rest.count > 1, let id = Int(rest[1]) else { out("usage: --mail read ID"); return 2 }
+            let src = """
+            tell application "Mail"
+              set m to first message of inbox whose id is \(id)
+              return "From: " & (sender of m) & linefeed & "Subject: " & (subject of m) & linefeed & "Date: " & (date received of m as string) & linefeed & linefeed & (content of m)
+            end tell
+            """
+            out(applescript(src) ?? "Couldn't open that email.")
+        case "search":
+            guard rest.count > 1 else { out("usage: --mail search WORDS"); return 2 }
+            let q = esc(rest[1])
+            let src = """
+            set out to ""
+            tell application "Mail"
+              set msgs to (messages of inbox whose subject contains "\(q)" or sender contains "\(q)")
+              set c to count of msgs
+              if c > 20 then set c to 20
+              repeat with i from 1 to c
+                set m to item i of msgs
+                set out to out & "- " & (date received of m as string) & " | from " & (sender of m) & " | " & (subject of m) & " | id=" & (id of m) & linefeed
+              end repeat
+            end tell
+            return out
+            """
+            out(applescript(src).map { $0.isEmpty ? "No emails match." : $0 } ?? "Mail isn't set up, or One isn't allowed to use it yet.")
+        case "draft":
+            guard rest.count >= 4 else { out("usage: --mail draft TO SUBJECT BODY"); return 2 }
+            let src = """
+            tell application "Mail"
+              set m to make new outgoing message with properties {subject:"\(esc(rest[2]))", content:"\(esc(rest[3]))", visible:true}
+              tell m to make new to recipient at end of to recipients with properties {address:"\(esc(rest[1]))"}
+              activate
+            end tell
+            return "ok"
+            """
+            out(applescript(src) == "ok" ? "Draft is open in Mail for them to read and press Send. Nothing was sent." : "Couldn't make the draft.")
+        default: out("Mail commands: accounts, list [n], read ID, search WORDS, draft TO SUBJECT BODY (opens a draft; never sends)")
+        }
+        return 0
+    }
+
+    /// Told to the assistant every turn, so it knows what's connected and how to use it.
+    static var note: String {
+        var parts: [String] = []
+        if calendarOK { parts.append("CALENDAR is connected: run `\(exe) --cal list 7` (next 7 days), `--cal add \"title\" 2026-10-24T15:00 2026-10-24T16:00`, `--cal remove ID`, `--cal calendars`. Before adding, check for clashes and say them. Adding to their own calendar is fine on your own; inviting other people needs their yes.") }
+        if UserDefaults.standard.bool(forKey: "mailConnected") { parts.append("EMAIL is connected through the Mail app: `\(exe) --mail list 15`, `--mail read ID`, `--mail search WORDS`, `--mail draft TO SUBJECT BODY`. You can never send: draft opens in Mail and they press Send. Never claim you sent anything.") }
+        return parts.isEmpty ? "" : "\n\n(One app note, not from the user: " + parts.joined(separator: " ") + " Never tell them these can't be connected.)"
+    }
+}
 
 enum Access {
     nonisolated(unsafe) static var override: [String]?
@@ -1456,6 +1594,12 @@ final class Model: ObservableObject {
         }
     }
 
+    func markConnected(_ id: String) {
+        var c = connections.filter { !$0.isEmpty }; if !c.contains(id) { c.append(id) }
+        connectionsRaw = c.joined(separator: ",")
+        Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+    }
+
     func sharedNote() -> String { let n = Shared.note(clashes: clashes); clashes = []; return n + Model.githubNote }
     /// If they're signed in to GitHub on this Mac, say so every turn so the assistant never claims it can't.
     static var githubNote: String {
@@ -1558,7 +1702,7 @@ final class Model: ObservableObject {
         }
         // Older conversations started before helpers existed, so remind Nova every turn (not shown to the user).
         let note = "\n\n(One app note, not from the user: if this asks for a separate job that takes a while or keeps watching something, don't do it here. Say in one short line that you're sending a helper, then add a line [helper: Short title | the whole job with every detail]. Quick things you just answer. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
-        let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + sharedNote() + helperNews(), images: c.images)
+        let stop = await Engine.shared.prompt(c.engine + note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
@@ -2146,8 +2290,20 @@ struct TalkKey: Codable, Equatable {
             if let l = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp], handler: { e in handle(e); return e }) { mouseMonitors.append(l) }
         }
     }
-    func press() { guard !paused, !down else { return }; down = true; Floater.shared.keyTalkBegin() }
-    func release() { guard down else { return }; down = false; Floater.shared.keyTalkEnd() }
+    private var pressedAt = Date()
+    private var latched = false
+    /// Hold = talk while held. Quick tap = keep listening until the next tap (like Wispr Flow).
+    func press() {
+        guard !paused, !down else { return }
+        down = true
+        if latched { latched = false; return }          // second tap: release() ends it
+        pressedAt = Date(); Floater.shared.keyTalkBegin()
+    }
+    func release() {
+        guard down else { return }; down = false
+        if Date().timeIntervalSince(pressedAt) < 0.35, Listener.shared.wanting, !latched { latched = true; return }
+        latched = false; Floater.shared.keyTalkEnd()
+    }
 }
 
 struct TalkKeySheet: View {
@@ -2222,8 +2378,17 @@ struct TalkKeySheet: View {
     private var onFinal: (() -> Void)?
     private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
+    var wanting: Bool { want }
+    /// Ask for permissions once at launch so pressing the key starts the mic with no waiting.
+    func warm() {
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined { SFSpeechRecognizer.requestAuthorization { _ in } }
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
+    }
     func begin() {
         want = true; problem = nil; text = ""
+        if SFSpeechRecognizer.authorizationStatus() == .authorized, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            listening = false; startAudio(); return      // already allowed: start right now
+        }
         SFSpeechRecognizer.requestAuthorization { s in
             DispatchQueue.main.async {
                 guard s == .authorized else { self.fail("I need permission to hear you. Open System Settings, Privacy & Security, Speech Recognition, and turn on One."); return }
@@ -2250,6 +2415,7 @@ struct TalkKeySheet: View {
         req.addsPunctuation = true
         if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req; gotFinal = false
+        Listener.preferBuiltInMic(audio)
         let input = audio.inputNode
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0), block: Listener.tap(req) { lv in
@@ -2264,6 +2430,38 @@ struct TalkKeySheet: View {
                 if final { self.gotFinal = true; let f = self.onFinal; self.onFinal = nil; f?() }
             }
         })
+    }
+
+    /// Bluetooth headsets take 1–2 s to switch into mic mode (and swallow the first words), so listen
+    /// through the Mac's own microphone when the default input is Bluetooth. Replies still play on the headset.
+    static func preferBuiltInMic(_ engine: AVAudioEngine) {
+        func prop<T>(_ id: AudioObjectID, _ sel: AudioObjectPropertySelector, _ v: inout T) -> Bool {
+            var a = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            var size = UInt32(MemoryLayout<T>.size)
+            return AudioObjectGetPropertyData(id, &a, 0, nil, &size, &v) == noErr
+        }
+        var def = AudioDeviceID(0)
+        guard prop(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice, &def) else { return }
+        var transport = UInt32(0)
+        _ = prop(def, kAudioDevicePropertyTransportType, &transport)
+        guard transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE else { return }
+        var a = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size) == noErr else { return }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids) == noErr else { return }
+        for id in ids {
+            var t = UInt32(0); _ = prop(id, kAudioDevicePropertyTransportType, &t)
+            guard t == kAudioDeviceTransportTypeBuiltIn else { continue }
+            var sa = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+            var ss = UInt32(0)
+            guard AudioObjectGetPropertyDataSize(id, &sa, 0, nil, &ss) == noErr, ss > 0 else { continue }
+            var dev = id
+            if let unit = engine.inputNode.audioUnit {
+                AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
+            }
+            return
+        }
     }
 
     /// Built outside the class's methods so the audio thread never touches main-thread-only state.
@@ -2532,7 +2730,6 @@ final class OrbHost: NSView {
     func beginTalk() {
         let ui = FloatUI.shared
         ui.reply = nil; ui.note = nil; ui.showHint = false
-        if Model.shared.thinking { note("I'm still on the last thing. Give me a moment."); return }
         Listener.shared.begin()
     }
 
@@ -2557,6 +2754,8 @@ final class OrbHost: NSView {
                 self.tuckIfOneInFront(after: 4); return
             }
             Task { @MainActor in
+                if Model.shared.thinking { self.note("Got it. I'll do that right after this.") }
+                while Model.shared.thinking { try? await Task.sleep(nanoseconds: 400_000_000) }
                 await Model.shared.send(heard, toNova: true)
                 if NSApp.isActive { self.tuckIfOneInFront(after: 0) } else { self.showReply() }
             }
@@ -3589,6 +3788,68 @@ struct RoomsView: View {
     }
 }
 
+
+
+struct ConnectionRow: Identifiable { let id: String; let symbol: String; let line: String; var state: String }  // state: on, off, soon
+
+struct ConnectionsSheet: View {
+    @ObservedObject var m: Model
+    var close: () -> Void
+    @State var rows: [ConnectionRow] = ConnectionsSheet.current()
+    @State var note: String?
+    static func current() -> [ConnectionRow] {
+        [
+            ConnectionRow(id: "Calendar", symbol: "calendar", line: "See your days, warn you about clashes, add what you ask for.", state: Bridge.calendarOK ? "on" : "off"),
+            ConnectionRow(id: "Email", symbol: "envelope", line: "Read and sort your email in the Mail app, and write drafts. You always press Send.", state: UserDefaults.standard.bool(forKey: "mailConnected") ? "on" : "off"),
+            ConnectionRow(id: "Files", symbol: "folder", line: "Your Desktop, Documents and Downloads.", state: "on"),
+            ConnectionRow(id: "Browser", symbol: "safari", line: "Opens websites and fills them in for you.", state: "on"),
+            ConnectionRow(id: "News", symbol: "newspaper", line: "A short morning briefing on what you care about.", state: "soon"),
+            ConnectionRow(id: "Passwords", symbol: "key", line: "Log in for you with 1Password or Bitwarden, asking first.", state: "soon"),
+            ConnectionRow(id: "WhatsApp", symbol: "message", line: "Read your chats and draft replies.", state: "soon"),
+        ]
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Connections").font(.title3.weight(.semibold))
+            Text("What \(m.name) can use for you. Everything stays on this Mac.").foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(rows) { r in
+                    HStack(spacing: 14) {
+                        Image(systemName: r.symbol).font(.title3).frame(width: 28).foregroundStyle(Color(hex: 0xF4EFE8).opacity(r.state == "soon" ? 0.4 : 0.9))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(r.id).font(.headline).opacity(r.state == "soon" ? 0.5 : 1)
+                            Text(r.line).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).opacity(r.state == "soon" ? 0.6 : 1)
+                        }
+                        Spacer()
+                        switch r.state {
+                        case "on": Label("Connected", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).foregroundStyle(Color(hex: 0x9FC9B0)).font(.callout)
+                        case "off": Button("Connect") { connect(r.id) }.buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                        default: Text("Coming soon").font(.callout).foregroundStyle(.secondary)
+                        }
+                    }.padding(.vertical, 10)
+                    if r.id != rows.last?.id { Divider().opacity(0.4) }
+                }
+            }
+            if let note { Text(note).font(.callout).foregroundStyle(Color(hex: 0xE8B48A)).fixedSize(horizontal: false, vertical: true) }
+            HStack { Spacer(); Button("Done") { close() }.keyboardShortcut(.defaultAction) }
+        }.padding(22).frame(width: 560)
+    }
+    func connect(_ id: String) {
+        note = nil
+        Task { @MainActor in
+            if id == "Calendar" {
+                if await Bridge.askCalendar() { m.markConnected("Calendar") }
+                else { note = "Calendar is still off. To turn it on: System Settings › Privacy & Security › Calendars › One." }
+            } else if id == "Email" {
+                let r = Bridge.applescript("tell application \"Mail\" to count of accounts")
+                if let n = Int(r ?? ""), n > 0 { UserDefaults.standard.set(true, forKey: "mailConnected"); m.markConnected("Email") }
+                else if r == nil { note = "\(m.name) isn't allowed to use Mail yet. To turn it on: System Settings › Privacy & Security › Automation › One › Mail." }
+                else { note = "The Mail app on this Mac has no email account in it yet. Add yours in System Settings › Internet Accounts (Gmail, Outlook, iCloud and Yahoo all work), then tap Connect again."; NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension")!) }
+            }
+            rows = ConnectionsSheet.current()
+        }
+    }
+}
 
 struct ShareRoomSheet: View {
     @ObservedObject var m: Model
@@ -4806,6 +5067,7 @@ struct HomeView: View {
     @State var draft = ""
     @State var folderSheet = false
     @State var talkKeySheet = false
+    @State var connectionsSheet = false
     @State var roomsSheet = false
     @AppStorage("voiceMuted") var voiceOff = false
     @ObservedObject var l = Listener.shared
@@ -4945,6 +5207,7 @@ struct HomeView: View {
                 }.help(voiceOff ? "Let \(m.name) talk" : "Stop \(m.name) from talking")
             }
             ToolbarItem { Button { roomsSheet = true } label: { Label("Rooms", systemImage: "circle.hexagongrid") }.help("See your rooms") }
+            ToolbarItem { Button { connectionsSheet = true } label: { Label("Connections", systemImage: "point.3.connected.trianglepath.dotted") }.help("Calendar, email and more") }
             ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
             ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }
@@ -4958,6 +5221,7 @@ struct HomeView: View {
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
         .sheet(isPresented: $roomsSheet) { RoomsView(m: m) { roomsSheet = false } }
+        .sheet(isPresented: $connectionsSheet) { ConnectionsSheet(m: m) { connectionsSheet = false } }
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
         .overlay {
             if dropping {
@@ -5121,7 +5385,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if Speaker.shared.installed { Speaker.shared.start() }
         else if Env.hermesPath != nil { Task.detached { if await Speaker.shared.install() { Speaker.shared.start() } } }
-        MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply() }
+        MainActor.assumeIsolated { Floater.shared.setup(); PictureIn.installPaste(); TalkKeys.shared.apply(); Listener.shared.warm() }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         Floater.shared.openMain(); return true
@@ -5150,6 +5414,7 @@ struct Entry {
 
     static func main() {
         let args = CommandLine.arguments
+        if let code = Bridge.run(args) { exit(code) }
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {
@@ -5163,6 +5428,8 @@ struct Entry {
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     ("hint-long", AnyView(ZStack(alignment: .trailing) { Color(hex: 0x2A2F3D); HStack(spacing: 18) { FloatHint(text: Plain.step("browser_exec: # Checking Google Flights for PHL to Quebec City on Dec 20\nimport time click_at_xy(448, 375)")); FloatingOrb(state: .working, size: 72, fixedT: 9) }.padding(.trailing, 40) }.environment(\.colorScheme, .dark))),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
+                    ("connections", AnyView(ConnectionsSheet(m: Model.shared, close: {}, rows: { var r = ConnectionsSheet.current(); r[0].state = "on"; r[1].state = "off"; return r }(), note: nil).background(WorldLook.bg).environment(\.colorScheme, .dark))),
+                    ("connections-mail", AnyView(ConnectionsSheet(m: Model.shared, close: {}, rows: { var r = ConnectionsSheet.current(); r[0].state = "on"; r[1].state = "off"; return r }(), note: "The Mail app on this Mac has no email account in it yet. Add yours in System Settings › Internet Accounts (Gmail, Outlook, iCloud and Yahoo all work), then tap Connect again.").background(WorldLook.bg).environment(\.colorScheme, .dark))),
                     ("reader-noscroll", AnyView(ZStack { Color(hex: 0x141416); MarkdownText(text: (try? String(contentsOf: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md"), encoding: .utf8)) ?? "missing", size: 15).padding(22) }.environment(\.colorScheme, .dark))),
                     ("reader", AnyView(ZStack { Color(hex: 0x141416); FileViewer(m: Model.shared, url: Shelf.folder.appendingPathComponent("2026-10-23 Quebec trip planning.md")) }.environment(\.colorScheme, .dark))),
                     ("map", AnyView(MapScene())),
@@ -5179,7 +5446,7 @@ struct Entry {
                     ("picked", AnyView(WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false).background(WorldLook.bg))),
                 ]
                 for (name, v) in views {
-                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
+                    let r = ImageRenderer(content: v.frame(width: name == "live-rooms" || name == "reader" ? 960 : name.hasPrefix("connections") ? 560 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620), height: name == "live-rooms" || name == "reader" ? 600 : name == "connections" ? 600 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440))); r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                        let png = rep.representation(using: .png, properties: [:]) {
                         try? png.write(to: URL(fileURLWithPath: "\(out)-\(name).png")); print("wrote \(out)-\(name).png")

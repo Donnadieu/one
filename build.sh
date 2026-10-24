@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 APP=build/One.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macosx14.0 \
-  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -swift-version 5 \
+  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -swift-version 5 \
   Sources/main.swift -o "$APP/Contents/MacOS/One"
 VERSION=$(tr -d ' \n' < VERSION)
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -23,6 +23,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>So you can hold the orb and talk to your assistant.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>So your assistant can see your days, warn you about clashes and add things you ask for.</string>
+  <key>NSAppleEventsUsageDescription</key><string>So your assistant can read your email in Mail and open drafts for you to send.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>So what you say turns into words for your assistant, on this Mac.</string>
 </dict></plist>
 PLIST

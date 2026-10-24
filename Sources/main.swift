@@ -1590,7 +1590,9 @@ final class Model: ObservableObject {
             }
         }
         if away, let h = helpers.first(where: { $0.id == id }) {
-            Floater.shared.note(h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done.")
+            let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."
+            Floater.shared.note(line)
+            if !thinking { Task { _ = await Speaker.shared.sayNow(line) } }   // heard even with One in the background
         }
     }
 
@@ -2620,6 +2622,9 @@ final class OrbHost: NSView {
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.show() }
+        }
+        nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { n in
+            if !(n.object is NSPanel) { Task { @MainActor in if Model.shared.onboarded { self.show() } } }
         }
         nc.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.hide() }
@@ -5394,7 +5399,8 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         Engine.shared.stop()
         Engine.stopStrayGateway()
     }
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing the window keeps One running as the orb, so it can still listen and talk. Quit with ⌘Q.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
 struct OneApp: App {

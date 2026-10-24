@@ -1097,6 +1097,7 @@ enum Persona {
             facts.append("They want these connected: \(connections.joined(separator: ", ")). Not connected yet; help them connect each one when it first comes up.")
         }
         if !passwords.isEmpty { facts.append("For logins: \(passwords).") }
+        if let n = try? String(contentsOf: Env.hermesHome.appendingPathComponent("owner-notes.md"), encoding: .utf8), !n.isEmpty { facts.append(n.trimmingCharacters(in: .whitespacesAndNewlines)) }
         try? facts.joined(separator: "\n§\n").write(to: mem.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
     }
 }

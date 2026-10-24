@@ -3798,8 +3798,8 @@ enum RoomMap {
         var centers: [CGPoint] = []
         if n == 1 { centers = [CGPoint(x: w / 2, y: h / 2)] }
         else if n == 2 { centers = [CGPoint(x: w * 0.3, y: h * 0.55), CGPoint(x: w * 0.72, y: h * 0.42)] }
-        else { for i in 0..<n { let a = Double(i) / Double(n) * 2 * .pi - .pi / 2; centers.append(CGPoint(x: w / 2 + cos(a) * w * 0.3, y: h / 2 + sin(a) * h * 0.3)) } }
-        let spread = min(w / CGFloat(n == 1 ? 2.4 : Double(n) + 1.2), h / (n <= 2 ? 2.6 : 3.4))
+        else { for i in 0..<n { let a = Double(i) / Double(n) * 2 * .pi - .pi / 2; centers.append(CGPoint(x: w / 2 + cos(a) * w * 0.31, y: h * 0.45 + sin(a) * h * 0.25)) } }
+        let spread = min(w / CGFloat(n == 1 ? 2.4 : Double(n) + 1.2), h / (n <= 2 ? 2.6 : n == 3 ? 3.4 : 4.4))
         var out: [LaidNote] = []
         for (ri, room) in rooms.enumerated() {
             let c = centers[ri]
@@ -4714,8 +4714,8 @@ struct WorldCanvas: View {
                     let dx = x - WorldLook.CX, dy = y - WorldLook.CY, d = max(hypot(dx, dy), 1)
                     let ux = dx / d, uy = dy / d
                     let sx = WorldLook.CX + ux * 70, sy = WorldLook.CY + uy * 70
-                    let sxx: CGFloat = abs(ux) > 1e-3 ? 34 / abs(ux) : 1e9
-                    let syy: CGFloat = uy < -1e-3 ? 56 / -uy : (uy > 1e-3 ? 32 / uy : 1e9)
+                    let sxx: CGFloat = abs(ux) > 1e-3 ? 27 / abs(ux) : 1e9
+                    let syy: CGFloat = uy < -1e-3 ? 50 / -uy : (uy > 1e-3 ? 27 / uy : 1e9)
                     let cl = min(sxx, syy)
                     let ex = x - ux * cl, ey = y - uy * cl
                     let bend = 14 * CGFloat(sin(t * 0.5 + Double(i)))
@@ -4828,6 +4828,19 @@ struct ConnectionsWorld: View {
             }
             return
         }
+        if (id == "Email" && with == "Gmail") || (id == "Calendar" && with == "Google") {
+            note = "Opening Google in your browser. Sign in there, then come back."
+            Task { @MainActor in
+                if let email = await GoogleSignIn.run() {
+                    UserDefaults.standard.set(true, forKey: "googleConnected")
+                    m.markConnected("Email"); m.markConnected("Calendar")
+                    note = nil; picked = nil
+                    close()
+                    await m.send("I just signed in with Google as \(email). Gmail and Google Calendar are connected (use the google-workspace skill with GOOGLE_ACCOUNT=\(email)). Check my next 3 events and my unread count to make sure it works.", toNova: true)
+                } else { note = "Google sign-in didn't finish. Tap Connect to try again." }
+            }
+            return
+        }
         if id == "Calendar" && (with == "iCloud" || with == "Outlook") {
             Task { @MainActor in
                 if await Bridge.askCalendar() { m.markConnected("Calendar"); picked = nil }
@@ -4887,6 +4900,46 @@ struct ConnectionsWorld: View {
             }
         } else {
             Button("Done") { close() }.buttonStyle(.plain).font(.system(size: 14, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.7))
+        }
+    }
+}
+
+/// Sign in with Google from One itself: a small Python helper opens the browser and saves the login
+/// where the Google skill reads it (hermes/google_tokens/<email>.json). Returns the email, or nil.
+enum GoogleSignIn {
+    static var venv: URL { Env.support.appendingPathComponent("tools-venv") }
+    static func ensureVenv() -> Bool {
+        let py = venv.appendingPathComponent("bin/python")
+        if FileManager.default.isExecutableFile(atPath: py.path),
+           shell(py.path, ["-c", "import google_auth_oauthlib, googleapiclient"]) == 0 { return true }
+        let tools = Env.hermesHome.appendingPathComponent("tools")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: tools.path)) ?? []
+        guard let uvDir = names.first(where: { $0.hasPrefix("uv-") }), let pyDir = names.first(where: { $0.hasPrefix("python-") }) else { return false }
+        let uv = tools.appendingPathComponent("\(uvDir)/uv").path
+        guard shell(uv, ["venv", "-q", "--python", tools.appendingPathComponent("\(pyDir)/bin/python3").path, venv.path]) == 0 else { return false }
+        var env = Env.vars(); env["VIRTUAL_ENV"] = venv.path
+        return shell(uv, ["pip", "install", "-q", "google-api-python-client", "google-auth-oauthlib", "google-auth-httplib2", "websockets", "requests"], env: env) == 0
+    }
+    @discardableResult static func shell(_ exe: String, _ args: [String], env: [String: String]? = nil, out: Pipe? = nil) -> Int32 {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
+        if let env { p.environment = env }
+        p.standardOutput = out ?? FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return -1 }
+        p.waitUntilExit(); return p.terminationStatus
+    }
+    static func run() async -> String? {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async {
+                guard let script = Bundle.main.url(forResource: "google_signin", withExtension: "py"),
+                      let secret = Bundle.main.url(forResource: "google_client_secret", withExtension: "json")
+                        ?? Optional(Env.hermesHome.appendingPathComponent("google_client_secret.json")),
+                      FileManager.default.fileExists(atPath: secret.path), ensureVenv() else { c.resume(returning: nil); return }
+                let o = Pipe()
+                let rc = shell(venv.appendingPathComponent("bin/python").path, ["-I", script.path, secret.path, Env.hermesHome.path], out: o)
+                let txt = String(decoding: o.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                let email = (try? JSONSerialization.jsonObject(with: Data(txt.utf8)) as? [String: String])?["email"]
+                c.resume(returning: rc == 0 ? email : nil)
+            }
         }
     }
 }

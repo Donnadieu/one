@@ -30,6 +30,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
 cp tools/speak.py tools/install_voice.sh "$APP/Contents/Resources/"
+cp tools/google_signin.py "$APP/Contents/Resources/"
+# Google OAuth client (installed-app type): kept out of git, bundled at build time if present
+[ -f "$HOME/.hermes/google_client_secret.json" ] && cp "$HOME/.hermes/google_client_secret.json" "$APP/Contents/Resources/google_client_secret.json"
 cp assets/One.icns "$APP/Contents/Resources/One.icns"
 # Hermes's official installer (MIT, Nous Research), run by One on first launch.
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"

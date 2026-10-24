@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.6). It runs end to end on Apple Silicon Macs. Some connections (email, calendar) are chosen in setup but not wired yet. See [Roadmap](#roadmap).
+> Status: early test build (0.8 plus unreleased work on `main`). It runs end to end on Apple Silicon Macs. Passwords (KeePass), Gmail, Google Calendar and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -34,7 +34,17 @@ This is a personal project, not a company. It is built for me, my friends and an
 5. **Memory and rooms.** Everything starts in a personal room. If part of your life needs different rules (your job, a business, something just for you), it gets its own room, kept separate.
 6. **The world.** A short spoken tour of everything it can reach, then you tap what you want connected.
 7. **Passwords and backup.** Where to find logins (your password manager, Keychain, or ask each time), and an optional copy of your memory to iCloud Drive.
-8. **Home.** A greeting, the assistant itself, the answer to your latest request, any "needs your yes" cards, and a grid of things only a Mac-based assistant can do.
+8. **Home.** A greeting, the assistant itself, the answer to your latest request, any "needs your yes" cards, and a few ideas to try. The ideas hide themselves after three days, or with an X, and come back from "Ideas to try". The **Ready for you** sidebar (files your assistant made) collapses to a thin strip.
+9. **Helpers.** Anything that takes real work (looking things up, browsing, comparing, making a file, watching a price) goes to helpers that run in the background, several at once when a job has separate parts. The assistant stays free to talk.
+10. **Talk.** Hold a shortcut anywhere on your Mac to speak; let go to send. A small orb floats on screen when the window is closed and hides when the window is open. Closing the window tucks it into the orb; only Quit ends One.
+11. **Voice everywhere.** Replies, helper results and finished routines are read aloud even when the window is closed, unless muted.
+12. **Brain and voice.** Tap the assistant's name: pick Smartest, Balanced or Fastest (or any OpenRouter model), and a female or male voice with three styles each. Tap one to hear it. To rename the assistant, just ask it.
+13. **Connections.** The same floating world as setup. Connected tiles are tied to the assistant by a thread; tap one to change it or disconnect.
+    - **Passwords:** KeePass (1Password and Bitwarden through the engine's vault). Logins are filled without the model ever seeing the password.
+    - **Email and Calendar:** Sign in with Google, or Calendar on this Mac.
+    - **Browser:** your own Chrome, already signed in.
+    - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
+14. **Rooms.** A live map of your rooms (personal, work, a shared room with a partner). Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
 
 ## How it is built
 
@@ -50,7 +60,9 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Folder lock** | The engine runs inside a macOS sandbox profile (`sandbox-exec`). Your home folder is closed except One's own data, your memory and the folders you approve. This is enforced by the Mac, not by the model's good behaviour. |
 | **Sign-in** | Hermes's own OAuth/device-code flows (`hermes auth add <provider>`), so any provider Hermes supports becomes available to One. |
 | **Memory** | Rooms built from a "brain starter" template set: plain Markdown files, one folder per room, with rules for what each room may hold. Writes inside your memory need no yes; anything outside still asks. |
-| **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, voice `af_heart`), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
+| **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, default voice `af_heart`, six to choose from), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
+| **Connections** | Passwords use a KeePass vault backend for Hermes (`tools/overlay/agent/vault_backends/keepass.py`, via `keepassxc-cli`); the master password can come from the macOS Keychain and is held in memory only. Google uses `tools/google_signin.py` (installed-app OAuth, tokens saved per account). Each connection opens only the paths it needs in the sandbox. Connections built with the assistant are saved as skills under `skills/my-connections/` and listed in `connections.json`. |
+| **Routines** | Hermes scheduled jobs. One watches their results and reads new ones aloud. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
 ### Build it
@@ -65,7 +77,7 @@ Requirements: an Apple Silicon Mac, macOS 14+, Xcode Command Line Tools (`xcode-
 
 Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates.
 
-Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--render-world <prefix>` (renders the world screen to PNGs), `--signin-probe <provider>`, `--reset`.
+Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
 
 To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 
@@ -77,12 +89,13 @@ To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 to
 
 ## Roadmap
 
-- Real connections: Gmail and Google Calendar first, through guided sign-in.
-- Talk instead of type: hold the assistant to speak.
+- Phone (Telegram or WhatsApp in one step) and News as built-in connections.
+- Email and calendar beyond Google (Outlook, iCloud) without the Mac Mail app.
 - A "Today" page: what it did, what needs your yes, what it noticed.
 - It reaches out first ("your flight dropped $80, book it?").
 - Your phone: link Telegram or WhatsApp in one step; later a small companion app.
-- Signed and notarised builds, auto-updates.
+- Signed and notarised builds.
+- Maybe later: an optional hosted version for people who don't want to keep a Mac on. One stays free and open source.
 
 ## Contributing
 

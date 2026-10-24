@@ -2654,11 +2654,12 @@ final class OrbHost: NSView {
         }
         // Stage Manager turns the yellow button into "move to the side strip", which still counts as visible.
         // So: whenever you're in another app, the orb is there; come back to One and it goes away.
-        nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in self.show() }
-        }
-        nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in if !(self.mainWindow?.isMiniaturized ?? false) && !Listener.shared.listening && !self.keyTalk { self.hide() } }
+        // The orb is only there when the window isn't: window on screen = orb gone, window closed/minimized/covered = orb.
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didBecomeActiveNotification, NSWindow.didChangeOcclusionStateNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { n in
+                if let w = n.object as? NSWindow, w is NSPanel { return }
+                Task { @MainActor in self.syncOrb() }
+            }
         }
         // Hiding One (⌘H) would hide the orb too, so turn "hide" into "tuck the window away and show the orb".
         nc.addObserver(forName: NSApplication.didHideNotification, object: nil, queue: .main) { _ in
@@ -2716,6 +2717,16 @@ final class OrbHost: NSView {
         orb?.orderOut(nil); card?.orderOut(nil)
     }
 
+    /// Is One's window actually on screen (not closed, minimized or fully covered)?
+    var windowOnScreen: Bool {
+        guard let w = mainWindow else { return false }
+        return w.isVisible && !w.isMiniaturized && w.occlusionState.contains(.visible)
+    }
+    func syncOrb() {
+        guard Model.shared.onboarded else { return }
+        if windowOnScreen { if !Listener.shared.listening && !keyTalk { hide() } } else { show() }
+    }
+
     @objc func tuckAway(_ sender: Any?) {
         guard Model.shared.onboarded else { mainWindow?.miniaturize(nil); return }
         mainWindow?.orderOut(nil)
@@ -2771,7 +2782,7 @@ final class OrbHost: NSView {
     /// Push-to-talk key held: show the orb (even over One) and listen.
     private var keyInApp = false
     func keyTalkBegin() {
-        if NSApp.isActive, let w = mainWindow, w.isVisible, !w.isMiniaturized {
+        if windowOnScreen {
             keyInApp = true; Model.shared.talkBegin(); return
         }
         keyInApp = false

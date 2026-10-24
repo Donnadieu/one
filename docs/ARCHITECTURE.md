@@ -22,12 +22,21 @@
 | Brain.swift | service | the memory folder and room templates, persona (SOUL) |
 | Helpers.swift | service + UI | background helper sessions, the Ready for you shelf |
 | Pictures.swift | service | images and files attached to a message |
-| Model.swift | state | `Model.shared`: everything the views show |
-| Views.swift | UI | home, setup steps, brain and voice card, reader |
+| Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
+| ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |
+| ModelChat.swift | state | `extension Model`: sending, talking in the window, helpers, shelf, per-prompt notes, reveal |
+| Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
+| SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
+| MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
+| HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`) |
-| Rooms.swift | UI + service | rooms map, shared rooms (iCloud) |
-| Floater.swift | UI | the floating orb, talk key |
+| Rooms.swift | UI | rooms sheet (`RoomsView`), share-a-room sheet, note panel |
+| RoomMap.swift | UI | `RoomMap`: reads the brain's notes and lays out the map |
+| SharedRooms.swift | service | `Shared`: rooms kept in iCloud Drive, invites, clashes |
+| Floater.swift | UI | the floating orb window (`Floater`, `OrbHost`, card panel) |
+| FloatViews.swift | UI | the orb's SwiftUI views (`Orb`, `FloatingOrb`, hint, transcript, scene) |
+| TalkKey.swift | UI | push-to-talk key: `TalkKey`, `TalkKeys` hotkeys, `TalkKeySheet` |
 | Previews.swift | dev only | scenes for `--render-world` |
 | App.swift | entry | `@main`, app delegate, CLI test hooks |
 

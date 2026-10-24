@@ -9,6 +9,6 @@
 | Connections | 5/10 | KeePass verified; Mail/Calendar setup flow untested live |
 | Rooms + sharing | 5/10 | two-Mac iCloud share untested |
 | Updater | 7/10 | detection tested every preflight; full swap not automated |
-| Code health | 6/10 | split into 16 files; 3+ files over 600 lines (baseline) |
+| Code health | 7/10 | split into 25 area files; all files under 600 lines (baseline empty) |
 
 Updated: 2026-10-24

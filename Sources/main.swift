@@ -2623,6 +2623,20 @@ final class OrbHost: NSView {
         nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.show() }
         }
+        // The red button (and ⌘W) tucks One away into the orb instead of closing it. Only Quit (Dock › Quit, ⌘Q) ends it.
+        nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { n in
+            Task { @MainActor in
+                guard let w = n.object as? NSWindow, !(w is NSPanel), let b = w.standardWindowButton(.closeButton) else { return }
+                if b.target !== self { b.target = self; b.action = #selector(Floater.tuckAway(_:)) }
+            }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, e.charactersIgnoringModifiers == "w",
+               let w = NSApp.keyWindow, !(w is NSPanel), w.attachedSheet == nil {
+                Floater.shared.tuckAway(nil); return nil
+            }
+            return e
+        }
         nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { Task { @MainActor in if Model.shared.onboarded { self.show() } } }
         }
@@ -2691,6 +2705,12 @@ final class OrbHost: NSView {
     func hide() {
         if Listener.shared.listening { Listener.shared.finish { _ in } }
         orb?.orderOut(nil); card?.orderOut(nil)
+    }
+
+    @objc func tuckAway(_ sender: Any?) {
+        guard Model.shared.onboarded else { mainWindow?.miniaturize(nil); return }
+        mainWindow?.orderOut(nil)
+        show()
     }
 
     func openMain() {
@@ -5212,7 +5232,6 @@ struct HomeView: View {
                 }.help(voiceOff ? "Let \(m.name) talk" : "Stop \(m.name) from talking")
             }
             ToolbarItem { Button { roomsSheet = true } label: { Label("Rooms", systemImage: "circle.hexagongrid") }.help("See your rooms") }
-            ToolbarItem { Button { connectionsSheet = true } label: { Label("Connections", systemImage: "point.3.connected.trianglepath.dotted") }.help("Calendar, email and more") }
             ToolbarItem { Button { talkKeySheet = true } label: { Label("Push to talk", systemImage: "mic") }.help("Choose a push-to-talk key") }
             ToolbarItem { Button { folderSheet = true } label: { Label("Folders", systemImage: "folder") } }
             ToolbarItem { Button { m.switchingAI = true } label: { Label("Switch AI", systemImage: "arrow.triangle.2.circlepath") } }

@@ -88,11 +88,13 @@ Enforced by the Mac or by One's code (the assistant can't get around it):
 - **Email can't be sent:** One only creates drafts; you press Send.
 - **Passwords stay out of the chat:** logins are filled from your password manager without the model seeing them.
 - **Updates and the engine version:** One installs the Hermes version it was tested with.
+- **Shared rooms:** a new file you add to a shared room that copies lines from your private rooms is held back on your Mac, and One tells you. You can still say "share it anyway".
+- **Experimental connections** ("Something else…") stay switched off in the engine until their test has passed.
 
 Relies on the assistant following its instructions (usually works, not guaranteed):
 - Asking before paying, posting or deleting on a website.
-- Keeping each room's notes in that room.
-- Connections you build with it ("Something else…") doing only what they say.
+- Keeping each private room's notes out of your other private rooms (shared rooms are checked in code).
+- A tested experimental connection doing only what it says.
 
 ## Privacy
 

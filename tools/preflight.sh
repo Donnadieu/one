@@ -37,6 +37,11 @@ check "second run changes nothing" cmp "$T/once.py" "$T/ovl/engine/agent/vault_b
 printf 'def other():\n    pass\n' > "$T/ovl/engine/agent/vault_backends/base.py"
 check "reports failure when Hermes changed" bash -c "ONE_SUPPORT_DIR=$T/ovl $BIN --apply-overlay | grep -q 'overlay failed'"
 
+echo "Guards (enforced in code)"
+mkdir -p "$T/g/support" "$T/g/cloud"
+check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $BIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
+grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"

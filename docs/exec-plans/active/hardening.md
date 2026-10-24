@@ -57,3 +57,12 @@ Follows the Forge `harness-engineering` skill, adapted to Swift.
 14. Friction log: tell Elias "that annoyed me" and it's written to a list we fix weekly.
 
 Order: A → B → C → D → E → F. Report after each step: what was checked, what wasn't.
+
+## Progress (2026-10-24)
+- [x] 1 Preflight · [x] 2 CI (newest macOS image) · [x] 3 builds its own tools · [x] 4 Hermes pinned · [x] 5 plain-words KeePass notice
+- [ ] 6 KeePass upstream PR (in progress)
+- [x] 7 split into area files, every file < 600 lines, dead code removed
+- [x] D2 harness: AGENTS.md, docs map, swift-format, 9 custom rules with FIX, shrinking baseline, pre-commit hook, `make check`, repo skill
+- [x] 8 shared-room leak hold (code) · [x] 9 experimental connections off until tested (code, verified in engine) · [x] 10 README honest list
+- [ ] 11 Apple signing: blocked on Omar's Apple ID login
+- [ ] 12 three jobs end-to-end check (in progress) · [x] 13 first-time-user kit (docs/first-time-user-test.md) · [x] 14 friction log (code)

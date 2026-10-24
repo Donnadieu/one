@@ -36,6 +36,10 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         } else if !Env.selfTest {
             Task { @MainActor in Updater.shared.loop() }
         }
+        if CommandLine.arguments.contains("--test-guards") {
+            Env.selfTest = true  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
+            exit(GuardsCheck.run())
+        }
         if CommandLine.arguments.contains("--test-shared") {
             Env.selfTest = true  // brain goes to a scratch copy, never the real one
             // Two people, one cloud folder: Omar makes a room, Sam joins, both add entries.

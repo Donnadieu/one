@@ -83,6 +83,7 @@ final class Model: ObservableObject {
 
     func tendShared() {
         clashes += Shared.tend()
+        for n in SharedGuard.tend() { bubbles.append(Bubble(fromMe: false, text: n)) }
         let inv = Shared.invites()
         if inv.map(\.path) != roomInvites.map(\.path) { roomInvites = inv }
     }

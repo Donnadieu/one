@@ -20,3 +20,6 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | Engine version is pinned | preflight "Hermes version pinned" + fresh-install check |
 | Old copies see updates | preflight "Updater" |
 | Screens render | preflight "Screens" |
+| Private notes don't leak into shared rooms | `SharedGuard` + preflight "Guards" |
+| Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
+| Complaints are captured | `FrictionLog` + preflight "Guards" |

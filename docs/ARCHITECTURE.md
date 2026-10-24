@@ -38,6 +38,8 @@
 | FloatViews.swift | UI | the orb's SwiftUI views (`Orb`, `FloatingOrb`, hint, transcript, scene) |
 | TalkKey.swift | UI | push-to-talk key: `TalkKey`, `TalkKeys` hotkeys, `TalkKeySheet` |
 | Previews.swift | dev only | scenes for `--render-world` |
+| Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
+| GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
 | App.swift | entry | `@main`, app delegate, CLI test hooks |
 
 ## Rules

@@ -25,6 +25,7 @@ extension Model {
                 ))
         }
         Task.detached { _ = GoogleSignIn.ensureVenv() }
+        await ExperimentalGuard.sync()
         if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
     }
 
@@ -201,7 +202,7 @@ extension Model {
     func sharedNote() -> String {
         let n = Shared.note(clashes: clashes)
         clashes = []
-        return n + Model.githubNote
+        return n + SharedGuard.note + Model.githubNote
     }
     /// If they're signed in to GitHub on this Mac, say so every turn so the assistant never claims it can't.
     static var githubNote: String {
@@ -297,6 +298,7 @@ extension Model {
             return
         }
         guard !paused, !thinking, let c = compose(text) else { return }
+        if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         await ensureEngine()
         me(c.display)
         bubbles.append(Bubble(fromMe: false, text: ""))

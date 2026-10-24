@@ -3600,6 +3600,7 @@ struct ShareRoomSheet: View {
     var shareable: [URL] {
         RoomMap.roomFolders().filter { !$0.path.hasPrefix(Shared.cloud.path) && !["personal-room", "private-room"].contains($0.lastPathComponent) }
     }
+    var alreadyShared: [URL] { RoomMap.roomFolders().filter { $0.path.hasPrefix(Shared.cloud.path) } }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let made {
@@ -3619,6 +3620,7 @@ struct ShareRoomSheet: View {
                 Text("You and someone you trust both add to the same room, each with your own assistant. It stays in sync through iCloud, so there's nothing to sign up for. You each add new notes, nobody overwrites the other, and \(m.name) merges anything that clashes.")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Picker("", selection: $choice) {
+                    ForEach(alreadyShared, id: \.path) { u in Text(RoomMap.roomTitle(u) + " (already shared: invite someone)").tag(u.path) }
                     Text("A new room").tag("new")
                     ForEach(shareable, id: \.path) { u in Text("My " + RoomMap.roomTitle(u).lowercased() + " (moves into iCloud)").tag(u.path) }
                 }.pickerStyle(.radioGroup).labelsHidden()
@@ -3630,14 +3632,18 @@ struct ShareRoomSheet: View {
                 HStack {
                     Spacer()
                     Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-                    Button("Make it shared") { go() }.keyboardShortcut(.defaultAction)
+                    Button(alreadyShared.contains { $0.path == choice } ? "Invite someone" : "Make it shared") { go() }.keyboardShortcut(.defaultAction)
                         .disabled(choice == "new" && name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
         .padding(22).frame(width: 520)
+        .onAppear { if let u = alreadyShared.first, made == nil { choice = u.path } }
     }
     func go() {
+        if let u = alreadyShared.first(where: { $0.path == choice }) {
+            made = u; Shared.invite(u); return
+        }
         let local = choice == "new" ? nil : URL(fileURLWithPath: choice)
         let title = local.map { RoomMap.roomTitle($0) } ?? name.trimmingCharacters(in: .whitespaces)
         switch Shared.make(title: title, moving: local) {

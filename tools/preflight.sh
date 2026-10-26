@@ -91,6 +91,10 @@ mkdir -p "$T/upd"; cp -R "$APP" "$T/upd/"
 codesign -fs - "$T/upd/One.app" >/dev/null 2>&1
 mkdir -p "$T/upd/sup"  # its own scratch home: this copy loads the window and must never reach the real One
 check "an old copy sees the latest release" bash -c "ONE_SUPPORT_DIR='$T/upd/sup' '$T/upd/One.app/Contents/MacOS/One' --check-update | grep -q 'available'"
+mkdir -p "$T/upd/t"; RD_BEFORE=$(defaults read ai.forjado.one updateAnnounced 2>/dev/null)
+check "a new version is announced once; same, older or zip-less never" bash -c "ONE_SUPPORT_DIR='$T/upd/t' $BIN --test-updates | tee $T/upd/t/out.txt | grep -q '^updates ok'"
+grep "✗" "$T/upd/t/out.txt" 2>/dev/null | sed 's/^/    /'
+check "the test left your real settings alone" test "$RD_BEFORE" = "$(defaults read ai.forjado.one updateAnnounced 2>/dev/null)"
 
 if [ $CI = 0 ]; then
 echo "Screens"

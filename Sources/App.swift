@@ -26,6 +26,15 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        if CommandLine.arguments.contains("--test-updates") {
+            Env.selfTest = true  // own settings suite and a fake release list; run with ONE_SUPPORT_DIR set to an empty folder
+            guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+                print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+                exit(2)
+            }
+            Task { @MainActor in exit(await UpdaterCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--auto-update") {
             Task { @MainActor in
                 await Updater.shared.check()

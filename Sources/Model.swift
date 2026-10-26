@@ -97,6 +97,26 @@ final class Model: ObservableObject {
         if resume { await send(FolderWatch.carryOn, toNova: true, hidden: true) }
     }
 
+    /// A new version was found for the first time: an orb note and a spoken line (unless muted). Waits until no reply is playing.
+    func updateReady() {
+        let line = "A new version of One is ready. Want me to update?"
+        Floater.shared.note(line)
+        Task {
+            for _ in 0..<60 where thinking || !Speaker.shared.ready { try? await Task.sleep(for: .seconds(5)) }
+            guard !thinking else { return }
+            _ = await Speaker.shared.sayNow(line)
+        }
+    }
+    /// The notification was clicked: open One on Home, where the update card is.
+    func showUpdate() {
+        openHelper = nil
+        Floater.shared.openMain()
+        if Updater.shared.available == nil {
+            UserDefaults.standard.removeObject(forKey: "updateSkipped")
+            Task { await Updater.shared.check() }
+        }
+    }
+
     func tendShared() {
         clashes += Shared.tend()
         for n in SharedGuard.tend() { bubbles.append(Bubble(fromMe: false, text: n)) }

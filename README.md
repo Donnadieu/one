@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.12). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.13). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -64,6 +64,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, default voice `af_heart`, six to choose from), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
 | **Connections** | Passwords use a KeePass vault backend for Hermes (`tools/overlay/agent/vault_backends/keepass.py`, via `keepassxc-cli`); the master password can come from the macOS Keychain and is held in memory only. One copies the KeePass backend into its engine after every install, so it survives engine updates. Each connection opens only the paths it needs in the sandbox. Connections built with the assistant are saved as skills under `skills/my-connections/` and listed in `connections.json`. |
 | **Skills that ship with One** | Repo folder `skills/<category>/<name>/SKILL.md` (today: `productivity/basecamp-connect`). `build.sh` bundles it; One copies each skill into its engine after install and at every launch. A skill changed on the Mac is never overwritten; an untouched copy is updated when a newer one ships (tracked by hash). Checked by `--test-skills` in preflight. |
+| **Updates** | `Updater` checks GitHub releases every 15 minutes, at launch and when the Mac wakes (with `If-None-Match`, backing off on errors and rate limits). A newer release with `One.zip` is announced once per version, even with the window closed: a macOS notification, an orb note and a spoken line (unless muted). Clicking the notification opens the update card; nothing installs without a tap. Checked by `--test-updates` (fake list via `ONE_RELEASES_URL`) in preflight. |
 | **Routines** | Hermes scheduled jobs. One watches their results and reads new ones aloud. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
@@ -79,7 +80,7 @@ Requirements: an Apple Silicon Mac, macOS 14+, Xcode Command Line Tools (`xcode-
 
 Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates.
 
-Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--test-restart` (a changed folder list restarts the engine once under the new lock, an unchanged one never; needs `ONE_SUPPORT_DIR` set to an empty folder), `--test-skills` (shipped skills reach a fresh home and never overwrite an edited copy; needs `ONE_SUPPORT_DIR` set to an empty folder), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
+Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--test-updates` (a new version is announced once; same, older or zip-less never; fake list via `ONE_RELEASES_URL`, needs `ONE_SUPPORT_DIR` set to an empty folder), `--test-restart` (a changed folder list restarts the engine once under the new lock, an unchanged one never; needs `ONE_SUPPORT_DIR` set to an empty folder), `--test-skills` (shipped skills reach a fresh home and never overwrite an edited copy; needs `ONE_SUPPORT_DIR` set to an empty folder), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
 
 To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 

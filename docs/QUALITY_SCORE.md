@@ -9,7 +9,7 @@
 | Connections | 5/10 | KeePass verified; Mail/Calendar setup flow untested live |
 | Rooms + sharing | 5/10 | two-Mac iCloud share untested |
 | Shipped skills | 7/10 | copy/update/keep tested by preflight; Basecamp sign-in from a never-connected Mac untested |
-| Updater | 7/10 | detection tested every preflight; full swap not automated |
+| Updater | 7/10 | detection and announce-once tested every preflight (`--test-updates`); full swap not automated; live notification and spoken line not yet seen on a real Mac |
 | Code health | 7/10 | split into 25 area files; all files under 600 lines (baseline empty) |
 
 Updated: 2026-10-26

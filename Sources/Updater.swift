@@ -8,6 +8,7 @@ import Carbon
 import EventKit
 import CoreAudio
 import UniformTypeIdentifiers
+import UserNotifications
 
 // MARK: - Updates: checks GitHub releases, downloads the new app, swaps it and reopens. Brain, rooms and settings live outside the app and are never touched.
 
@@ -29,13 +30,27 @@ final class Updater: ObservableObject {
         }
         return false
     }
-    func check() async {
-        guard let u = URL(string: "https://api.github.com/repos/\(Updater.repo)/releases?per_page=10") else { return }
-        var req = URLRequest(url: u)
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        guard let (d, _) = try? await URLSession.shared.data(for: req),
-            let list = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]]
-        else { return }
+    /// Where releases are listed. `ONE_RELEASES_URL` points it at a fake list (a file or a local server) for tests.
+    static var releasesURL: URL? {
+        if let o = ProcessInfo.processInfo.environment["ONE_RELEASES_URL"], !o.isEmpty {
+            return o.hasPrefix("/") ? URL(fileURLWithPath: o) : URL(string: o)
+        }
+        return URL(string: "https://api.github.com/repos/\(Updater.repo)/releases?per_page=10")
+    }
+    /// Tests keep their own settings, so they never touch the person's real ones.
+    static var store: UserDefaults {
+        Env.selfTest ? (UserDefaults(suiteName: "ai.forjado.one.updates-test") ?? .standard) : .standard
+    }
+    static let every: Double = 15 * 60
+    private var etag: String?
+    private var lastList: Data?
+    private var lastCheck = Date.distantPast
+    private(set) var wait = Updater.every  // grows after errors and rate limits, back to 15 minutes after a good check
+    /// Versions already announced (newest last); tests read this.
+    var announced: [String] { Updater.store.stringArray(forKey: "updateAnnounced") ?? [] }
+
+    /// The newest release above `current` that has One.zip attached.
+    static func pick(_ list: [[String: Any]], current: String) -> (String, String, URL)? {
         var best: (String, String, URL)?
         for r in list where (r["draft"] as? Bool) != true {
             let tag = ((r["tag_name"] as? String) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
@@ -46,15 +61,74 @@ final class Updater: ObservableObject {
             else { continue }
             best = (tag, (r["body"] as? String) ?? "", zu)
         }
-        if let best, UserDefaults.standard.string(forKey: "updateSkipped") != best.0 || available == nil {
+        return best
+    }
+    /// Asks GitHub for the release list. Unchanged lists cost almost nothing (If-None-Match); errors and rate limits slow the next check down.
+    func check(current cur: String? = nil) async {
+        guard let u = Updater.releasesURL else { return }
+        lastCheck = Date()
+        var req = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        if let etag, lastList != nil { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+        guard let (d, resp) = try? await URLSession(configuration: .ephemeral).data(for: req) else {
+            wait = min(wait * 2, 4 * 3600)
+            return
+        }
+        var data = d
+        if let h = resp as? HTTPURLResponse {
+            switch h.statusCode {
+            case 200: etag = h.value(forHTTPHeaderField: "ETag")
+            case 304:
+                wait = Updater.every
+                guard let old = lastList else { return }
+                data = old
+            default:  // 403/429 rate limit, 5xx: wait longer, at least until GitHub says the limit resets
+                wait = min(wait * 2, 4 * 3600)
+                if let reset = h.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(Double.init) {
+                    wait = max(wait, reset - Date().timeIntervalSince1970 + 60)
+                }
+                return
+            }
+        }
+        guard let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            wait = min(wait * 2, 4 * 3600)
+            return
+        }
+        lastList = data
+        wait = Updater.every
+        guard let best = Updater.pick(list, current: cur ?? current) else { return }
+        let d2 = UserDefaults.standard
+        let laterAgo = Date().timeIntervalSince1970 - d2.double(forKey: "updateSkippedAt")
+        if d2.string(forKey: "updateSkipped") != best.0 || (available == nil && laterAgo > 6 * 3600) {
             available = (best.0, best.1, best.2)
         }
+        announce(best.0, notes: best.1)
+    }
+    /// Tells the owner once per version, even with the window closed: a notification, an orb note and a spoken line.
+    func announce(_ version: String, notes: String) {
+        // Command-line runs (--check-update, renders, test copies) never announce or mark a version as told.
+        if Env.commandLine && !Env.selfTest { return }
+        guard !announced.contains(version) else { return }
+        Updater.store.set(Array((announced + [version]).suffix(30)), forKey: "updateAnnounced")
+        if Env.selfTest { return }
+        let first =
+            notes.components(separatedBy: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " -*#\t")) }
+            .first { !$0.isEmpty } ?? "One \(version)"
+        UpdateAlerts.post(title: "A new version of One is ready", body: first)
+        Model.shared.updateReady()
     }
     func loop() {
+        UpdateAlerts.setUp()
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(20))  // let the network come back first
+                if Date().timeIntervalSince(Updater.shared.lastCheck) > 120 { await Updater.shared.check() }
+            }
+        }
         Task {
             while true {
                 await check()
-                try? await Task.sleep(for: .seconds(6 * 3600))
+                try? await Task.sleep(for: .seconds(wait))
             }
         }
     }
@@ -119,6 +193,7 @@ final class Updater: ObservableObject {
     }
     func later() {
         if let a = available { UserDefaults.standard.set(a.version, forKey: "updateSkipped") }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "updateSkippedAt")
         available = nil
     }
 }
@@ -146,5 +221,33 @@ struct UpdateCard: View {
             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
         }
+    }
+}
+
+/// macOS notifications for a new version. Asks permission once, the first time there's something to say.
+@MainActor
+final class UpdateAlerts: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = UpdateAlerts()
+    static func setUp() { UNUserNotificationCenter.current().delegate = shared }
+    static func post(title: String, body: String) {
+        let c = UNUserNotificationCenter.current()
+        c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
+            guard ok else { return }
+            let n = UNMutableNotificationContent()
+            n.title = title
+            n.body = body
+            n.sound = .default
+            c.add(UNNotificationRequest(identifier: "one-update", content: n, trigger: nil))
+        }
+    }
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) { completionHandler([.banner, .sound]) }
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in Model.shared.showUpdate() }
+        completionHandler()
     }
 }

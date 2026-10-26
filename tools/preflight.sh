@@ -70,6 +70,11 @@ mkdir -p "$T/rs"
 check "a changed folder list restarts once with the new folder, an unchanged one never" bash -c "ONE_SUPPORT_DIR=$T/rs $BIN --test-restart | tee $T/rs/out.txt | grep -q '^restart ok'"
 grep "✗" "$T/rs/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Helpers a restart cut off pick up where they left off"
+mkdir -p "$T/hl"  # the test never reads or writes your saved helpers: they go through in-memory data
+check "trail saved, picked up once at launch with it, finished ones and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $BIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
+grep "✗" "$T/hl/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Shipped skills"
 mkdir -p "$T/sk"
 check "fresh home gets them, edited copies are kept" bash -c "ONE_SUPPORT_DIR=$T/sk $BIN --test-skills | tee $T/sk/out.txt | grep -q '^skills ok'"

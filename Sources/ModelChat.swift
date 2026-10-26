@@ -34,7 +34,11 @@ extension Model {
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
         await SignIn.enableRoutines()
-        if let e = await Engine.shared.ensureStarted() { bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)")) }
+        if let e = await Engine.shared.ensureStarted() {
+            bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))
+        } else {
+            resumeInterrupted()  // helpers a restart cut off pick up where they left off
+        }
     }
 
     func talkBegin() {
@@ -93,12 +97,39 @@ extension Model {
         return thinking
     }
     static func savedHelpers() -> [Helper] {
-        guard let d = UserDefaults.standard.data(forKey: "helpers"), var hs = try? JSONDecoder().decode([Helper].self, from: d) else { return [] }
-        for k in hs.indices where hs[k].state == "working" {
-            hs[k].state = "stopped"
-            hs[k].line = "Paused when One closed · tap to pick up"
+        guard let d = UserDefaults.standard.data(forKey: "helpers"), let hs = try? JSONDecoder().decode([Helper].self, from: d) else { return [] }
+        return HelperTrail.restore(hs)  // the ones a restart cut off get picked back up once the engine is ready
+    }
+
+    /// Picks up helpers a restart cut off, up to 3 working at once. Runs once the engine is ready and
+    /// whenever a helper finishes. Tells the person once per helper, in the chat, on the orb and out loud.
+    func resumeInterrupted() {
+        guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
+        let picked = HelperTrail.pick(&helpers) { Helpers.brief(assistant: self.assistantName, user: self.userName, task: $0) }
+        for p in picked {
+            guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
+            HelperTrail.flush(h)
+            let line = HelperTrail.told(h.title)
+            bubbles.append(Bubble(fromMe: false, text: line))
+            Floater.shared.note(line)
+            Task {
+                for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
+                _ = await Speaker.shared.sayNow(line)  // silent when muted
+            }
+            Task { @MainActor in
+                let sid = await HelperTrail.session(
+                    old: h.sid, reopen: { await Engine.shared.reopenSession($0) }, open: { await Engine.shared.openSession() })
+                guard let sid else {
+                    self.update(p.id) {
+                        $0.state = "stopped"
+                        $0.line = "Couldn't pick it back up · tap to see what it did"
+                    }
+                    return
+                }
+                self.update(p.id) { $0.sid = sid }
+                await self.runHelper(p.id, p.prompt, images: [])
+            }
         }
-        return hs
     }
     func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
     func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
@@ -117,14 +148,18 @@ extension Model {
     }
 
     func spawnHelper(title: String, task: String) {
-        helpers.removeAll { ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && $0.id != openHelper }
+        helpers.removeAll {
+            ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && $0.id != openHelper && $0.resumeQueued != true
+        }
         if helpers.filter({ $0.state == "working" }).count >= 3 {
             bubbles.append(
                 Bubble(fromMe: false, text: "I already have 3 helpers busy. I'll take \"\(title)\" as soon as one is free; ask me again in a bit."))
             return
         }
-        while helpers.count >= 4, let k = helpers.firstIndex(where: { $0.state != "working" }) { helpers.remove(at: k) }
-        let h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
+        while helpers.count >= 4, let k = helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true }) { helpers.remove(at: k) }
+        var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
+        h.started = Date()
+        HelperTrail.flush(h)
         withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { helpers.append(h) }
         let id = h.id
         Task { @MainActor in
@@ -149,11 +184,25 @@ extension Model {
             $0.line = "Working on it…"
             $0.finishedAway = false
             $0.toldNova = false
+            $0.resumeQueued = false
         }
         let stop = await Engine.shared.promptSession(
             sid, text, images: images,
-            onText: { s in Task { @MainActor in self.update(id) { $0.reply += s } } },
-            onTool: { s in Task { @MainActor in self.update(id) { $0.line = Plain.step(s) } } })
+            onText: { s in
+                Task { @MainActor in
+                    self.update(id) { $0.reply += s }
+                    self.saveTrail(id, force: false)
+                }
+            },
+            onTool: { s in
+                Task { @MainActor in
+                    self.update(id) {
+                        $0.line = Plain.step(s)
+                        HelperTrail.add($0.line, to: &$0)
+                    }
+                    self.saveTrail(id)
+                }
+            })
         try? await Task.sleep(for: .milliseconds(150))
         let away = !NSApp.isActive
         update(id) { h in
@@ -193,12 +242,18 @@ extension Model {
                 }
             }
         }
+        saveTrail(id)
+        resumeInterrupted()  // a slot is free: pick up the next helper a restart cut off
         if openHelper != id, !stop.hasPrefix("error") { Task { await deliverHelper(id) } }
         if away, let h = helpers.first(where: { $0.id == id }) {
             let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."
             Floater.shared.note(line)
             if !thinking { Task { _ = await Speaker.shared.sayNow(line) } }  // heard even with One in the background
         }
+    }
+
+    func saveTrail(_ id: UUID, force: Bool = true) {
+        if let h = helpers.first(where: { $0.id == id }) { HelperTrail.flush(h, force: force) }
     }
 
     func markConnected(_ id: String) {
@@ -257,8 +312,18 @@ extension Model {
         for k in helpers.indices {
             let h = helpers[k]
             switch h.state {
-            case "working": lines.append("- \(h.title): still working (\(h.line)).")
-            case "stopped": lines.append("- \(h.title): paused, not finished.")
+            case "working":
+                if let n = h.restartNews {
+                    lines.append("- \(h.title): still working. A restart cut it off and One picked it back up by itself; they were told: \"\(n)\"")
+                    helpers[k].restartNews = nil
+                } else {
+                    lines.append("- \(h.title): still working (\(h.line)).")
+                }
+            case "stopped":
+                lines.append(
+                    h.resumeQueued == true
+                        ? "- \(h.title): cut off by a restart; One picks it back up by itself in a moment."
+                        : "- \(h.title): stopped, not finished (\(h.line)).")
             default:
                 let what = h.state == "needsYes" ? "is waiting for the user's yes" : "is DONE"
                 if h.toldNova == true {

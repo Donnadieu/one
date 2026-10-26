@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.13). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.14). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -94,6 +94,7 @@ Enforced by the Mac or by One's code (the assistant can't get around it):
 - **Updates and the engine version:** One installs the Hermes version it was tested with.
 - **Shared rooms:** a new file you add to a shared room that copies lines from your private rooms is held back on your Mac, and One tells you. You can still say "share it anyway".
 - **Experimental connections** ("Something else…") stay switched off in the engine until their test has passed.
+- **Helpers never get lost:** One keeps a trail of what each helper did (`helpers/<id>.md` in One's folder). If One restarts or updates while a helper is working, it picks the helper back up by itself (3 at a time, at most twice per helper), hands it that trail and tells you. Being picked back up never counts as a yes.
 - **Skills One ships never overwrite yours:** if you or your assistant changed one, the new version is skipped for that skill.
 
 Relies on the assistant following its instructions (usually works, not guaranteed):

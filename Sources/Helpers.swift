@@ -24,6 +24,11 @@ struct Helper: Identifiable, Codable {
     var toldNova: Bool?  // has Nova been given this result yet?
     var log: [String]?  // everything this helper reported, oldest first (kept for its file)
     var shelfID: UUID?  // its card on the Ready for you shelf
+    var started: Date?  // when it was sent out
+    var trail: [String]?  // plain-words steps it took, saved in Support/One/helpers/<id>.md
+    var resumes: Int?  // times One picked it back up after a restart
+    var resumeQueued: Bool?  // cut off by a restart, waiting to be picked back up
+    var restartNews: String?  // the assistant hasn't been told it was picked back up yet
     var viewState: HelperState {
         switch state {
         case "working": .working
@@ -126,7 +131,7 @@ struct HelperCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(h.title).font(.headline)
-                Text("· " + (h.state == "working" ? "working" : h.state == "needsYes" ? "needs your yes" : h.state == "stopped" ? "paused" : "done"))
+                Text("· " + (h.state == "working" ? "working" : h.state == "needsYes" ? "needs your yes" : h.state == "stopped" ? "stopped" : "done"))
                     .foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
                 Spacer()
                 Button {

@@ -265,6 +265,20 @@ final class Engine: @unchecked Sendable {
         return sid
     }
 
+    /// Reopen a helper's old conversation after a restart. False if the engine can't load it.
+    func reopenSession(_ sid: String) async -> Bool {
+        if await ensureStarted() != nil { return false }
+        lock.lock()
+        let isOpen = loaded.contains(sid)
+        lock.unlock()
+        if isOpen { return true }
+        guard await loadSession(sid, Engine.workDir) else { return false }
+        lock.lock()
+        loaded.insert(sid)
+        lock.unlock()
+        return true
+    }
+
     /// Talk to a helper's session (opening it again first if One restarted since).
     func promptSession(
         _ sid: String, _ text: String, images: [String] = [],

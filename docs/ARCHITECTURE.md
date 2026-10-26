@@ -22,6 +22,8 @@
 | UpdaterCheck.swift | dev only | `One --test-updates`, run by preflight |
 | Brain.swift | service | the memory folder and room templates, persona (SOUL) |
 | Helpers.swift | service + UI | background helper sessions, the Ready for you shelf |
+| HelperTrail.swift | service | each helper's trail file (`Support/One/helpers/<id>.md`) and picking helpers back up after a restart (max 3 working, max 2 times each) |
+| HelperCheck.swift | dev only | `One --test-helpers`, run by preflight |
 | Pictures.swift | service | images and files attached to a message |
 | Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
 | ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |

@@ -62,7 +62,9 @@ enum WorldLook {
 }
 
 /// The assistant: seven soft, wobbling rings that breathe, lean toward what it's talking about,
-/// move with its voice and pulse when something connects.
+/// and move with its voice (Claude Design "One World v2"): faint guide rings, drifting specks, a core that
+/// glows brighter as it speaks, and a soft wave leaving the rings with every word. `wave` is measured from
+/// the sound as it's heard (Speaker.heard()), so the rings move with the voice, not with the text.
 struct Presence: View {
     let t: Double
     let lean: CGPoint
@@ -70,20 +72,83 @@ struct Presence: View {
     let energy: Double
     /// Ring stroke width; bigger when the rings are drawn scaled down (floating orb) so they stay crisp.
     var line: CGFloat = 1.1
+    var wave: VoiceWave = .still
     var body: some View {
-        Canvas { ctx, size in Presence.draw(&ctx, size, t: t, lean: lean, voice: voice, energy: energy, line: line) }
+        Canvas { ctx, size in Presence.draw(&ctx, size, t: t, lean: lean, voice: voice, energy: energy, line: line, wave: wave) }
     }
+    static let cream = (r: 1.0, g: 240 / 255.0, b: 224 / 255.0)
     // Drawing is split into small typed steps: one big closure took slower Macs (CI) too long to type-check.
-    static func draw(_ ctx: inout GraphicsContext, _ size: CGSize, t: Double, lean: CGPoint, voice: Double, energy: Double, line: CGFloat) {
+    static func draw(
+        _ ctx: inout GraphicsContext, _ size: CGSize, t: Double, lean: CGPoint, voice: Double, energy: Double, line: CGFloat,
+        wave: VoiceWave = .still
+    ) {
         let c = CGPoint(x: size.width / 2, y: size.height / 2)
         let breath: Double = 1 + 0.035 * sin(t * .pi * 2 / 5)
-        let amp: Double = 1.8 + voice * 3.6 + energy * 4
-        let glowC = CGPoint(x: c.x + lean.x, y: c.y + lean.y)
-        let glowA: Double = 0.10 + voice * 0.05 + energy * 0.06
-        let glow = Gradient(colors: [Color(.sRGB, red: 1, green: 236 / 255, blue: 214 / 255, opacity: glowA), .clear])
-        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(glow, center: glowC, startRadius: 10, endRadius: 130))
+        let lvl: Double = wave.live ? wave.now : voice * 0.6
+        halo(&ctx, size, c: CGPoint(x: c.x + lean.x, y: c.y + lean.y), a: 0.09 + lvl * 0.07 + energy * 0.06)
+        guides(&ctx, c: c, t: t, line: line)
+        for (i, w) in wave.words.enumerated() { wordWave(&ctx, c: c, t: t, age: w.age, amp: w.amp, k: Double(i % 7) * 0.9, line: line) }
+        core(&ctx, c: CGPoint(x: c.x + lean.x * 0.5, y: c.y + lean.y * 0.5), lvl: lvl, energy: energy)
         for k in stride(from: 6, through: 0, by: -1) {
-            ring(&ctx, k: Double(k), c: c, t: t, lean: lean, breath: breath, amp: amp, line: line)
+            let sp: Double = wave.live ? wave.ago(k) : voice * 0.6
+            ring(&ctx, k: Double(k), c: c, t: t, lean: lean, breath: breath, sp: sp, energy: energy, line: line)
+        }
+        specks(&ctx, c: CGPoint(x: c.x + lean.x * 0.6, y: c.y + lean.y * 0.6), t: t, lvl: lvl)
+    }
+    static func halo(_ ctx: inout GraphicsContext, _ size: CGSize, c: CGPoint, a: Double) {
+        let g = Gradient(colors: [Color(.sRGB, red: 1, green: 236 / 255, blue: 214 / 255, opacity: a), .clear])
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .radialGradient(g, center: c, startRadius: 10, endRadius: 140))
+    }
+    /// Thin, faint rings around the orb: one still, one dotted and slowly turning, two short arcs near the core.
+    static func guides(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, line: CGFloat) {
+        let col = Color(hex: 0xF4EFE8)
+        ctx.stroke(
+            Path(ellipseIn: CGRect(x: c.x - 80, y: c.y - 80, width: 160, height: 160)), with: .color(col.opacity(0.08)), lineWidth: line * 0.65)
+        var dotted = Path()
+        dotted.addArc(center: c, radius: 87, startAngle: .radians(t * 0.04), endAngle: .radians(t * 0.04 + 2 * .pi), clockwise: false)
+        ctx.stroke(dotted, with: .color(col.opacity(0.07)), style: StrokeStyle(lineWidth: line * 0.65, dash: [2, 6]))
+        for (s, e) in [(0.3, 1.6), (3.4, 4.5)] {
+            var arc = Path()
+            arc.addArc(center: c, radius: 30, startAngle: .radians(s + t * 0.04), endAngle: .radians(e + t * 0.04), clockwise: false)
+            ctx.stroke(arc, with: .color(col.opacity(0.05)), lineWidth: line * 0.65)
+        }
+    }
+    /// One word's wave: starts at the rings and drifts out, fading, for about 1.5 s.
+    static func wordWave(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, age: Double, amp: Double, k: Double, line: CGFloat) {
+        let r: Double = 66 + age * 42
+        let fade: Double = max(0, 1 - (r - 66) / 64)
+        let a: Double = (0.22 + amp * 0.22) * exp(-age * 1.4) * fade
+        if a < 0.01 { return }
+        let path = ringPath(o: c, base: r, amp: 2.2, kd: k, t: t)
+        ctx.stroke(path, with: .color(Color(.sRGB, red: 1, green: 232 / 255, blue: 210 / 255, opacity: a)), lineWidth: line * 0.9)
+    }
+    static func core(_ ctx: inout GraphicsContext, c: CGPoint, lvl: Double, energy: Double) {
+        let g = Gradient(stops: [
+            .init(color: Color(.sRGB, red: 1, green: 244 / 255, blue: 232 / 255, opacity: 0.20 + lvl * 0.22 + energy * 0.1), location: 0),
+            .init(color: Color(.sRGB, red: 1, green: 232 / 255, blue: 210 / 255, opacity: 0.06 + lvl * 0.07), location: 0.5),
+            .init(color: .clear, location: 1),
+        ])
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: c.x - 44, y: c.y - 44, width: 88, height: 88)),
+            with: .radialGradient(g, center: c, startRadius: 0, endRadius: 40))
+    }
+    /// Fine light specks drifting inside the orb; they move a little faster while it speaks.
+    static func specks(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, lvl: Double) {
+        for i in 0..<38 {
+            let d = Double(i)
+            let a0: Double = d * 2.399963
+            let r: Double = 52 * sqrt((d * 0.618034).truncatingRemainder(dividingBy: 1) * 0.92 + 0.04)
+            let sp: Double = (0.05 + 0.04 * sin(d * 1.7)) * (1 + lvl * 1.5)
+            let a: Double = a0 + t * sp * (i % 2 == 0 ? 1 : -1)
+            let rr: Double = r * (0.9 + 0.1 * sin(t * 0.3 + d))
+            let tw: Double = 0.5 + 0.5 * sin(t * (0.6 + (d * 0.37).truncatingRemainder(dividingBy: 1.4)) + d)
+            let op: Double = (0.12 + 0.38 * tw) * (1 - min(1, rr / 58) * 0.6)
+            let s: Double = 0.5 + (d * 0.29).truncatingRemainder(dividingBy: 0.8)
+            let x = c.x + CGFloat(cos(a) * rr)
+            let y = c.y + CGFloat(sin(a) * rr)
+            ctx.fill(
+                Path(ellipseIn: CGRect(x: x - s, y: y - s, width: 2 * s, height: 2 * s)),
+                with: .color(Color(.sRGB, red: 1, green: 242 / 255, blue: 228 / 255, opacity: op)))
         }
     }
     static func ringPath(o: CGPoint, base: Double, amp: Double, kd: Double, t: Double) -> Path {
@@ -101,19 +166,24 @@ struct Presence: View {
         path.closeSubpath()
         return path
     }
-    static func ring(_ ctx: inout GraphicsContext, k kd: Double, c: CGPoint, t: Double, lean: CGPoint, breath: Double, amp: Double, line: CGFloat) {
-        let base: Double = (40 + kd * 4.6) * breath
+    /// `sp` = the voice as this ring hears it (outer rings a moment later than inner ones).
+    static func ring(
+        _ ctx: inout GraphicsContext, k kd: Double, c: CGPoint, t: Double, lean: CGPoint, breath: Double, sp: Double, energy: Double,
+        line: CGFloat
+    ) {
+        let base: Double = (40 + kd * 4.6) * breath + sp * (5 - kd * 0.3)
+        let amp: Double = 1.8 + sp * 6 + energy * 4
         let o = CGPoint(x: c.x + lean.x * CGFloat(kd / 7), y: c.y + lean.y * CGFloat(kd / 7))
-        let path = ringPath(o: o, base: base, amp: amp, kd: kd, t: t)
+        let path = ringPath(o: o, base: base, amp: amp, kd: kd, t: t * (1 + sp * 0.6))
         if kd == 0 {
             let fill = Gradient(colors: [
-                Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.20),
-                Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.03),
+                Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.16),
+                Color(.sRGB, red: 1, green: 246 / 255, blue: 236 / 255, opacity: 0.02),
             ])
             ctx.fill(path, with: .radialGradient(fill, center: CGPoint(x: o.x - 8, y: o.y - 10), startRadius: 2, endRadius: CGFloat(base * 1.1)))
         }
         let hue: Double = (32 + kd * 26) / 360
-        let col = Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(0.62 - kd * 0.07)
+        let col = Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(min(0.9, 0.62 - kd * 0.07 + sp * 0.18))
         ctx.stroke(path, with: .color(col), lineWidth: line)
     }
 }
@@ -150,6 +220,34 @@ struct WorldTile: View {
 }
 
 /// One frame of the stage (620 x 440 design units). Pure function of time, so it can be rendered to a PNG too.
+extension WorldCanvas {
+    /// Faint threads from the assistant to every tile (brighter to the one being talked about).
+    static func threads(_ ctx: inout GraphicsContext, pos: [CGPoint], lit: Int?) {
+        let c = CGPoint(x: WorldLook.CX, y: WorldLook.CY)
+        for (i, p) in pos.enumerated() {
+            let dx = p.x - c.x
+            let dy = p.y - c.y
+            let d = max(hypot(dx, dy), 1)
+            let ux = dx / d
+            let uy = dy / d
+            let sxx: CGFloat = abs(ux) > 1e-3 ? 27 / abs(ux) : 1e9
+            let syy: CGFloat = uy < -1e-3 ? 50 / -uy : (uy > 1e-3 ? 27 / uy : 1e9)
+            let cl = min(sxx, syy)
+            let e = CGPoint(x: p.x - ux * cl, y: p.y - uy * cl)
+            let a: Double = lit == i ? 0.23 : 0.07
+            let g = Gradient(stops: [
+                .init(color: Color(.sRGB, red: 1, green: 240 / 255, blue: 224 / 255, opacity: a * 0.2), location: 0),
+                .init(color: Color(.sRGB, red: 1, green: 240 / 255, blue: 224 / 255, opacity: a), location: 0.35),
+                .init(color: Color(.sRGB, red: 1, green: 240 / 255, blue: 224 / 255, opacity: a * 0.5), location: 1),
+            ])
+            var path = Path()
+            path.move(to: c)
+            path.addLine(to: e)
+            ctx.stroke(path, with: .linearGradient(g, startPoint: c, endPoint: e), lineWidth: 0.7)
+        }
+    }
+}
+
 struct WorldCanvas: View {
     let t: Double
     let lit: Int?  // the item being talked about in the tour
@@ -161,6 +259,8 @@ struct WorldCanvas: View {
     var onHover: (String?) -> Void = { _ in }
     var dim: Set<String> = []  // not built yet: drawn faint, no thread
     var nodes: [Node] = worldNodes
+    /// The voice as heard; when it's playing it replaces the made-up speaking motion.
+    var wave: VoiceWave = .still
 
     var body: some View {
         let worldNodes = nodes
@@ -177,9 +277,11 @@ struct WorldCanvas: View {
             lean = CGPoint(x: dx / d * 5, y: dy / d * 5)
         }
         return ZStack(alignment: .topLeading) {
-            Presence(t: t, lean: lean, voice: voice, energy: energy)
+            Presence(t: t, lean: lean, voice: wave.live ? 0 : voice, energy: energy, wave: wave)
                 .frame(width: 280, height: 280)
                 .position(x: WorldLook.CX, y: WorldLook.CY)
+            Canvas { ctx, _ in WorldCanvas.threads(&ctx, pos: pos, lit: lit) }
+                .frame(width: WorldLook.W, height: WorldLook.H).allowsHitTesting(false)
             Canvas { ctx, _ in
                 for (i, n) in worldNodes.enumerated() where prog[i] > 0 {
                     let (x, y) = (pos[i].x, pos[i].y)
@@ -266,7 +368,7 @@ struct WorldStage: View {
                         WorldCanvas(
                             t: tl.date.timeIntervalSince(WorldLook.start), lit: litIndex, picking: picking,
                             linked: linkedAt, speaking: Date() < m.speakUntil, hover: hover,
-                            tap: tapped, onHover: { hover = $0 })
+                            tap: tapped, onHover: { hover = $0 }, wave: Speaker.shared.heard())
                     }
                     .scaleEffect(k)
                     .frame(width: geo.size.width, height: geo.size.height)

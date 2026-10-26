@@ -17,8 +17,9 @@ struct Orb: View {
     var body: some View {
         TimelineView(.animation) { tl in
             let t = tl.date.timeIntervalSince(WorldLook.start)
-            let voice = active ? 0.35 + 0.65 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
-            Presence(t: t, lean: .zero, voice: voice, energy: 0)
+            let heard = Speaker.shared.heard()
+            let voice = active && !heard.live ? 0.35 + 0.65 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
+            Presence(t: t, lean: .zero, voice: voice, energy: 0, wave: heard)
                 .frame(width: 280, height: 280)
                 .scaleEffect(size / 100)
                 .frame(width: size * 2, height: size * 2)
@@ -55,6 +56,7 @@ struct FloatingOrb: View {
         let energy: Double = working ? 0.45 + 0.25 * sin(t * 2) : listening ? 0.2 : 0
         let k = size / 168  // outer ring (~68pt + wobble) fits inside the disc
         let glow = working ? 0.30 + 0.10 * sin(t * 2.2) : listening ? 0.26 : 0.10
+        let heard = fixedT == nil ? Speaker.shared.heard() : .still
         return ZStack {
             Circle().fill(WorldLook.bg.opacity(0.96))
                 .overlay(
@@ -62,7 +64,7 @@ struct FloatingOrb: View {
                         RadialGradient(
                             colors: [WorldLook.cream.opacity(listening ? 0.10 : 0.05), .clear],
                             center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: size * 0.6)))
-            Presence(t: t, lean: .zero, voice: voice, energy: energy, line: 1.5 / k)
+            Presence(t: t, lean: .zero, voice: heard.live ? 0 : voice, energy: energy, line: 1.5 / k, wave: heard)
                 .frame(width: 280, height: 280)
                 .scaleEffect(k)
                 .frame(width: size, height: size)

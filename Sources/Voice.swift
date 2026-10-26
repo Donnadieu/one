@@ -102,6 +102,14 @@ final class Speaker: @unchecked Sendable {
         routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
     }
     private var routeRate: Double = 0
+    /// Loudness of what is queued on the audio line, by the time it's heard.
+    private var track = VoiceTrack()
+    /// Main thread. The voice as the person hears it right now: the speaker's own delay (Bluetooth is
+    /// ~0.2 s) is taken off, so the orb moves with the sound, not with the text or the file.
+    func heard() -> VoiceWave {
+        guard audioUp, !track.clips.isEmpty else { return .still }
+        return track.wave(at: Date().addingTimeInterval(-audio.outputNode.presentationLatency))
+    }
     var state: String { "engine=\(audio.isRunning) node=\(node.isPlaying) rate=\(audio.outputNode.outputFormat(forBus: 0).sampleRate)" }
     /// Main thread. Rebuilds the audio line from scratch. Bluetooth headsets switch to "call mode" while the mic
     /// is on and back afterwards; the old line can stay bound to the call-mode output and play into nothing.
@@ -154,13 +162,16 @@ final class Speaker: @unchecked Sendable {
         if Date() >= endsAt { ensureRoute() } else { wakeAudio() }
         guard let b = buffer(url) else { return 0 }
         let d = Double(b.frameLength) / fmt.sampleRate
+        let starts = max(endsAt, Date())
         node.scheduleBuffer(b, completionHandler: nil)
-        endsAt = max(endsAt, Date()).addingTimeInterval(d)
+        track.add(b, at: starts)
+        endsAt = starts.addingTimeInterval(d)
         return d
     }
     /// Main thread. Silences now but keeps the line awake.
     func hush() {
         node.stop()
+        track.clips = []
         endsAt = .distantPast
         wakeAudio()
     }

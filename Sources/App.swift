@@ -233,6 +233,11 @@ struct Entry {
                     ("rooms-overview", RoomsRender.scene()),
                     ("rooms-inside", RoomsRender.scene(room: "Co-Founder")),
                     ("rooms-note", RoomsRender.scene(room: "Personal", mainNote: true)),
+                    ("rooms-note-reader", RoomsRender.note(path: "work-room/brain/principles.md")),
+                    (
+                        "rooms-note-select",
+                        RoomsRender.note(path: "work-room/brain/principles.md", from: "Every commitment is checked", to: "notes, prompts or drafts.")
+                    ),
                     ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
                     ("cw-exp", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News", option: nil))),
                     ("cw-other", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Something else", option: nil))),

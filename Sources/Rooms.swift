@@ -16,12 +16,15 @@ struct RoomsView: View {
     var close: () -> Void
     /// Renders only: draw one still frame (no clock, no ScrollView).
     var still = false
+    /// Renders only: a selection to show in the open note.
+    var select: NSRange?
     @State var sharing = false
-    init(m: Model, graph: RoomGraph? = nil, still: Bool = false, close: @escaping () -> Void) {
+    init(m: Model, graph: RoomGraph? = nil, still: Bool = false, select: NSRange? = nil, close: @escaping () -> Void) {
         let graph = graph ?? RoomGraph()
         self.m = m
         self.graph = graph
         self.still = still
+        self.select = select
         self.close = close
         if graph.rooms.isEmpty { graph.load(RoomMap.load()) }
     }
@@ -43,7 +46,7 @@ struct RoomsView: View {
             if let sel = graph.selected, let note = graph.note(sel) {
                 HStack {
                     Spacer()
-                    NotePanel(note: note, g: graph, index: sel, still: still)
+                    NotePanel(m: m, note: note, g: graph, index: sel, still: still, select: select)
                         .frame(width: 368).padding(.top, 80).padding(.bottom, 84).padding(.trailing, 16)
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -228,13 +231,19 @@ struct ShareRoomSheet: View {
 
 /// The note reader on the right: room, title, when it changed, the note itself, and its linked notes.
 struct NotePanel: View {
+    @ObservedObject var m: Model
     let note: RoomNote
     @ObservedObject var g: RoomGraph
     let index: Int
     var still = false
+    var select: NSRange?
+    @State var copied = false
+    @State var hovering = false
     static let cream = Color(hex: 0xF4EFE8)
-    var text: String {
-        let raw = (try? String(contentsOfFile: note.id, encoding: .utf8)) ?? ""
+    var text: String { Self.body(note.id) }
+    /// The note without its front matter and its own title (the reader shows the title above).
+    static func body(_ path: String) -> String {
+        let raw = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         var lines = raw.components(separatedBy: "\n")
         if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines = Array(lines[(end + 1)...]) }
         if let f = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }), lines[f].hasPrefix("# ") { lines.remove(at: f) }
@@ -266,6 +275,9 @@ struct NotePanel: View {
                 Text(room.name + " room" + (room.shared.map { " · " + $0 } ?? "")).font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Self.cream.opacity(0.58)).lineLimit(1)
                 Spacer()
+                noteIcon(copied ? "checkmark" : "doc.on.doc", copied ? "Copied" : "Copy") { copy(shown) }
+                noteIcon("bubble.left", "Ask \(m.name) about it") { ask() }
+                    .padding(.trailing, 6)
                 Button {
                     g.select(nil)
                 } label: {
@@ -280,11 +292,13 @@ struct NotePanel: View {
             Group {
                 if still {
                     Color.clear.overlay(alignment: .topLeading) {
-                        MarkdownText(text: NotePanel.firstPart(shown), size: 14).frame(maxWidth: .infinity, alignment: .leading)
+                        GeometryReader { geo in
+                            Image(nsImage: NoteText.snapshot(shown, width: geo.size.width, height: geo.size.height, select: select))
+                        }
                     }
                     .clipped()
                 } else {
-                    ScrollView { MarkdownText(text: shown, size: 14).frame(maxWidth: .infinity, alignment: .leading) }
+                    NoteText(text: shown, size: 14)
                 }
             }
             .padding(.top, 18).padding(.horizontal, 24).padding(.bottom, 16).frame(minHeight: 120)
@@ -300,6 +314,7 @@ struct NotePanel: View {
                 }
                 .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.5))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 16).padding(.horizontal, 24).padding(.bottom, 18)
             .overlay(alignment: .top) { Rectangle().fill(Self.cream.opacity(0.06)).frame(height: 1) }
         }
@@ -307,6 +322,34 @@ struct NotePanel: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x19191C, 0.96)))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Self.cream.opacity(0.08)))
         .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
+        .onHover { hovering = $0 }
+        .onChange(of: index) { _, _ in copied = false }
+    }
+    /// A small round icon at the top of the note: faint until the pointer is over the note.
+    func noteIcon(_ icon: String, _ help: String, tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Image(systemName: icon).font(.system(size: 12, weight: .medium)).frame(width: 28, height: 28)
+                .background(Circle().fill(Self.cream.opacity(hovering ? 0.07 : 0)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(icon == "checkmark" ? 0.9 : hovering ? 0.72 : 0.38)).help(help)
+    }
+    /// The whole note, as it reads, onto the clipboard; a check shows for a moment.
+    func copy(_ body: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(NoteText.plain(title: note.title, body), forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            copied = false
+        }
+    }
+    /// Same as "Ask <name> about it" in the Ready for you reader: the note rides along as a chip, then the chat comes up.
+    func ask() {
+        m.openHelper = nil
+        m.about = (note.title, URL(fileURLWithPath: note.id))
+        m.draftSeed = ""
+        Floater.shared.openMain()
     }
 }
 

@@ -15,6 +15,23 @@ enum RoomsRender {
         g.prepareStill(size)
         return AnyView(RoomsView(m: Model.shared, graph: g, still: true) {})
     }
+    /// A note open in the reader, picked by the end of its path; `from`…`to` (words in the note) shows a selection.
+    static func note(path: String, from: String? = nil, to: String? = nil) -> AnyView {
+        let g = RoomGraph()
+        g.load(RoomMap.load())
+        guard let i = g.nodes.indices.first(where: { g.nodes[$0].id.hasSuffix(path) }) else { return AnyView(Text("missing \(path)")) }
+        g.start(room: g.rooms[g.nodes[i].room].name)
+        g.selected = i
+        g.prepareStill(size)
+        var sel: NSRange?
+        if let from, let to {
+            let s = NoteText.attributed(NotePanel.body(g.nodes[i].id), size: 14).string as NSString
+            let a = s.range(of: from)
+            let b = s.range(of: to)
+            if a.location != NSNotFound, b.location != NSNotFound { sel = NSRange(location: a.location, length: NSMaxRange(b) - a.location) }
+        }
+        return AnyView(RoomsView(m: Model.shared, graph: g, still: true, select: sel) {})
+    }
     static func png(_ v: some View, _ path: String, scale: CGFloat = 2) {
         let r = ImageRenderer(content: v.frame(width: size.width, height: size.height))
         r.scale = scale

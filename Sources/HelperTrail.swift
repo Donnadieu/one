@@ -63,13 +63,33 @@ enum HelperTrail {
             """ + brief
     }
 
+    static let stoppedLine = "Stopped by you · tap to see what it did"
+    /// The person stopped this helper on purpose. It stays stopped, even after a restart.
+    /// Returns true if it was working (so its conversation should be cancelled too).
+    @discardableResult
+    static func stopByYou(_ h: inout Helper) -> Bool {
+        guard h.state == "working" || h.resumeQueued == true else { return false }
+        let wasWorking = h.state == "working"
+        h.state = "stopped"
+        h.resumeQueued = false
+        h.stoppedByYou = true
+        h.line = stoppedLine
+        return wasWorking
+    }
+
     static func told(_ title: String) -> String { "\(title) was interrupted by a restart. I picked it back up." }
     static func gaveUp(_ n: Int) -> String { "Stopped: cut off by a restart \(n + 1) times · tap to see what it did" }
 
     /// At launch: helpers that were working (or waiting to be picked back up) when One stopped are
-    /// queued to resume, unless they were already picked up `maxResumes` times.
+    /// queued to resume, unless they were already picked up `maxResumes` times. Helpers the person
+    /// stopped on purpose stay stopped.
     static func restore(_ hs: [Helper]) -> [Helper] {
         var hs = hs
+        for k in hs.indices where hs[k].stoppedByYou == true && (hs[k].state == "working" || hs[k].resumeQueued == true) {
+            hs[k].state = "stopped"
+            hs[k].resumeQueued = false
+            hs[k].line = stoppedLine
+        }
         for k in hs.indices where hs[k].state == "working" || hs[k].resumeQueued == true {
             hs[k].state = "stopped"
             if (hs[k].resumes ?? 0) < maxResumes {
@@ -88,7 +108,7 @@ enum HelperTrail {
     /// counts the resume and leaves a note for the assistant. Returns each helper's id and the prompt to send.
     static func pick(_ hs: inout [Helper], brief: (String) -> String) -> [(id: UUID, prompt: String)] {
         var out: [(id: UUID, prompt: String)] = []
-        for k in hs.indices where hs[k].resumeQueued == true {
+        for k in hs.indices where hs[k].resumeQueued == true && hs[k].stoppedByYou != true {
             guard hs.filter({ $0.state == "working" }).count < maxWorking else { break }
             let prompt = resumePrompt(hs[k], brief: brief(hs[k].task))
             hs[k].resumeQueued = false

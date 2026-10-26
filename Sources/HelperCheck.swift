@@ -93,6 +93,25 @@ enum HelperCheck {
         let waiting = relaunch(many)
         check("one still waiting when One stops again is still picked up later", waiting[4].resumeQueued == true)
 
+        // Stopped on purpose (the Stop button) vs cut off by a restart.
+        var mine = Helper(title: "Price watch", task: "Watch the price.", sid: "s-1", state: "working", line: "")
+        let cutOff = Helper(title: "Hotel search", task: "Find a hotel.", sid: "s-2", state: "working", line: "")
+        var queued = Helper(title: "Queued job", task: "Wait.", sid: "s-3", state: "stopped", line: "")
+        queued.resumeQueued = true
+        check("Stop on a working helper asks to cancel its work", HelperTrail.stopByYou(&mine))
+        check("and Stop on one waiting to be picked up doesn't", !HelperTrail.stopByYou(&queued))
+        check("Stop leaves it stopped with a plain line", mine.state == "stopped" && mine.line == HelperTrail.stoppedLine)
+        var after = relaunch([mine, cutOff, queued])
+        check("a helper stopped with Stop is not picked back up at launch", after[0].resumeQueued != true && after[0].state == "stopped")
+        check("nor one stopped while it waited to be picked up", after[2].resumeQueued != true)
+        check("one cut off by a restart still is", after[1].resumeQueued == true)
+        let again = HelperTrail.pick(&after, brief: brief)
+        check("only the cut-off one is picked up", again.count == 1 && again.first?.id == cutOff.id)
+        var saved = mine
+        saved.state = "working"  // saved before its cancel came back
+        check("even if One quit before the cancel landed", relaunch([saved])[0].resumeQueued != true)
+        check("and it stays stopped after another restart", relaunch(relaunch([mine]))[0].state == "stopped")
+
         try? fm.removeItem(at: HelperTrail.folder)
         print(fails == 0 ? "helpers ok" : "helpers FAILED (\(fails))")
         return fails == 0 ? 0 : 1

@@ -185,6 +185,7 @@ extension Model {
             $0.finishedAway = false
             $0.toldNova = false
             $0.resumeQueued = false
+            $0.stoppedByYou = nil  // asked again: it's working again
         }
         let stop = await Engine.shared.promptSession(
             sid, text, images: images,
@@ -205,6 +206,12 @@ extension Model {
             })
         try? await Task.sleep(for: .milliseconds(150))
         let away = !NSApp.isActive
+        if helpers.first(where: { $0.id == id })?.stoppedByYou == true {
+            // Stopped on purpose: it stays stopped, isn't reported as done, and frees its slot.
+            saveTrail(id)
+            resumeInterrupted()
+            return
+        }
         update(id) { h in
             if stop.hasPrefix("error") && h.reply.isEmpty { h.reply = "I couldn't finish this (\(stop.dropFirst(7)))." }
             let parts = Choices.split(h.reply)
@@ -487,9 +494,26 @@ extension Model {
         asks.removeAll { $0.id == a.id }
     }
 
+    /// The person stopped this helper on purpose: its work is cancelled and it stays stopped, even after a restart.
+    func stopHelper(_ id: UUID) {
+        var cancel = false
+        update(id) { cancel = HelperTrail.stopByYou(&$0) }
+        saveTrail(id)
+        if cancel, let sid = helpers.first(where: { $0.id == id })?.sid { Engine.shared.cancel(session: sid) }
+    }
+
+    /// Something is being said out loud right now (or a reply is waiting on its first words).
+    var voicePlaying: Bool { Speaker.shared.talking || pendingReveal != nil }
+    /// Stop talking just this once (Esc, or a click on the orb while it talks): the voice stops now and the
+    /// held words show at once. Never the mute: the reply, helpers and the next reply's voice carry on.
+    func hushVoice() {
+        Speaker.shared.hushReply()
+        reveal()
+    }
+
     func toggleStop() {
         paused.toggle()
-        if paused { helpers.filter { $0.state == "working" }.compactMap(\.sid).forEach { Engine.shared.cancel(session: $0) } }
+        if paused { helpers.filter { $0.state == "working" || $0.resumeQueued == true }.map(\.id).forEach { stopHelper($0) } }
         if paused {
             Speaker.shared.stop()
             reveal()

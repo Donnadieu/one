@@ -141,7 +141,8 @@ final class OrbHost: NSView {
             dragging = false
             Floater.shared.settle()
         } else if e.clickCount == 1 {
-            Floater.shared.flashHint()
+            // A click while One is talking stops the voice for this reply only; otherwise the usual hint.
+            if Model.shared.voicePlaying { Model.shared.hushVoice() } else { Floater.shared.flashHint() }
         }
     }
 }
@@ -178,6 +179,16 @@ final class OrbHost: NSView {
                 return nil
             }
             return e
+        }
+        // Esc while One is talking stops the voice for this reply only. Only in One's own window with no
+        // sheet, reader or shelf card open, so their Esc (and the rooms map's, its own window) is untouched.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard e.keyCode == 53, e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                let w = NSApp.keyWindow, w === self.mainWindow, w.attachedSheet == nil,
+                Model.shared.viewing == nil, Model.shared.openedShelf == nil, Model.shared.voicePlaying
+            else { return e }
+            Model.shared.hushVoice()
+            return nil
         }
         nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { Task { @MainActor in if Model.shared.onboarded { self.show() } } }

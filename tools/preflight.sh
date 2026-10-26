@@ -72,8 +72,14 @@ grep "✗" "$T/rs/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Helpers a restart cut off pick up where they left off"
 mkdir -p "$T/hl"  # the test never reads or writes your saved helpers: they go through in-memory data
-check "trail saved, picked up once at launch with it, finished ones and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $BIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
+check "trail saved, picked up once at launch with it; finished, stopped-with-Stop and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $BIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
 grep "✗" "$T/hl/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Stop talking just this once"
+mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings
+check "hush drops the rest of that reply, never mutes, the next reply speaks" bash -c "ONE_SUPPORT_DIR=$T/vc $BIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"
+grep "✗" "$T/vc/out.txt" 2>/dev/null | sed 's/^/    /'
+check "the voice test left your mute setting alone" test "$VM_BEFORE" = "$(defaults read ai.forjado.one voiceMuted 2>/dev/null)"
 
 echo "Shipped skills"
 mkdir -p "$T/sk"

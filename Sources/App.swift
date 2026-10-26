@@ -44,6 +44,15 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HelperCheck.run()) }
             return
         }
+        if CommandLine.arguments.contains("--test-voice") {
+            Env.selfTest = true  // stand-in voice, its own settings suite; run with ONE_SUPPORT_DIR set to an empty folder
+            guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+                print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+                exit(2)
+            }
+            Task { @MainActor in exit(await VoiceCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--auto-update") {
             Task { @MainActor in
                 await Updater.shared.check()

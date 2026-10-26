@@ -170,6 +170,7 @@ final class Speaker: @unchecked Sendable {
     }
     /// Main thread. Silences now but keeps the line awake.
     func hush() {
+        guard stand == nil else { return }  // self-tests never touch the audio line
         node.stop()
         track.clips = []
         endsAt = .distantPast
@@ -226,6 +227,10 @@ final class Speaker: @unchecked Sendable {
     /// Makes the audio for one line. Calls back with nil if the voice isn't available.
     func render(_ text: String, _ done: @escaping (URL?, Double) -> Void) {
         q.async {
+            if let stand = self.stand {
+                done(stand(text), 0)
+                return
+            }
             guard self.ready, let input = self.input else {
                 done(nil, 0)
                 return
@@ -238,7 +243,7 @@ final class Speaker: @unchecked Sendable {
     }
     /// Says a line now and returns its length in seconds (0 if the live voice isn't ready).
     func sayNow(_ text: String) async -> Double {
-        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else { return 0 }
+        guard ready, !Speaker.prefs.bool(forKey: "voiceMuted") else { return 0 }
         stop()
         let (url, dur): (URL?, Double) = await withCheckedContinuation { c in render(text) { c.resume(returning: ($0, $1)) } }
         guard let url else { return 0 }
@@ -249,7 +254,7 @@ final class Speaker: @unchecked Sendable {
     private var onFirst: (() -> Void)?
     /// `started` runs when the first sentence starts playing (or right away if there's nothing to say).
     func read(_ reply: String, started: (() -> Void)? = nil) {
-        guard ready, !UserDefaults.standard.bool(forKey: "voiceMuted") else {
+        guard ready || stand != nil, !Speaker.prefs.bool(forKey: "voiceMuted") else {
             started?()
             return
         }
@@ -290,7 +295,8 @@ final class Speaker: @unchecked Sendable {
         while let k = pending.firstIndex(where: { $0.0 == nextIndex }) {
             let (_, url) = pending.remove(at: k)
             nextIndex += 1
-            if let url { enqueue(url) }
+            reached += 1
+            if let url, stand == nil { enqueue(url) }
             if let f = onFirst {
                 onFirst = nil
                 f()
@@ -298,6 +304,16 @@ final class Speaker: @unchecked Sendable {
         }
     }
     var talking: Bool { Date() < endsAt }
+    /// Stop talking just this once (Esc, or a click on the orb while it talks): the rest of this reply's
+    /// sentences are dropped and the sound stops now, with the line kept awake. Unlike the mute, nothing
+    /// is remembered, the reply's text and helpers carry on, and the next reply speaks as usual.
+    func hushReply() { stop() }
+    /// Where the mute is read. Self-tests use their own settings, never the person's.
+    static var prefs: UserDefaults { Env.selfTest ? (UserDefaults(suiteName: "ai.forjado.one.voice-test") ?? .standard) : .standard }
+    /// Self-tests only: stands in for the voice process (no Kokoro, no sound).
+    var stand: ((String) -> URL?)?
+    /// Sentences that reached the audio line so far (self-tests count them).
+    private(set) var reached = 0
     static var voiceID: String { UserDefaults.standard.string(forKey: "voiceID") ?? "af_heart" }
     /// Switch voices: restart the voice process with the new one, then say a short line in it.
     func use(voice: String, sample: String?) {

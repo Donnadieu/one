@@ -29,6 +29,7 @@ struct Helper: Identifiable, Codable {
     var resumes: Int?  // times One picked it back up after a restart
     var resumeQueued: Bool?  // cut off by a restart, waiting to be picked back up
     var restartNews: String?  // the assistant hasn't been told it was picked back up yet
+    var stoppedByYou: Bool?  // stopped on purpose (the Stop button): never picked back up after a restart
     var viewState: HelperState {
         switch state {
         case "working": .working

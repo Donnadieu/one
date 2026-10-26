@@ -271,6 +271,11 @@ struct Entry {
         }
         if args.contains("--install-test") {
             // Fresh-user test: set ONE_SUPPORT_DIR to an empty folder and OPENROUTER_API_KEY.
+            // Without ONE_SUPPORT_DIR it would switch the person's real One to a test model (it did once).
+            guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+                print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+                exit(2)
+            }
             runHeadless {
                 let t0 = Date()
                 print("devtools missing:", Installer.devToolsMissing)

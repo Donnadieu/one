@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.2). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.11). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -43,6 +43,7 @@ This is a personal project, not a company. It is built for me, my friends and an
     - **Passwords:** KeePass (1Password and Bitwarden through the engine's vault). Logins are filled without the model ever seeing the password.
     - **Email and Calendar:** the accounts already on your Mac (Gmail, Outlook, iCloud, Yahoo). No account yet? One opens the right Settings page, tells you what to click, and notices by itself when you're done. The assistant drafts; you always press Send.
     - **Browser:** your own Chrome, already signed in.
+    - **Basecamp:** ask your assistant "connect my Basecamp". It gives you a link and a code; you approve on your phone or computer. It reads your projects, to-dos, cards and messages freely, and asks before posting, commenting or changing anything.
     - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
 14. **Rooms.** A live map of your rooms (personal, work, a shared room with a partner). Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
 
@@ -62,6 +63,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Memory** | Rooms built from a "brain starter" template set: plain Markdown files, one folder per room, with rules for what each room may hold. Writes inside your memory need no yes; anything outside still asks. |
 | **Voice** | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open source, default voice `af_heart`, six to choose from), running on the Mac: no account, no cost per word, nothing leaves the Mac. Downloaded once after the engine (`tools/install_voice.sh`, ~350 MB) and run by `tools/speak.py`. It speaks setup lines with the user's and assistant's names, and reads replies aloud sentence by sentence. Setup lines are also pre-recorded in the same voice as a fallback until the download finishes. |
 | **Connections** | Passwords use a KeePass vault backend for Hermes (`tools/overlay/agent/vault_backends/keepass.py`, via `keepassxc-cli`); the master password can come from the macOS Keychain and is held in memory only. One copies the KeePass backend into its engine after every install, so it survives engine updates. Each connection opens only the paths it needs in the sandbox. Connections built with the assistant are saved as skills under `skills/my-connections/` and listed in `connections.json`. |
+| **Skills that ship with One** | Repo folder `skills/<category>/<name>/SKILL.md` (today: `productivity/basecamp-connect`). `build.sh` bundles it; One copies each skill into its engine after install and at every launch. A skill changed on the Mac is never overwritten; an untouched copy is updated when a newer one ships (tracked by hash). Checked by `--test-skills` in preflight. |
 | **Routines** | Hermes scheduled jobs. One watches their results and reads new ones aloud. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
@@ -77,7 +79,7 @@ Requirements: an Apple Silicon Mac, macOS 14+, Xcode Command Line Tools (`xcode-
 
 Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates.
 
-Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
+Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--test-skills` (shipped skills reach a fresh home and never overwrite an edited copy; needs `ONE_SUPPORT_DIR` set to an empty folder), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
 
 To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 
@@ -90,9 +92,10 @@ Enforced by the Mac or by One's code (the assistant can't get around it):
 - **Updates and the engine version:** One installs the Hermes version it was tested with.
 - **Shared rooms:** a new file you add to a shared room that copies lines from your private rooms is held back on your Mac, and One tells you. You can still say "share it anyway".
 - **Experimental connections** ("Something else…") stay switched off in the engine until their test has passed.
+- **Skills One ships never overwrite yours:** if you or your assistant changed one, the new version is skipped for that skill.
 
 Relies on the assistant following its instructions (usually works, not guaranteed):
-- Asking before paying, posting or deleting on a website.
+- Asking before paying, posting or deleting on a website, or before posting or changing anything in Basecamp (Basecamp only offers full access).
 - Keeping each private room's notes out of your other private rooms (shared rooms are checked in code).
 - A tested experimental connection doing only what it says.
 

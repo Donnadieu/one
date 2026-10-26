@@ -286,6 +286,14 @@ struct Entry {
             }
             exit(0)
         }
+        if args.contains("--test-skills") {
+            Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
+            guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+                print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+                exit(2)
+            }
+            exit(BundledSkills.check())
+        }
         if args.contains("--apply-overlay") {
             print(Installer.applyOverlay() ? "overlay ok" : "overlay failed")
             exit(0)

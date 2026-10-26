@@ -38,6 +38,7 @@
 | FloatViews.swift | UI | the orb's SwiftUI views (`Orb`, `FloatingOrb`, hint, transcript, scene) |
 | TalkKey.swift | UI | push-to-talk key: `TalkKey`, `TalkKeys` hotkeys, `TalkKeySheet` |
 | Previews.swift | dev only | scenes for `--render-world` |
+| BundledSkills.swift | service | skills that ship with One (`skills/` in the repo, Resources/skills in the app): copied into the engine at install and launch, never over an edited copy; `One --test-skills` |
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
 | GatewayGuard.swift | service | stops the engine's background helper (gateway) only when it's stale, never a healthy one another One uses |
@@ -55,4 +56,7 @@
 ## Extending
 - New connection: a node in `worldNodes` or a `connections.json` entry, a `connect()` branch, and the
   paths it needs in `connectorReads`. Add a preflight check for it.
+- New shipped skill: a folder `skills/<category>/<name>/SKILL.md` (description 60 characters max, trigger first). build.sh
+  bundles it and `BundledSkills.sync()` installs it; change its content and the next release updates untouched copies.
+  Never put one person's details (account ids, names, emails) in a shipped skill.
 - New CLI test hook: `args.contains("--test-x")` in App.swift, `Env.selfTest = true` first (enforced).

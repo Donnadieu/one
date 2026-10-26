@@ -130,6 +130,7 @@ enum Installer {
                 if p.terminationStatus == 0 && FileManager.default.isExecutableFile(atPath: Env.ownHermes) {
                     try? FileManager.default.removeItem(at: scratch)
                     applyOverlay()
+                    BundledSkills.sync()
                     _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)
                 } else {

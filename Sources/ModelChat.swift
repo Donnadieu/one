@@ -30,6 +30,7 @@ extension Model {
                     text: warn
                 ))
         }
+        BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
         await SignIn.enableRoutines()

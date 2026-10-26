@@ -28,6 +28,8 @@ echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
+check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
+check "shipped skill descriptions are short (60 max)" bash -c "for f in \$(find skills -name SKILL.md); do d=\$(sed -n 's/^description: *//p' \$f | head -1); [ -n \"\$d\" ] && [ \${#d} -le 60 ] || { echo \"\$f\"; exit 1; }; done"
 check "no Google secret or sign-in in the app" bash -c "! ls $APP/Contents/Resources | grep -q google"
 check "no keys or tokens bundled" bash -c "! grep -rlI -E 'BEGIN (RSA |OPENSSH )?PRIVATE KEY|sk-ant-|ghp_[A-Za-z0-9]{20}' $APP/Contents/Resources"
 
@@ -61,6 +63,11 @@ echo "{\"pid\": $GWP}" > "$T/gw2/hermes/gateway.pid"
 check "check-update and renders leave it running" kill -0 $GWP
 check "and never start an engine" bash -c "! pgrep -f '$T/gw2/engine' >/dev/null"
 kill $GWP 2>/dev/null
+
+echo "Shipped skills"
+mkdir -p "$T/sk"
+check "fresh home gets them, edited copies are kept" bash -c "ONE_SUPPORT_DIR=$T/sk $BIN --test-skills | tee $T/sk/out.txt | grep -q '^skills ok'"
+grep "✗" "$T/sk/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"

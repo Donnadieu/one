@@ -8,7 +8,8 @@
 | Helpers | 6/10 | live-tested once; no automated test |
 | Connections | 5/10 | KeePass verified; Mail/Calendar setup flow untested live |
 | Rooms + sharing | 5/10 | two-Mac iCloud share untested |
+| Shipped skills | 7/10 | copy/update/keep tested by preflight; Basecamp sign-in from a never-connected Mac untested |
 | Updater | 7/10 | detection tested every preflight; full swap not automated |
 | Code health | 7/10 | split into 25 area files; all files under 600 lines (baseline empty) |
 
-Updated: 2026-10-24
+Updated: 2026-10-26

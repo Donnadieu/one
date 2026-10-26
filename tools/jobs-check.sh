@@ -17,7 +17,7 @@ PROVIDER="${ONE_JOBS_PROVIDER:-claude}"  # claude = the subscription One already
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-jobs.XXXXXX")
 # The engine runs inside the folder lock, which closes the home folder, so it can't open an app in
 # ~/Repos: run a copy from the scratch folder (the engine calls it for email).
-cp -R build/One.app "$S/One.app"
+cp -R build/app.noindex/One.app "$S/One.app"
 echo "scratch: $S (kept for reading: transcripts, steps, routines)"
 # A clean environment, like opening One from the Finder: Hermes variables from whatever launched
 # this script (e.g. an agent's own gateway) would steer One's engine.

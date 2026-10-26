@@ -339,7 +339,7 @@ extension Model {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let message = c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews()
+        let message = c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + FolderWatch.note + helperNews()
         let gateway = GatewayGuard.recordedPID()
         var stop = await Engine.shared.prompt(message, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))

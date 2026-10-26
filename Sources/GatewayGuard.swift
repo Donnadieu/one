@@ -46,6 +46,28 @@ enum GatewayGuard {
         return v
     }
 
+    /// The folder list changed: the helper in this home must go even if it looks healthy, because it
+    /// was started under the old folder lock and a new engine would reuse it. Only a real gateway at
+    /// the pid this home recorded is stopped; a reused pid is never touched. Waits until it's gone.
+    @discardableResult
+    static func stopForNewAccess(previousEngine: pid_t?) -> Verdict {
+        guard let pid = recordedPID() else { return .none }
+        let v = verdict(pid, previousEngine: previousEngine)
+        log("new folder access: gateway \(pid) \(v), previous engine \(previousEngine.map(String.init) ?? "none")")
+        if v == .none || v == .notGateway { return v }
+        kill(pid, SIGTERM)
+        var waited = 0
+        while kill(pid, 0) == 0 && waited < 40 {
+            usleep(250_000)
+            waited += 1
+        }
+        if kill(pid, 0) == 0, arguments(of: pid).contains("gateway") {
+            kill(pid, SIGKILL)
+            usleep(300_000)
+        }
+        return v
+    }
+
     static func parent(of pid: pid_t) -> pid_t? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride

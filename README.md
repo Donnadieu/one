@@ -6,7 +6,7 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.11). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.12). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 
@@ -72,14 +72,14 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 Requirements: an Apple Silicon Mac, macOS 14+, Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
-./build.sh             # builds build/One.app
+./build.sh             # builds build/app.noindex/One.app (.noindex: Spotlight won't list it as another One)
 ./build.sh --install   # also copies it to ~/Applications
-./build.sh --package   # builds build/One.dmg
+./build.sh --package   # builds build/One.dmg and build/One.zip (the updater's download)
 ```
 
 Optional: `BRAIN_STARTER=/path/to/brain-starter` to bundle memory room templates.
 
-Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--test-skills` (shipped skills reach a fresh home and never overwrite an edited copy; needs `ONE_SUPPORT_DIR` set to an empty folder), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
+Developer flags on the app binary: `--selftest` (runs the engine against a throwaway home; needs `OPENROUTER_API_KEY`), `--install-test` (fresh-user install into `ONE_SUPPORT_DIR`), `--test-restart` (a changed folder list restarts the engine once under the new lock, an unchanged one never; needs `ONE_SUPPORT_DIR` set to an empty folder), `--test-skills` (shipped skills reach a fresh home and never overwrite an edited copy; needs `ONE_SUPPORT_DIR` set to an empty folder), `--render-world <prefix>` (renders the world, Connections, rooms and the brain and voice card to PNGs), `--say "text"` (speaks a line through the voice engine), `--signin-probe <provider>`, `--reset`.
 
 To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 tools/render_voice.py <dir with kokoro-v1.0.onnx and voices-v1.0.bin>` (needs `kokoro-onnx`, `soundfile`, `ffmpeg`).
 
@@ -87,6 +87,7 @@ To re-record the fallback voice lines: edit `voice/lines.json`, then `python3 to
 
 Enforced by the Mac or by One's code (the assistant can't get around it):
 - **Folder lock:** the engine can only open One's own data, your memory and the folders you approved.
+- **A newly allowed folder takes effect by itself:** when the folder list changes, One waits until nothing is mid-reply, restarts its engine under the new lock, reopens the same conversation and lets the assistant carry on.
 - **Email can't be sent:** One only creates drafts; you press Send.
 - **Passwords stay out of the chat:** logins are filled from your password manager without the model seeing them.
 - **Updates and the engine version:** One installs the Hermes version it was tested with.

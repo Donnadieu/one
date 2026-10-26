@@ -77,6 +77,14 @@ final class Engine: @unchecked Sendable {
         if let p, p.isRunning { p.terminate() }
     }
 
+    /// Stops the engine and its background helper so the next start builds a fresh folder lock.
+    /// The helper must go too: a new engine reuses a running one, which keeps the old lock.
+    func stopForNewAccess() async {
+        let previous = enginePID
+        stop()
+        _ = await Task.detached { GatewayGuard.stopForNewAccess(previousEngine: previous) }.value
+    }
+
     private var starting: Task<String?, Never>?
     /// Starts the engine once; anyone who asks while it's starting waits for that same start.
     func ensureStarted() async -> String? {
@@ -104,7 +112,9 @@ final class Engine: @unchecked Sendable {
         p.executableURL = URL(fileURLWithPath: hp)
         Engine.stopStrayGateway(previousEngine: previous, caller: "engine start")
         p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
-        p.arguments = ["-p", Access.profile(), hp, "acp"]
+        let profile = Access.profile()
+        FolderWatch.engineStarted(profile: profile)
+        p.arguments = ["-p", profile, hp, "acp"]
         p.environment = Env.vars()
         let cwd = Brain.exists ? Brain.root : Env.support
         p.currentDirectoryURL = cwd

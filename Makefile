@@ -1,7 +1,7 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
 .PHONY: build format format-check lint check preflight full release-check hooks jobs
 
-build:            ## build build/One.app
+build:            ## build build/app.noindex/One.app
 	./build.sh
 format:           ## rewrite Sources/ with the repo's swift-format rules
 	xcrun swift-format format -i -r -p Sources

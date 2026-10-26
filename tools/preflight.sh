@@ -7,9 +7,10 @@ set -u
 cd "$(dirname "$0")/.."
 FULL=0; CI=0
 for a in "$@"; do [ "$a" = --full ] && FULL=1; [ "$a" = --ci ] && CI=1; done
-T="${TMPDIR:-/tmp}/one-preflight-$$"; mkdir -p "$T"
+# .noindex: Spotlight never lists the test copies as apps
+T="${TMPDIR:-/tmp}/one-preflight-$$.noindex"; mkdir -p "$T"
 trap 'rm -rf "$T"' EXIT
-APP=build/One.app; BIN="$APP/Contents/MacOS/One"
+APP=build/app.noindex/One.app; BIN="$APP/Contents/MacOS/One"
 pass=0; fail=0
 ok()  { echo "  ✓ $1"; pass=$((pass+1)); }
 bad() { echo "  ✗ $1"; fail=$((fail+1)); }
@@ -63,6 +64,11 @@ echo "{\"pid\": $GWP}" > "$T/gw2/hermes/gateway.pid"
 check "check-update and renders leave it running" kill -0 $GWP
 check "and never start an engine" bash -c "! pgrep -f '$T/gw2/engine' >/dev/null"
 kill $GWP 2>/dev/null
+
+echo "Restart by itself after a new folder is allowed"
+mkdir -p "$T/rs"
+check "a changed folder list restarts once with the new folder, an unchanged one never" bash -c "ONE_SUPPORT_DIR=$T/rs $BIN --test-restart | tee $T/rs/out.txt | grep -q '^restart ok'"
+grep "✗" "$T/rs/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Shipped skills"
 mkdir -p "$T/sk"

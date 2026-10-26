@@ -74,9 +74,19 @@ final class Box<T>: @unchecked Sendable {
 
 enum Access {
     nonisolated(unsafe) static var override: [String]?
+    nonisolated(unsafe) static var readsOverride: [String]?
     static var folders: [String] {
         if let o = override { return o }
-        return (UserDefaults.standard.string(forKey: "folders") ?? "").split(separator: "\n").map(String.init)
+        // A `defaults write … -string "$CUR\n<path>"` from a shell can leave a literal \n: accept both.
+        return lines(UserDefaults.standard.string(forKey: "folders"))
+    }
+    static func lines(_ raw: String?) -> [String] {
+        (raw ?? "").replacingOccurrences(of: "\\n", with: "\n").split(separator: "\n").map(String.init)
+    }
+    /// Extra read-only paths a connection needs (e.g. a KeePass file), `~` expanded.
+    static var connectorReads: [String] {
+        if let o = readsOverride { return o }
+        return lines(UserDefaults.standard.string(forKey: "connectorReads")).map { ($0 as NSString).expandingTildeInPath }
     }
     static func set(_ f: [String]) { UserDefaults.standard.set(f.joined(separator: "\n"), forKey: "folders") }
     /// Everything in the home folder is closed except the engine itself, the brain and the folders the user approved.
@@ -94,7 +104,7 @@ enum Access {
         ro += ((try? FileManager.default.contentsOfDirectory(atPath: h)) ?? []).filter { $0.hasPrefix(".gitconfig") }.map { "\(h)/\($0)" }
         if Env.hermesPath != Env.ownHermes { ro += ["\(h)/.hermes/hermes-agent", "\(h)/.hermes/tools", "\(h)/.hermes/node"] }
         // Each connection opens only what it needs (e.g. KeePass: its settings, the database, the key file).
-        ro += (UserDefaults.standard.string(forKey: "connectorReads") ?? "").split(separator: "\n").map { ($0 as NSString).expandingTildeInPath }
+        ro += connectorReads
         ro += ["\(h)/Library/Application Support/KeePassXC"]
         return """
             (version 1)

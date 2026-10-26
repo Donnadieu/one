@@ -1,8 +1,9 @@
 #!/bin/bash
-# Builds One.app into ./build and (optionally) copies it to ~/Applications.
+# Builds One.app into ./build/app.noindex and (optionally) copies it to ~/Applications.
+# The .noindex folder keeps Spotlight from listing every build as another copy of One in the Mac's Apps.
 set -euo pipefail
 cd "$(dirname "$0")"
-APP=build/One.app
+APP=build/app.noindex/One.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macosx14.0 \
   -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -swift-version 5 \
@@ -58,8 +59,10 @@ if [[ "${1:-}" == "--install" ]]; then
   mkdir -p ~/Applications && rm -rf ~/Applications/One.app && cp -R "$APP" ~/Applications/ && echo "installed ~/Applications/One.app"
 fi
 if [[ "${1:-}" == "--package" ]]; then
-  rm -rf build/dmg && mkdir -p build/dmg && cp -R "$APP" build/dmg/ && ln -s /Applications build/dmg/Applications
-  rm -f build/One.dmg && hdiutil create -quiet -volname "One" -srcfolder build/dmg -ov -format UDZO build/One.dmg && echo "packaged build/One.dmg"
+  STAGE=build/app.noindex/dmg
+  rm -rf build/dmg "$STAGE" && mkdir -p "$STAGE" && cp -R "$APP" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
+  rm -f build/One.dmg && hdiutil create -quiet -volname "One" -srcfolder "$STAGE" -ov -format UDZO build/One.dmg && echo "packaged build/One.dmg"
+  rm -rf "$STAGE"
   # The in-app updater downloads this zip.
   rm -f build/One.zip && ditto -c -k --keepParent "$APP" build/One.zip && echo "packaged build/One.zip"
 fi

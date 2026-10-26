@@ -81,6 +81,22 @@ final class Model: ObservableObject {
         }
     }
 
+    /// The folder list changed since the engine started (a new folder was allowed, maybe by the
+    /// assistant itself): once nothing is mid-reply, restart the engine under the new lock and carry on.
+    func tendFolders() {
+        guard onboarded, !Env.commandLine else { return }
+        let busy = thinking || helpers.contains { $0.state == "working" }
+        FolderWatch.tend(busy: busy, running: Engine.shared.running) { resume in await self.restartForFolders(resume: resume) }
+    }
+
+    func restartForFolders(resume: Bool) async {
+        await Engine.shared.stopForNewAccess()
+        await ensureEngine()  // same conversation: the saved session is reopened (with retries)
+        bubbles.removeAll { $0.text == FolderWatch.restartedLine }
+        bubbles.append(Bubble(fromMe: false, text: FolderWatch.restartedLine))
+        if resume { await send(FolderWatch.carryOn, toNova: true, hidden: true) }
+    }
+
     func tendShared() {
         clashes += Shared.tend()
         for n in SharedGuard.tend() { bubbles.append(Bubble(fromMe: false, text: n)) }

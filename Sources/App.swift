@@ -40,6 +40,11 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Env.selfTest = true  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
         }
+        if CommandLine.arguments.contains("--test-restart") {
+            Env.selfTest = true  // scratch Hermes home and in-memory folder lists; run with ONE_SUPPORT_DIR set to an empty folder
+            Task { @MainActor in exit(await RestartCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--test-gateway") {
             Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
             exit(GatewayCheck.run())
@@ -80,6 +85,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             var tick = 0
             while true {
                 Model.shared.scanShelf()
+                Model.shared.tendFolders()
                 if tick % 5 == 0 {
                     Model.shared.tendShared()
                     Model.shared.tendRoutines()

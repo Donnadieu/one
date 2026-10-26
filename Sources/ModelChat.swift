@@ -17,11 +17,17 @@ extension Model {
         guard onboarded, !Engine.shared.running else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
-        if !Installer.applyOverlay() && UserDefaults.standard.string(forKey: "passwordsWith") == "KeePass" {
+        // Warn only if KeePass really isn't wired in after a retry, and never twice in a row
+        // (a one-off failed write used to show this on every open even though KeePass worked).
+        let warn = "Heads up: after an update I can't use your KeePass logins right now. Everything else works. Tell me and I'll look into it."
+        bubbles.removeAll { $0.text == warn }
+        if UserDefaults.standard.string(forKey: "passwordsWith") == "KeePass", !Installer.applyOverlay(), !Installer.applyOverlay(),
+            !Installer.keepassWired
+        {
             bubbles.append(
                 Bubble(
                     fromMe: false,
-                    text: "Heads up: after an update I can't use your KeePass logins right now. Everything else works. Tell me and I'll look into it."
+                    text: warn
                 ))
         }
         Task.detached { _ = GoogleSignIn.ensureVenv() }

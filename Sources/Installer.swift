@@ -35,6 +35,12 @@ enum Installer {
     }
     /// One's additions to the engine (the KeePass password backend). Copies keepass.py and registers it
     /// in base.py by a small text patch, so it survives engine reinstalls and new installs. Safe to run often.
+    /// True when the engine already has KeePass plugged in (what applyOverlay sets up).
+    static var keepassWired: Bool {
+        let vb = Env.engineDir.appendingPathComponent("agent/vault_backends")
+        let base = (try? String(contentsOf: vb.appendingPathComponent("base.py"), encoding: .utf8)) ?? ""
+        return base.contains("KeePassLoginBackend") && FileManager.default.fileExists(atPath: vb.appendingPathComponent("keepass.py").path)
+    }
     @discardableResult static func applyOverlay() -> Bool {
         let fm = FileManager.default
         let vb = Env.engineDir.appendingPathComponent("agent/vault_backends")

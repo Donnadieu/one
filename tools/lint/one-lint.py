@@ -68,7 +68,8 @@ def r_messaging(path, lines):
             yield i, "Telegram/WhatsApp mentioned"
 
 # JobsCheck: test-only, runs a local fake shop page for `--test-jobs`.
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck)')
+# GatewayCheck: test-only, starts stand-in gateway processes for `--test-gateway`.
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck)')
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):

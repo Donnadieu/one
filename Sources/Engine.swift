@@ -31,15 +31,18 @@ final class Engine: @unchecked Sendable {
     /// (question, options[(id, label)], answer)
     var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)?
 
-    /// Hermes keeps a background helper per home; restart it so it picks up the current folder limits.
-    static func stopStrayGateway() {
-        let f = Env.hermesHome.appendingPathComponent("gateway.pid")
-        guard let d = try? Data(contentsOf: f),
-            let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-            let pid = j["pid"] as? Int, pid > 1
-        else { return }
-        kill(pid_t(pid), SIGTERM)
-        usleep(900_000)
+    /// Hermes keeps a background helper (gateway) per home. Restart it only when it's stale: orphaned,
+    /// or left by the engine this process just replaced. A healthy one serving another engine (the
+    /// person's live One while a test copy runs) is never touched; killing it failed their message.
+    static func stopStrayGateway(previousEngine: pid_t? = nil, caller: String = "stop") {
+        GatewayGuard.stopIfStale(previousEngine: previousEngine, caller: caller)
+    }
+
+    /// pid of the engine process this object runs, if any.
+    var enginePID: pid_t? {
+        lock.lock()
+        defer { lock.unlock() }
+        return proc?.isRunning == true ? proc?.processIdentifier : nil
     }
 
     static func isBrainEdit(_ title: String) -> Bool {
@@ -94,11 +97,12 @@ final class Engine: @unchecked Sendable {
     }
 
     func start() async -> String? {
+        let previous = enginePID
         stop()
         guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: hp)
-        Engine.stopStrayGateway()
+        Engine.stopStrayGateway(previousEngine: previous, caller: "engine start")
         p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
         p.arguments = ["-p", Access.profile(), hp, "acp"]
         p.environment = Env.vars()
@@ -212,6 +216,32 @@ final class Engine: @unchecked Sendable {
         if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
         return "error: \(r["error"] ?? "no answer")"
+    }
+
+    /// After the engine's background helper died mid-turn: wait until it answers again, then send the
+    /// same message once more. "Not ready yet" answers didn't run anything, so they're waited out.
+    func promptAgain(_ text: String, images: [String] = []) async -> String {
+        var stop = "error: not started"
+        for attempt in 0..<20 {
+            if !running { _ = await ensureStarted() }
+            stop = await prompt(text, images: images)
+            let e = stop.lowercased()
+            let notYet = ["draining", "not_ready", "starting", "unavailable", "shutting down", "not started"].contains { e.contains($0) }
+            guard e.hasPrefix("error"), notYet, attempt < 19 else { break }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        return stop
+    }
+
+    /// True when a turn failed because the background helper went away under it (not a real error).
+    static func dropped(_ stop: String, text: String, gatewayBefore: pid_t?) -> Bool {
+        if text.contains("Gateway shutting down") || text.contains("this turn was interrupted") { return true }
+        guard stop.hasPrefix("error") else { return false }
+        let e = stop.lowercased()
+        if ["shutting down", "interrupted", "draining", "not_ready", "stopped"].contains(where: { e.contains($0) }) { return true }
+        // A generic "Internal error" counts only if the gateway really changed or died during the turn.
+        guard let g = gatewayBefore else { return false }
+        return GatewayGuard.recordedPID() != g || kill(g, 0) != 0
     }
 
     /// A new background session for a helper.

@@ -15,6 +15,11 @@ ok()  { echo "  ✓ $1"; pass=$((pass+1)); }
 bad() { echo "  ✗ $1"; fail=$((fail+1)); }
 check() { local name="$1"; shift; if "$@" >"$T/last.log" 2>&1; then ok "$name"; else bad "$name"; sed 's/^/      /' "$T/last.log" | tail -5; fi; }
 
+# The person's live One must survive this run: note its engine helper now, compare at the end.
+REAL_PID_FILE="$HOME/Library/Application Support/One/hermes/gateway.pid"
+gw_id() { local p; p=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$REAL_PID_FILE" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null && echo "$p $(ps -o lstart= -p "$p")"; }
+GW_BEFORE=$(gw_id)
+
 echo "Build"
 check "app builds" ./build.sh
 [ -x "$BIN" ] || { echo "No app binary, stopping."; exit 1; }
@@ -42,6 +47,21 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $BIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Engine helper is never stopped by a second One"
+mkdir -p "$T/gw"
+check "a second engine start or test copy leaves a healthy one alone" bash -c "ONE_SUPPORT_DIR=$T/gw $BIN --test-gateway | tee $T/gw/out.txt | grep -q '^gateway ok'"
+grep "✗" "$T/gw/out.txt" 2>/dev/null | sed 's/^/    /'
+# End to end: a stand-in gateway in a scratch home, then the command-line modes preflight uses.
+mkdir -p "$T/gw2/hermes" "$T/gw2/engine/.hermes/bin" "$T/gw2/r"
+printf '#!/bin/sh\nexit 0\n' > "$T/gw2/engine/.hermes/bin/hermes"; chmod +x "$T/gw2/engine/.hermes/bin/hermes"
+/usr/bin/python3 -c 'import time; time.sleep(300)' gateway run & GWP=$!
+echo "{\"pid\": $GWP}" > "$T/gw2/hermes/gateway.pid"
+(cd "$T/gw2/r" && ONE_SUPPORT_DIR="$T/gw2" perl -e 'alarm 60; exec @ARGV' "$OLDPWD/$BIN" --check-update >/dev/null 2>&1)
+(cd "$T/gw2/r" && ONE_SUPPORT_DIR="$T/gw2" perl -e 'alarm 90; exec @ARGV' "$OLDPWD/$BIN" --render-world p >/dev/null 2>&1)
+check "check-update and renders leave it running" kill -0 $GWP
+check "and never start an engine" bash -c "! pgrep -f '$T/gw2/engine' >/dev/null"
+kill $GWP 2>/dev/null
+
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"
@@ -56,11 +76,13 @@ echo "Updater"
 mkdir -p "$T/upd"; cp -R "$APP" "$T/upd/"
 /usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString 0.0.1" "$T/upd/One.app/Contents/Info.plist"
 codesign -fs - "$T/upd/One.app" >/dev/null 2>&1
-check "an old copy sees the latest release" bash -c "'$T/upd/One.app/Contents/MacOS/One' --check-update | grep -q 'available'"
+mkdir -p "$T/upd/sup"  # its own scratch home: this copy loads the window and must never reach the real One
+check "an old copy sees the latest release" bash -c "ONE_SUPPORT_DIR='$T/upd/sup' '$T/upd/One.app/Contents/MacOS/One' --check-update | grep -q 'available'"
 
 if [ $CI = 0 ]; then
 echo "Screens"
-mkdir -p "$T/r"; (cd "$T/r" && perl -e 'alarm 150; exec @ARGV' "$OLDPWD/$BIN" --render-world p >/dev/null 2>&1)
+mkdir -p "$T/r"; # Renders read the real brain (live-rooms) but get a scratch home, so they can't touch the engine.
+mkdir -p "$T/rsup"; (cd "$T/r" && ONE_SUPPORT_DIR="$T/rsup" perl -e 'alarm 150; exec @ARGV' "$OLDPWD/$BIN" --render-world p >/dev/null 2>&1)
 for f in p-orb p-cw-all p-cw-other p-me-card p-live-rooms; do check "renders $f" test -s "$T/r/$f.png"; done
 fi
 
@@ -73,6 +95,12 @@ if [ $FULL = 1 ] && [ $CI = 0 ]; then
   check "fresh engine is the pinned version" bash -c "[ \"$(cd $T/fresh/engine && git rev-parse HEAD)\" = \"$(cat $APP/Contents/Resources/hermes-commit.txt)\" ]"
   check "KeePass in the fresh engine" grep -q KeePassLoginBackend "$T/fresh/engine/agent/vault_backends/base.py"
   check "tools Python built" test -x "$T/fresh/tools-venv/bin/python"
+fi
+
+echo "Your live One"
+GW_AFTER=$(gw_id)
+if [ -n "$GW_BEFORE" ]; then
+  check "its engine helper was not restarted by this run" test "$GW_BEFORE" = "$GW_AFTER"
 fi
 
 echo

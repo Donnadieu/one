@@ -237,8 +237,9 @@ enum JobsCheck {
         if !asks.isEmpty { say("permission asks (all denied): \(asks.joined(separator: " ; "))") }
 
         // Leave nothing running and nothing changed.
+        let previous = Engine.shared.enginePID
         Engine.shared.stop()
-        Engine.stopStrayGateway()
+        Engine.stopStrayGateway(previousEngine: previous, caller: "test-jobs")
         shop?.terminate()
         try? fm.removeItem(at: scratch.appendingPathComponent("routines.json"))
         try? fm.copyItem(at: jobsFile, to: scratch.appendingPathComponent("routines.json"))  // kept for reading, then removed from the home

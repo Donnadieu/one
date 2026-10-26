@@ -40,6 +40,10 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Env.selfTest = true  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
         }
+        if CommandLine.arguments.contains("--test-gateway") {
+            Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
+            exit(GatewayCheck.run())
+        }
         if CommandLine.arguments.contains("--test-shared") {
             Env.selfTest = true  // brain goes to a scratch copy, never the real one
             // Two people, one cloud folder: Omar makes a room, Sam joins, both add entries.
@@ -102,8 +106,9 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         return true
     }
     func applicationWillTerminate(_ notification: Notification) {
+        let previous = Engine.shared.enginePID
         Engine.shared.stop()
-        Engine.stopStrayGateway()
+        Engine.stopStrayGateway(previousEngine: previous, caller: "quit")
     }
     /// Closing the window keeps One running as the orb, so it can still listen and talk. Quit with ⌘Q.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -318,7 +323,9 @@ struct Entry {
                     let stop = await Engine.shared.prompt(q)
                     print(" [\(stop)]")
                 }
-                Engine.stopStrayGateway()
+                let previous = Engine.shared.enginePID
+                Engine.shared.stop()
+                Engine.stopStrayGateway(previousEngine: previous, caller: "install-test")
             }
         }
         if args.contains("--test-jobs") {

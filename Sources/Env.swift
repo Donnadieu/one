@@ -13,6 +13,10 @@ import UniformTypeIdentifiers
 
 enum Env {
     nonisolated(unsafe) static var selfTest = false
+    /// Launched as a command-line tool (`One --check-update`, `--render-world`, …), not by a person.
+    /// The window still loads in some of these modes; it must never start the engine, because that
+    /// used to restart the person's live engine helper and fail the message they were waiting on.
+    static var commandLine: Bool { CommandLine.arguments.dropFirst().contains { $0.hasPrefix("--") } }
     static var support: URL {
         let base = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) }
         let u =

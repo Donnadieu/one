@@ -14,7 +14,7 @@ extension Model {
     // Talking after setup
 
     func ensureEngine() async {
-        guard onboarded, !Engine.shared.running else { return }
+        guard onboarded, !Engine.shared.running, !Env.commandLine else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
         // Warn only if KeePass really isn't wired in after a retry, and never twice in a row
@@ -338,9 +338,19 @@ extension Model {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
-        let stop = await Engine.shared.prompt(
-            c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
+        let message = c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews()
+        let gateway = GatewayGuard.recordedPID()
+        var stop = await Engine.shared.prompt(message, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
+        let soFar = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
+        if Engine.dropped(stop, text: soFar, gatewayBefore: gateway) {
+            // The engine's helper restarted under this message: send it again once, quietly.
+            heldText = ""
+            if idx < bubbles.count { bubbles[idx].text = "" }
+            working = "Picking that back up…"
+            stop = await Engine.shared.promptAgain(message, images: c.images)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
         let (clean, jobs) = Helpers.extract(full)

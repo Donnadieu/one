@@ -40,6 +40,8 @@
 | Previews.swift | dev only | scenes for `--render-world` |
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
+| GatewayGuard.swift | service | stops the engine's background helper (gateway) only when it's stale, never a healthy one another One uses |
+| GatewayCheck.swift | dev only | `One --test-gateway`, run by preflight |
 | App.swift | entry | `@main`, app delegate, CLI test hooks |
 | JobsCheck.swift | dev only | `One --test-jobs` (three core jobs end to end, run by `make jobs`) and `FakeMail`, the test inbox behind `ONE_FAKE_MAIL` |
 

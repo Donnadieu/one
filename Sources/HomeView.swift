@@ -32,7 +32,6 @@ struct HomeView: View {
     @State var folderSheet = false
     @State var talkKeySheet = false
     @State var connectionsSheet = false
-    @State var roomsSheet = false
     @State var meCard = false
     @AppStorage("shelfCollapsed") var shelfCollapsed = false
     @AppStorage("tryHidden") var tryHidden = false
@@ -266,7 +265,7 @@ struct HomeView: View {
             }
             ToolbarItem {
                 Button {
-                    roomsSheet = true
+                    RoomsWindow.show(m)
                 } label: {
                     Label("Rooms", systemImage: "circle.hexagongrid")
                 }.help("See your rooms")
@@ -310,7 +309,6 @@ struct HomeView: View {
         .navigationTitle("")
         .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
         .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
-        .sheet(isPresented: $roomsSheet) { RoomsView(m: m) { roomsSheet = false } }
         .sheet(isPresented: $connectionsSheet) { ConnectionsWorld(m: m) { connectionsSheet = false }.frame(width: 720, height: 680) }
         .popover(isPresented: $meCard, arrowEdge: .bottom) { MeCard(m: m) { meCard = false } }
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }

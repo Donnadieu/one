@@ -9,153 +9,140 @@ import EventKit
 import CoreAudio
 import UniformTypeIdentifiers
 
+@MainActor
 struct RoomsView: View {
     @ObservedObject var m: Model
+    @ObservedObject var graph: RoomGraph
     var close: () -> Void
-    @State var rooms: [RoomInfo] = []
-    @State var picked: String?
-    @State var hover: String?
+    /// Renders only: draw one still frame (no clock, no ScrollView).
+    var still = false
     @State var sharing = false
-    var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Text("Your rooms").font(.title3.weight(.semibold))
-                    Text("Each room is a part of your life where \(m.name) acts differently and keeps the notes apart.")
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                    Spacer()
-                    Button {
-                        sharing = true
-                    } label: {
-                        Label("Share a room", systemImage: "person.2")
-                    }
-                    .help("Work on a room together with someone")
-                    Button {
-                        close()
-                        Task { await m.send("I'd like to add a room.", toNova: true) }
-                    } label: {
-                        Label("Room", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                    .help("Add a room")
-                    Button("Done") { close() }.keyboardShortcut(.cancelAction)
-                }
-                .padding(16)
-                if rooms.isEmpty {
-                    Spacer()
-                    Text("Your rooms show up here once setup is done.").foregroundStyle(.secondary)
-                    Spacer()
-                } else {
-                    GeometryReader { g in
-                        let laid = RoomMap.layout(rooms, g.size)
-                        let at = Dictionary(laid.map { ($0.n.id, $0) }, uniquingKeysWith: { a, _ in a })
-                        let labelled =
-                            laid.count <= 14
-                            ? Set(laid.map(\.n.id)) : Set(laid.sorted { $0.degree > $1.degree }.prefix(10).filter { $0.degree > 0 }.map(\.n.id))
-                        Canvas { ctx, _ in
-                            // facts that crossed between rooms
-                            for (i, r) in rooms.enumerated() {
-                                for (j, n) in r.crossed where j > i || rooms[j].crossed[i] == nil {
-                                    guard let a = laid.first(where: { $0.n.room == i && $0.n.hub }),
-                                        let b = laid.first(where: { $0.n.room == j && $0.n.hub })
-                                    else { continue }
-                                    let mid = CGPoint(x: (a.p.x + b.p.x) / 2, y: min(a.p.y, b.p.y) - 60)
-                                    var path = Path()
-                                    path.move(to: a.p)
-                                    path.addQuadCurve(to: b.p, control: mid)
-                                    ctx.stroke(path, with: .color(Color(hex: 0xF4EFE8, 0.3)), style: StrokeStyle(lineWidth: 1, dash: [2, 5]))
-                                    ctx.draw(
-                                        Text(n == 1 ? "1 fact crossed" : "\(n) facts crossed").font(.system(size: 10)).foregroundColor(
-                                            Color(hex: 0xF4EFE8, 0.5)), at: CGPoint(x: mid.x, y: mid.y + 22))
-                                }
-                            }
-                            for l in laid {
-                                let hub = laid.first { $0.n.room == l.n.room && $0.n.hub }
-                                if let hub, !l.n.hub {
-                                    var p = Path()
-                                    p.move(to: hub.p)
-                                    p.addLine(to: l.p)
-                                    ctx.stroke(p, with: .color(l.color.opacity(0.12)), lineWidth: 0.8)
-                                }
-                                for t in l.n.links {
-                                    if let o = at[t] {
-                                        var p = Path()
-                                        p.move(to: l.p)
-                                        p.addLine(to: o.p)
-                                        ctx.stroke(p, with: .color(l.color.opacity(0.4)), lineWidth: 1)
-                                    }
-                                }
-                            }
-                            for l in laid {
-                                let on = l.n.id == picked || l.n.id == hover
-                                if l.n.hub || on {
-                                    ctx.fill(
-                                        Path(ellipseIn: CGRect(x: l.p.x - l.r * 2.4, y: l.p.y - l.r * 2.4, width: l.r * 4.8, height: l.r * 4.8)),
-                                        with: .color(l.color.opacity(on ? 0.28 : 0.14)))
-                                }
-                                ctx.fill(
-                                    Path(ellipseIn: CGRect(x: l.p.x - l.r, y: l.p.y - l.r, width: l.r * 2, height: l.r * 2)),
-                                    with: .color(l.color.opacity(l.degree > 0 || l.n.hub ? 0.95 : 0.55)))
-                                if l.n.hub || on || labelled.contains(l.n.id) {
-                                    let txt = ctx.resolve(
-                                        Text(l.n.title).font(.system(size: l.n.hub ? 12.5 : 11, weight: l.n.hub ? .semibold : .regular))
-                                            .foregroundColor(Color(hex: 0xF4EFE8, l.n.hub || on ? 0.95 : 0.75)))
-                                    let sz = txt.measure(in: CGSize(width: 220, height: 40))
-                                    let pt = CGPoint(x: l.p.x, y: l.p.y + l.r * 2.4 + 8)
-                                    ctx.fill(
-                                        Path(
-                                            roundedRect: CGRect(
-                                                x: pt.x - sz.width / 2 - 4, y: pt.y - sz.height / 2 - 1, width: sz.width + 8, height: sz.height + 2),
-                                            cornerRadius: 5), with: .color(Color(hex: 0x141416, 0.85)))
-                                    ctx.draw(txt, at: pt)
-                                }
-                            }
-                            for (i, r) in rooms.enumerated() {
-                                guard let hub = laid.first(where: { $0.n.room == i && $0.n.hub }) else { continue }
-                                let maxY = laid.filter { $0.n.room == i }.map(\.p.y).max() ?? hub.p.y
-                                let count = r.notes.filter { !$0.id.hasPrefix("room:") }.count
-                                ctx.draw(
-                                    Text(r.title).font(.system(size: 13, weight: .semibold)).foregroundColor(r.color),
-                                    at: CGPoint(x: hub.p.x, y: maxY + 30))
-                                if let sh = r.shared {
-                                    ctx.draw(
-                                        Text(Image(systemName: "person.2.fill")).font(.system(size: 10)).foregroundColor(r.color),
-                                        at: CGPoint(x: hub.p.x, y: hub.p.y - 22))
-                                    ctx.draw(
-                                        Text(sh).font(.system(size: 10.5)).foregroundColor(r.color.opacity(0.8)),
-                                        at: CGPoint(x: hub.p.x, y: maxY + 62))
-                                }
-                                ctx.draw(
-                                    Text(count == 1 ? "1 note" : "\(count) notes").font(.system(size: 10.5)).foregroundColor(
-                                        Color(hex: 0xF4EFE8, 0.5)), at: CGPoint(x: hub.p.x, y: maxY + 46))
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onContinuousHover { ph in
-                            if case .active(let pt) = ph { hover = nearest(pt, laid) } else { hover = nil }
-                        }
-                        .onTapGesture(coordinateSpace: .local) { pt in if let n = nearest(pt, laid), !n.hasPrefix("room:") { picked = n } }
-                    }
-                }
-            }
-            if let id = picked, let note = rooms.flatMap(\.notes).first(where: { $0.id == id }) {
-                NotePanel(note: note, rooms: rooms) { picked = $0 }
-                    .frame(width: 290).padding(.vertical, 14).padding(.trailing, 14)
-            }
-        }
-        .frame(minWidth: 900, minHeight: 580)
-        .background(Color(hex: 0x141416))
-        .environment(\.colorScheme, .dark)
-        .sheet(isPresented: $sharing, onDismiss: { rooms = RoomMap.load() }) { ShareRoomSheet(m: m) { sharing = false } }
-        .onAppear {
-            rooms = RoomMap.load()
-            picked = rooms.first?.notes.first { $0.hub && !$0.id.hasPrefix("room:") }?.id
-        }
+    init(m: Model, graph: RoomGraph? = nil, still: Bool = false, close: @escaping () -> Void) {
+        let graph = graph ?? RoomGraph()
+        self.m = m
+        self.graph = graph
+        self.still = still
+        self.close = close
+        if graph.rooms.isEmpty { graph.load(RoomMap.load()) }
     }
-    func nearest(_ pt: CGPoint, _ laid: [LaidNote]) -> String? {
-        let best = laid.min { hypot($0.p.x - pt.x, $0.p.y - pt.y) < hypot($1.p.x - pt.x, $1.p.y - pt.y) }
-        guard let best, hypot(best.p.x - pt.x, best.p.y - pt.y) < 18 else { return nil }
-        return best.n.id
+    var body: some View {
+        ZStack {
+            RadialGradient(
+                colors: [Color(hex: 0x1C1B1F), Color(hex: 0x141416), Color(hex: 0x111113)], center: UnitPoint(x: 0.48, y: 0.52), startRadius: 0,
+                endRadius: 700)
+            if graph.rooms.isEmpty {
+                Text("Your rooms show up here once setup is done.").foregroundStyle(Color(hex: 0xF4EFE8, 0.5))
+            } else {
+                RoomGraphView(g: graph, still: still)
+            }
+            VStack(spacing: 0) {
+                RoomsHeader(m: m, g: graph, share: { sharing = true }, close: close)
+                Spacer(minLength: 0)
+                RoomsFooter(g: graph)
+            }
+            if let sel = graph.selected, let note = graph.note(sel) {
+                HStack {
+                    Spacer()
+                    NotePanel(note: note, g: graph, index: sel, still: still)
+                        .frame(width: 368).padding(.top, 80).padding(.bottom, 84).padding(.trailing, 16)
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+            Button("") { graph.focus == nil && graph.selected == nil ? close() : graph.back() }
+                .keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
+        }
+        .animation(.timingCurve(0.32, 0.72, 0.4, 1, duration: 0.52), value: graph.selected)
+        .frame(minWidth: 900, minHeight: 580)
+        .environment(\.colorScheme, .dark)
+        .sheet(isPresented: $sharing, onDismiss: { reload() }, content: { ShareRoomSheet(m: m) { sharing = false } })
+    }
+    func reload() {
+        let f = graph.focus.map { graph.rooms[$0].name }
+        graph.load(RoomMap.load())
+        graph.focus = f.flatMap { n in graph.rooms.firstIndex { $0.name == n } }
+        graph.selected = nil
+    }
+}
+
+/// "Your rooms" and what they are; inside a room it becomes "Your rooms › Work".
+struct RoomsHeader: View {
+    @ObservedObject var m: Model
+    @ObservedObject var g: RoomGraph
+    var share: () -> Void
+    var close: () -> Void
+    static let cream = Color(hex: 0xF4EFE8)
+    var body: some View {
+        HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    if let f = g.focus, g.rooms.indices.contains(f) {
+                        Button("Your rooms") { g.go(room: nil) }
+                            .buttonStyle(.plain).font(.system(size: 17, weight: .semibold)).foregroundStyle(Self.cream.opacity(0.5))
+                            .help("Back to all rooms")
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Self.cream.opacity(0.35))
+                        Circle().fill(g.rooms[f].tint.color(1)).frame(width: 8, height: 8).shadow(color: g.rooms[f].tint.color(1), radius: 5)
+                        Text(g.rooms[f].name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Self.cream)
+                    } else {
+                        Text("Your rooms").font(.system(size: 17, weight: .semibold)).foregroundStyle(Self.cream)
+                    }
+                }
+                .frame(height: 24)
+                Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Self.cream.opacity(0.5)).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button(action: share) {
+                HStack(spacing: 7) {
+                    Image(systemName: "person.2").font(.system(size: 12))
+                    Text("Share a room").font(.system(size: 13, weight: .medium))
+                }
+                .padding(.horizontal, 14).frame(height: 32).background(Capsule().fill(Self.cream.opacity(0.07)))
+            }
+            .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.85)).help("Work on a room together with someone")
+            Button(action: close) {
+                Text("Done").font(.system(size: 13, weight: .semibold)).padding(.horizontal, 18).frame(height: 32)
+                    .background(Capsule().fill(Self.cream))
+            }
+            .buttonStyle(.plain).foregroundStyle(Color(hex: 0x141416))
+        }
+        .padding(.leading, 28).padding(.trailing, 24).frame(height: 72)
+        .background(
+            LinearGradient(
+                stops: [.init(color: Color(hex: 0x141416), location: 0.3), .init(color: Color(hex: 0x141416, 0), location: 1)], startPoint: .top,
+                endPoint: .bottom))
+    }
+    var subtitle: String {
+        if let f = g.focus, g.rooms.indices.contains(f) { return g.rooms[f].sub }
+        return "Each room is a part of your life. I keep what I learn in the right one."
+    }
+}
+
+/// A short hint on the left, zoom buttons on the right.
+struct RoomsFooter: View {
+    @ObservedObject var g: RoomGraph
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(hint)
+                .font(.system(size: 12)).foregroundStyle(Color(hex: 0xF4EFE8, 0.42)).fixedSize()
+            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                round("minus", "Zoom out") { g.zoomButton(1 / 1.35) }
+                round("plus", "Zoom in") { g.zoomButton(1.35) }
+                round("arrow.up.left.and.arrow.down.right", "Show everything") { g.fit() }
+            }
+        }
+        .padding(.leading, 28).padding(.trailing, 20).frame(height: 72)
+    }
+    var hint: String {
+        if g.selected != nil { return "Click a linked note to jump to it. Press Esc to close the note." }
+        if g.focus != nil { return "Click a note to read it. Press Esc to see all rooms." }
+        return "Drag a note to move it. Scroll to zoom. Click a room to go in."
+    }
+    func round(_ icon: String, _ help: String, tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold)).frame(width: 32, height: 32)
+                .background(Circle().fill(Color(hex: 0xF4EFE8, 0.07)))
+        }
+        .buttonStyle(.plain).foregroundStyle(Color(hex: 0xF4EFE8, 0.8)).help(help)
     }
 }
 
@@ -239,62 +226,142 @@ struct ShareRoomSheet: View {
     }
 }
 
+/// The note reader on the right: room, title, when it changed, the note itself, and its linked notes.
 struct NotePanel: View {
     let note: RoomNote
-    let rooms: [RoomInfo]
-    var go: (String) -> Void
-    var body: some View {
+    @ObservedObject var g: RoomGraph
+    let index: Int
+    var still = false
+    static let cream = Color(hex: 0xF4EFE8)
+    var text: String {
         let raw = (try? String(contentsOfFile: note.id, encoding: .utf8)) ?? ""
         var lines = raw.components(separatedBy: "\n")
         if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines = Array(lines[(end + 1)...]) }
         if let f = lines.firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }), lines[f].hasPrefix("# ") { lines.remove(at: f) }
-        let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        let room = rooms[note.room]
-        let all = room.notes
-        let linked = Array(Set(note.links + all.filter { $0.links.contains(note.id) }.map(\.id))).compactMap { id in all.first { $0.id == id } }
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Circle().fill(room.color).frame(width: 7, height: 7)
-                Text(room.title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            }
-            Text(note.title).font(.system(size: 16, weight: .semibold))
-            ScrollView {
-                MarkdownText(text: text.isEmpty ? "Nothing written here yet." : text, size: 13).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !linked.isEmpty {
-                Text("LINKED NOTES").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(.secondary)
-                FlowChips(items: linked.prefix(8).map { ($0.id, $0.title) }, tap: go)
-            }
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: note.id)])
-            } label: {
-                Label("Show in Finder", systemImage: "folder")
-            }
-            .buttonStyle(.plain).foregroundStyle(.secondary).font(.callout)
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    var meta: String {
+        let n = g.nodes[index].deg
+        let links = n == 1 ? "1 linked note" : "\(n) linked notes"
+        let attrs = try? FileManager.default.attributesOfItem(atPath: note.id)
+        guard let d = attrs?[.modificationDate] as? Date else { return links }
+        return links + " · Updated " + d.formatted(.dateTime.month(.abbreviated).day())
+    }
+    /// Renders can't scroll: whole paragraphs up to ~700 characters, so nothing is cut mid-table.
+    static func firstPart(_ s: String) -> String {
+        var out = ""
+        for p in s.components(separatedBy: "\n\n") {
+            if !out.isEmpty && out.count + p.count > 700 { break }
+            out += (out.isEmpty ? "" : "\n\n") + p
         }
-        .padding(16).frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.08)))
+        return out
+    }
+    var body: some View {
+        let room = g.rooms[g.nodes[index].room]
+        let linked = g.adj[index].sorted { g.nodes[$0].deg > g.nodes[$1].deg }.prefix(10)
+        let shown = text.isEmpty ? "Nothing written here yet." : text
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Circle().fill(room.tint.color(1)).frame(width: 8, height: 8).shadow(color: room.tint.color(1), radius: 5)
+                Text(room.name + " room" + (room.shared.map { " · " + $0 } ?? "")).font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Self.cream.opacity(0.58)).lineLimit(1)
+                Spacer()
+                Button {
+                    g.select(nil)
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.5)).help("Close")
+            }
+            .padding(.top, 20).padding(.leading, 24).padding(.trailing, 18)
+            Text(note.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Self.cream).lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 10).padding(.horizontal, 24)
+            Text(meta).font(.system(size: 12)).foregroundStyle(Self.cream.opacity(0.45)).padding(.top, 8).padding(.horizontal, 24)
+            Group {
+                if still {
+                    Color.clear.overlay(alignment: .topLeading) {
+                        MarkdownText(text: NotePanel.firstPart(shown), size: 14).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .clipped()
+                } else {
+                    ScrollView { MarkdownText(text: shown, size: 14).frame(maxWidth: .infinity, alignment: .leading) }
+                }
+            }
+            .padding(.top, 18).padding(.horizontal, 24).padding(.bottom, 16).frame(minHeight: 120)
+            VStack(alignment: .leading, spacing: 12) {
+                if !linked.isEmpty {
+                    Text("LINKED NOTES").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Self.cream.opacity(0.4))
+                    FlowChips(items: linked.map { i in (i, g.nodes[i].name, g.rooms[g.nodes[i].room].tint.color(1)) }) { g.select($0) }
+                }
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: note.id)])
+                } label: {
+                    Label("Show in Finder", systemImage: "folder").font(.system(size: 12.5))
+                }
+                .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.5))
+            }
+            .padding(.top, 16).padding(.horizontal, 24).padding(.bottom, 18)
+            .overlay(alignment: .top) { Rectangle().fill(Self.cream.opacity(0.06)).frame(height: 1) }
+        }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x19191C, 0.96)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Self.cream.opacity(0.08)))
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
     }
 }
 
+/// Linked-note chips that wrap onto as many lines as they need.
 struct FlowChips: View {
-    let items: [(String, String)]
-    var tap: (String) -> Void
+    let items: [(Int, String, Color)]
+    var tap: (Int) -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { i in
-                HStack(spacing: 6) {
-                    ForEach(items[i..<min(i + 2, items.count)], id: \.0) { it in
-                        Button {
-                            tap(it.0)
-                        } label: {
-                            Text(it.1).font(.system(size: 11)).lineLimit(1)
-                                .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Color.white.opacity(0.08)))
-                        }.buttonStyle(.plain)
+        ChipWrap(spacing: 6) {
+            ForEach(items, id: \.0) { it in
+                Button {
+                    tap(it.0)
+                } label: {
+                    HStack(spacing: 7) {
+                        Circle().fill(it.2).frame(width: 6, height: 6)
+                        Text(it.1).font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                     }
+                    .padding(.leading, 9).padding(.trailing, 11).frame(height: 28)
+                    .background(Capsule().fill(Color(hex: 0xF4EFE8, 0.06)))
+                    .frame(maxWidth: 300, alignment: .leading)
                 }
+                .buttonStyle(.plain).foregroundStyle(Color(hex: 0xF4EFE8, 0.85))
             }
         }
+    }
+}
+
+struct ChipWrap: Layout {
+    var spacing: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 320
+        return CGSize(width: w, height: rows(w, subviews).last.map { $0.y + $0.h } ?? 0)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (i, r) in rows(bounds.width, subviews).enumerated() {
+            subviews[i].place(at: CGPoint(x: bounds.minX + r.x, y: bounds.minY + r.y), proposal: ProposedViewSize(width: r.w, height: r.h))
+        }
+    }
+    func rows(_ width: CGFloat, _ subviews: Subviews) -> [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] {
+        var out: [(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            let w = min(s.width, width)
+            if x > 0 && x + w > width {
+                x = 0
+                y += rowH + spacing
+                rowH = 0
+            }
+            out.append((x, y, w, s.height))
+            x += w + spacing
+            rowH = max(rowH, s.height)
+        }
+        return out
     }
 }

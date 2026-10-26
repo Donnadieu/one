@@ -153,6 +153,10 @@ struct Entry {
             MainActor.assumeIsolated { OrbVoiceRender.run(clip: args[k + 1], out: args[k + 2]) }
             exit(0)
         }
+        if let k = args.firstIndex(of: "--render-rooms-fly"), k + 1 < args.count {
+            MainActor.assumeIsolated { RoomsRender.fly(args[k + 1], room: k + 2 < args.count ? args[k + 2] : "Co-Founder") }
+            exit(0)
+        }
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {
@@ -197,6 +201,9 @@ struct Entry {
                             }.environment(\.colorScheme, .dark))
                     ),
                     ("live-rooms", AnyView(RoomsView(m: Model.shared) {})),
+                    ("rooms-overview", RoomsRender.scene()),
+                    ("rooms-inside", RoomsRender.scene(room: "Co-Founder")),
+                    ("rooms-note", RoomsRender.scene(room: "Personal", mainNote: true)),
                     ("cw-all", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40))),
                     ("cw-exp", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "News", option: nil))),
                     ("cw-other", AnyView(ConnectionsWorld(m: Model.shared, fixedT: 40, picked: "Something else", option: nil))),
@@ -243,6 +250,11 @@ struct Entry {
                     ),
                 ]
                 for (name, v) in views {
+                    if name.hasPrefix("rooms-") {
+                        RoomsRender.png(v, "\(out)-\(name).png")
+                        print("wrote \(out)-\(name).png")
+                        continue
+                    }
                     let r = ImageRenderer(
                         content: v.frame(
                             width: name == "live-rooms" || name == "reader"

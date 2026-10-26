@@ -44,7 +44,7 @@ enum MapData {
         [(10, -95), (100, 0), (-95, 10), (30, 100), (-10, -40)])
 }
 
-struct RoomGraph: View {
+struct RoomGraphPreview: View {
     var t: Double = 4
     var body: some View {
         Canvas { ctx, _ in
@@ -102,7 +102,7 @@ struct MapScene: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             WorldLook.bg
-            RoomGraph()
+            RoomGraphPreview()
             // room names
             VStack(alignment: .leading, spacing: 1) {
                 Text("Personal room").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hex: 0xFFE2C2))

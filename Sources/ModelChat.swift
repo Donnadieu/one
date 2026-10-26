@@ -192,6 +192,7 @@ extension Model {
                 }
             }
         }
+        if openHelper != id, !stop.hasPrefix("error") { Task { await deliverHelper(id) } }
         if away, let h = helpers.first(where: { $0.id == id }) {
             let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."
             Floater.shared.note(line)
@@ -237,6 +238,18 @@ extension Model {
     }
 
     /// What Nova should know about her helpers: who's still working, and full results she hasn't seen yet.
+    /// A helper finished: the assistant tells you what it found right away, in the chat and out loud.
+    /// Before, it only said "X is done", and asking got "I have the update" instead of the update itself.
+    func deliverHelper(_ id: UUID) async {
+        while thinking || paused { try? await Task.sleep(for: .milliseconds(500)) }
+        guard let h = helpers.first(where: { $0.id == id }), h.toldNova != true else { return }
+        let ask = h.state == "needsYes" ? " It needs their yes: say exactly what for and offer the choices." : ""
+        await send(
+            "(One app note, not from the user: your helper \"\(h.title)\" just finished. Give \(userName) the actual result now, "
+                + "in your own words: the real content they asked for (the numbers, names, times, what changed), short and complete. "
+                + "Never just say you have the update or that it's ready.\(ask))", toNova: true, hidden: true)
+    }
+
     func helperNews() -> String {
         guard !helpers.isEmpty else { return "" }
         var lines: [String] = []
@@ -296,7 +309,7 @@ extension Model {
     }
 
     /// toNova: the floating orb always talks to Nova, never to an open helper.
-    func send(_ text: String, toNova: Bool = false) async {
+    func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard !paused, h.state != "working", let c = compose(text) else { return }
             await ensureEngine()
@@ -309,7 +322,7 @@ extension Model {
         await ensureEngine()
         let recap = Engine.shared.lostConversation ? onScreenRecap() : ""
         Engine.shared.lostConversation = false
-        me(c.display)
+        if !hidden { me(c.display) }
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true

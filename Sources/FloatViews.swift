@@ -13,13 +13,15 @@ import UniformTypeIdentifiers
 /// like one being everywhere. Breathes when idle, moves like a voice while it works.
 struct Orb: View {
     var size: CGFloat = 130
+    /// The assistant is thinking or running steps. While its voice plays the rings follow the voice instead.
     var active = false
+    @State private var ease = WorkEase()
     var body: some View {
         TimelineView(.animation) { tl in
             let t = tl.date.timeIntervalSince(WorldLook.start)
             let heard = Speaker.shared.heard()
-            let voice = active && !heard.live ? 0.35 + 0.65 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
-            Presence(t: t, lean: .zero, voice: voice, energy: 0, wave: heard)
+            let work = ease.step(active && !heard.live ? 1 : 0, t: t)
+            Presence(t: t, lean: .zero, voice: 0, energy: 0, wave: heard, work: work)
                 .frame(width: 280, height: 280)
                 .scaleEffect(size / 100)
                 .frame(width: size * 2, height: size * 2)
@@ -33,11 +35,38 @@ struct Orb: View {
 
 enum FloatState { case idle, listening, working }
 
+/// Eases the orb in and out of its working breath (about 1 s in, quicker out so speech isn't held back).
+@MainActor
+final class WorkEase {
+    private var v = 0.0
+    private var last: Double?
+    func step(_ target: Double, t: Double) -> Double {
+        let dt = min(0.05, max(0, t - (last ?? t)))
+        last = t
+        v += (target - v) * min(1, dt * (target > v ? 1.5 : 3))
+        return v
+    }
+}
+
+/// One plain-words line for the current step. Crossfades when the step changes; never moves with the orb.
+struct StepLine: View {
+    let text: String
+    var body: some View {
+        ZStack {
+            Text(text).id(text).transition(.opacity)
+        }
+        .animation(.easeInOut(duration: 0.4), value: text)
+    }
+}
+
 struct FloatingOrb: View {
     var state: FloatState
     var size: CGFloat = 72
     /// Fixed time for renders; nil = live animation.
     var fixedT: Double? = nil
+    /// Working-breath blend for renders (nil = 1 when working, eased live).
+    var fixedWork: Double? = nil
+    @State private var ease = WorkEase()
     var body: some View {
         if let t = fixedT {
             face(t)
@@ -49,14 +78,13 @@ struct FloatingOrb: View {
     private func face(_ t: Double) -> some View {
         let listening = state == .listening
         let working = state == .working
-        let voice: Double =
-            listening
-            ? 0.45 + 0.4 * abs(sin(t * 4.1) * sin(t * 2.3 + 0.7))
-            : working ? 0.3 + 0.35 * abs(sin(t * 3.3) * sin(t * 5.7 + 1)) : 0
-        let energy: Double = working ? 0.45 + 0.25 * sin(t * 2) : listening ? 0.2 : 0
+        let voice: Double = listening ? 0.45 + 0.4 * abs(sin(t * 4.1) * sin(t * 2.3 + 0.7)) : 0
+        let energy: Double = listening ? 0.2 : 0
         let k = size / 168  // outer ring (~68pt + wobble) fits inside the disc
-        let glow = working ? 0.30 + 0.10 * sin(t * 2.2) : listening ? 0.26 : 0.10
         let heard = fixedT == nil ? Speaker.shared.heard() : .still
+        let work = fixedWork ?? (fixedT == nil ? ease.step(working && !heard.live ? 1 : 0, t: t) : (working ? 1 : 0))
+        let inB = 0.5 + 0.5 * sin(t * .pi * 2 / 3.6)
+        let glow = listening ? 0.26 : 0.10 + work * (0.12 + 0.16 * inB)
         return ZStack {
             Circle().fill(WorldLook.bg.opacity(0.96))
                 .overlay(
@@ -64,7 +92,7 @@ struct FloatingOrb: View {
                         RadialGradient(
                             colors: [WorldLook.cream.opacity(listening ? 0.10 : 0.05), .clear],
                             center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: size * 0.6)))
-            Presence(t: t, lean: .zero, voice: heard.live ? 0 : voice, energy: energy, line: 1.5 / k, wave: heard)
+            Presence(t: t, lean: .zero, voice: heard.live ? 0 : voice, energy: energy, line: 1.5 / k, wave: heard, work: work)
                 .frame(width: 280, height: 280)
                 .scaleEffect(k)
                 .frame(width: size, height: size)
@@ -111,7 +139,7 @@ struct FloatingOrb: View {
 struct FloatHint: View {
     let text: String
     var body: some View {
-        Text(text)
+        StepLine(text: text)
             .lineLimit(3).multilineTextAlignment(.leading)
             .font(.system(size: 11, weight: .regular))
             .foregroundStyle(WorldLook.cream.opacity(0.72))

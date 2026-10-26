@@ -60,8 +60,8 @@ struct HomeView: View {
                             .onAppear { if firstHome == 0 { firstHome = Date().timeIntervalSince1970 } }
                         NovaWithHelpers(m: m)
                         if m.thinking && m.openHelper == nil {
-                            Text(m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2).transition(
-                                .opacity)
+                            StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+                                .transition(.opacity)
                         }
                         if m.openHelper == nil { UpdateCard() }
                         if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {

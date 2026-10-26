@@ -73,27 +73,85 @@ struct Presence: View {
     /// Ring stroke width; bigger when the rings are drawn scaled down (floating orb) so they stay crisp.
     var line: CGFloat = 1.1
     var wave: VoiceWave = .still
+    /// 0 = idle/speaking, 1 = working (thinking or running steps): the whole orb breathes in and out.
+    var work: Double = 0
     var body: some View {
-        Canvas { ctx, size in Presence.draw(&ctx, size, t: t, lean: lean, voice: voice, energy: energy, line: line, wave: wave) }
+        Canvas { ctx, size in Presence.draw(&ctx, size, t: t, lean: lean, voice: voice, energy: energy, line: line, wave: wave, work: work) }
     }
     static let cream = (r: 1.0, g: 240 / 255.0, b: 224 / 255.0)
     // Drawing is split into small typed steps: one big closure took slower Macs (CI) too long to type-check.
     static func draw(
         _ ctx: inout GraphicsContext, _ size: CGSize, t: Double, lean: CGPoint, voice: Double, energy: Double, line: CGFloat,
-        wave: VoiceWave = .still
+        wave: VoiceWave = .still, work wk: Double = 0
     ) {
         let c = CGPoint(x: size.width / 2, y: size.height / 2)
-        let breath: Double = 1 + 0.035 * sin(t * .pi * 2 / 5)
+        let b = Breath(t: t, work: wk)
         let lvl: Double = wave.live ? wave.now : voice * 0.6
         halo(&ctx, size, c: CGPoint(x: c.x + lean.x, y: c.y + lean.y), a: 0.09 + lvl * 0.07 + energy * 0.06)
         guides(&ctx, c: c, t: t, line: line)
         for (i, w) in wave.words.enumerated() { wordWave(&ctx, c: c, t: t, age: w.age, amp: w.amp, k: Double(i % 7) * 0.9, line: line) }
-        core(&ctx, c: CGPoint(x: c.x + lean.x * 0.5, y: c.y + lean.y * 0.5), lvl: lvl, energy: energy)
+        let cc = CGPoint(x: c.x + lean.x * 0.5, y: c.y + lean.y * 0.5)
+        if wk > 0.01 {
+            breathHalo(&ctx, c: c, t: t, b: b)
+            workCore(&ctx, c: cc, lvl: lvl, energy: energy, b: b)
+        } else {
+            core(&ctx, c: cc, lvl: lvl, energy: energy)
+        }
         for k in stride(from: 6, through: 0, by: -1) {
             let sp: Double = wave.live ? wave.ago(k) : voice * 0.6
-            ring(&ctx, k: Double(k), c: c, t: t, lean: lean, breath: breath, sp: sp, energy: energy, line: line)
+            ring(&ctx, k: Double(k), c: c, t: t, lean: lean, breath: b.rings, sp: sp, energy: energy, line: line, b: b)
         }
-        specks(&ctx, c: CGPoint(x: c.x + lean.x * 0.6, y: c.y + lean.y * 0.6), t: t, lvl: lvl)
+        specks(&ctx, c: CGPoint(x: c.x + lean.x * 0.6, y: c.y + lean.y * 0.6), t: t, lvl: lvl, sc: b.scale)
+    }
+    /// The working breath (Claude Design "One World v2"): in for 1.8 s, out for 1.8 s, sine eased.
+    struct Breath {
+        let work: Double
+        /// 0 = fully out, 1 = fully in.
+        let inB: Double
+        /// Scale for the rings' radius (idle keeps its slow 5 s breath).
+        let rings: Double
+        /// Scale for the core and specks: about 0.82 out to 1.12 in while working.
+        let scale: Double
+        init(t: Double, work: Double) {
+            let ww: Double = sin(t * .pi * 2 / 3.6)
+            let idle: Double = 1 + 0.035 * sin(t * .pi * 2 / 5)
+            self.work = work
+            inB = 0.5 + 0.5 * ww
+            rings = idle * (1 - work) + (0.97 + 0.15 * ww) * work
+            scale = 1 + work * (-0.03 + 0.15 * ww)
+        }
+    }
+    /// A soft halo ring that leaves the orb and fades on each in-breath.
+    static func breathHalo(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, b: Breath) {
+        let hu: Double = (t / 3.6 + 0.75).truncatingRemainder(dividingBy: 1)
+        let hr: Double = (60 + 70 * hu) * b.scale
+        let ha: Double = b.work * 0.16 * min(1, hu * 4) * (1 - hu)
+        if ha < 0.003 { return }
+        let col = Color(.sRGB, red: 1, green: 232 / 255, blue: 210 / 255, opacity: ha)
+        let g = Gradient(stops: [
+            .init(color: col.opacity(0), location: 0), .init(color: col.opacity(0), location: 0.55),
+            .init(color: col, location: 0.89), .init(color: col.opacity(0), location: 1),
+        ])
+        let r = CGFloat(hr)
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+            with: .radialGradient(g, center: c, startRadius: 0, endRadius: r))
+    }
+    /// The core while working: brightest on the in-breath (about 0.35 out to 1.0 in).
+    static func workCore(_ ctx: inout GraphicsContext, c: CGPoint, lvl: Double, energy: Double, b: Breath) {
+        let wk = b.work
+        let a: Double = (0.20 + lvl * 0.22 + energy * 0.1) * (1 - wk) + (0.35 + 0.65 * b.inB) * wk
+        let mid: Double = 0.06 + lvl * 0.07 + wk * b.inB * 0.1
+        let g = Gradient(stops: [
+            .init(color: Color(.sRGB, red: 1, green: 244 / 255, blue: 232 / 255, opacity: a), location: 0),
+            .init(color: Color(.sRGB, red: 1, green: 236 / 255, blue: 216 / 255, opacity: a * 0.4), location: 0.35),
+            .init(color: Color(.sRGB, red: 1, green: 232 / 255, blue: 210 / 255, opacity: mid), location: 0.6),
+            .init(color: .clear, location: 1),
+        ])
+        let r = CGFloat(40 * b.scale * (1 + wk * 0.3 * b.inB))
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+            with: .radialGradient(g, center: c, startRadius: 0, endRadius: r))
     }
     static func halo(_ ctx: inout GraphicsContext, _ size: CGSize, c: CGPoint, a: Double) {
         let g = Gradient(colors: [Color(.sRGB, red: 1, green: 236 / 255, blue: 214 / 255, opacity: a), .clear])
@@ -133,7 +191,7 @@ struct Presence: View {
             with: .radialGradient(g, center: c, startRadius: 0, endRadius: 40))
     }
     /// Fine light specks drifting inside the orb; they move a little faster while it speaks.
-    static func specks(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, lvl: Double) {
+    static func specks(_ ctx: inout GraphicsContext, c: CGPoint, t: Double, lvl: Double, sc: Double = 1) {
         for i in 0..<38 {
             let d = Double(i)
             let a0: Double = d * 2.399963
@@ -144,8 +202,8 @@ struct Presence: View {
             let tw: Double = 0.5 + 0.5 * sin(t * (0.6 + (d * 0.37).truncatingRemainder(dividingBy: 1.4)) + d)
             let op: Double = (0.12 + 0.38 * tw) * (1 - min(1, rr / 58) * 0.6)
             let s: Double = 0.5 + (d * 0.29).truncatingRemainder(dividingBy: 0.8)
-            let x = c.x + CGFloat(cos(a) * rr)
-            let y = c.y + CGFloat(sin(a) * rr)
+            let x = c.x + CGFloat(cos(a) * rr * sc)
+            let y = c.y + CGFloat(sin(a) * rr * sc)
             ctx.fill(
                 Path(ellipseIn: CGRect(x: x - s, y: y - s, width: 2 * s, height: 2 * s)),
                 with: .color(Color(.sRGB, red: 1, green: 242 / 255, blue: 228 / 255, opacity: op)))
@@ -169,10 +227,11 @@ struct Presence: View {
     /// `sp` = the voice as this ring hears it (outer rings a moment later than inner ones).
     static func ring(
         _ ctx: inout GraphicsContext, k kd: Double, c: CGPoint, t: Double, lean: CGPoint, breath: Double, sp: Double, energy: Double,
-        line: CGFloat
+        line: CGFloat, b: Breath? = nil
     ) {
+        let wk: Double = b?.work ?? 0
         let base: Double = (40 + kd * 4.6) * breath + sp * (5 - kd * 0.3)
-        let amp: Double = 1.8 + sp * 6 + energy * 4
+        let amp: Double = 1.8 * (1 - 0.5 * wk) + sp * 6 + energy * 4
         let o = CGPoint(x: c.x + lean.x * CGFloat(kd / 7), y: c.y + lean.y * CGFloat(kd / 7))
         let path = ringPath(o: o, base: base, amp: amp, kd: kd, t: t * (1 + sp * 0.6))
         if kd == 0 {
@@ -183,7 +242,8 @@ struct Presence: View {
             ctx.fill(path, with: .radialGradient(fill, center: CGPoint(x: o.x - 8, y: o.y - 10), startRadius: 2, endRadius: CGFloat(base * 1.1)))
         }
         let hue: Double = (32 + kd * 26) / 360
-        let col = Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(min(0.9, 0.62 - kd * 0.07 + sp * 0.18))
+        let lift: Double = wk * ((b?.inB ?? 0.5) - 0.5) * 0.16
+        let col = Color(hue: hue, saturation: 0.30, brightness: 0.95).opacity(min(0.9, 0.62 - kd * 0.07 + sp * 0.18 + lift))
         ctx.stroke(path, with: .color(col), lineWidth: line)
     }
 }

@@ -193,11 +193,71 @@ enum Plain {
         case "search_files": return "Looking through your files…"
         case "vision_analyze": return "Looking at the picture…"
         case "session_search": return "Remembering what we talked about…"
-        case "terminal", "execute_code": return "Working on your Mac…"
+        case "terminal": return shell(arg)
+        case "execute_code": return code(arg)
         case "manage_connections": return "Checking your connections…"
         case "text_to_speech": return "Getting my voice ready…"
         case "todo", "todo_list": return "Planning the steps…"
         default: return "Working on it…"
         }
+    }
+}
+
+/// Plain words for a command the assistant runs on the Mac. Never shows the command itself.
+extension Plain {
+    static let shellWords: [(heads: [String], say: String)] = [
+        (["ls", "find", "tree", "du", "mdfind", "stat", "wc", "fd"], "Looking through your files…"),
+        (["cat", "head", "tail", "less", "grep", "rg", "sed", "awk", "jq", "pdftotext"], "Reading your files…"),
+        (["cp", "mv", "mkdir", "rsync", "ditto", "ln", "touch"], "Moving your files around…"),
+        (["zip", "unzip", "tar"], "Packing up your files…"),
+        (["curl", "wget", "http", "ping"], "Checking a website…"),
+        (["git", "gh"], "Saving to GitHub…"),
+        (["brew", "pip", "pip3", "uv", "npm", "npx", "pnpm"], "Getting a tool ready…"),
+        (["open"], "Opening it for you…"),
+        (["osascript", "shortcuts"], "Asking your Mac's apps…"),
+        (["say", "afplay", "ffmpeg", "sips", "convert", "magick"], "Working on the picture or sound…"),
+        (["date", "cal"], "Checking the date…"),
+        (["sqlite3"], "Looking something up…"),
+    ]
+    /// `terminal: <command preview>` → what it does, in plain words.
+    static func shell(_ cmd: String) -> String {
+        let words = cmd.replacingOccurrences(of: "\n", with: " ").split(whereSeparator: { " \t;|&()".contains($0) }).map(String.init)
+        var i = 0
+        while i < words.count, ["cd", "sudo", "env", "time", "export", "source", "."].contains(words[i]) || words[i].contains("=") {
+            // `cd somewhere && …`, `FOO=1 …`: skip to the command that does the work.
+            i += words[i] == "cd" ? 2 : 1
+        }
+        guard i < words.count else { return "Working on your Mac…" }
+        let head = (words[i].split(separator: "/").last.map(String.init) ?? words[i]).lowercased()
+        if head.hasPrefix("python") || ["node", "bash", "sh", "zsh", "ruby", "swift", "perl"].contains(head) {
+            return script(words.dropFirst(i + 1).first { !$0.hasPrefix("-") })
+        }
+        if head.hasSuffix(".py") || head.hasSuffix(".sh") { return script(head) }
+        if head == "git" && i + 1 < words.count && ["status", "log", "diff", "show"].contains(words[i + 1]) {
+            return "Checking your saved changes…"
+        }
+        if head == "git" && i + 1 < words.count && ["clone", "pull", "fetch"].contains(words[i + 1]) { return "Getting it from GitHub…" }
+        if ["hermes", "one"].contains(head) { return "Checking my own setup…" }
+        return shellWords.first { $0.heads.contains(head) }?.say ?? "Working on your Mac…"
+    }
+    /// A script's name made readable: `make_flight_report.py` → "Running make flight report…".
+    static func script(_ path: String?) -> String {
+        guard let path, !path.hasPrefix("-c"), !path.isEmpty else { return "Running a small program…" }
+        let file = path.split(separator: "/").last.map(String.init) ?? path
+        let stem = file.split(separator: ".").first.map(String.init) ?? file
+        let name = stem.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ").trimmingCharacters(in: .whitespaces)
+        guard name.count >= 3, name.count <= 32, name.allSatisfy({ $0.isLetter || $0 == " " || $0.isNumber }) else {
+            return "Running a small program…"
+        }
+        return "Running \(name.lowercased())…"
+    }
+    /// `execute_code: <code preview>`: use its first comment when there is one.
+    static func code(_ src: String) -> String {
+        if let r = src.range(of: "# ") {
+            let line = src[r.upperBound...].split(separator: "\n").first.map(String.init) ?? ""
+            let clean = line.trimmingCharacters(in: .whitespaces)
+            if clean.count > 3, clean.count <= 60, !clean.contains("(") { return clean + "…" }
+        }
+        return "Working it out on your Mac…"
     }
 }

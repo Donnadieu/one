@@ -145,6 +145,10 @@ struct Entry {
             }
             NSApplication.shared.run()
         }
+        if let k = args.firstIndex(of: "--render-orb-working"), k + 1 < args.count {
+            MainActor.assumeIsolated { OrbWorkingRender.run(out: args[k + 1], clip: k + 2 < args.count ? args[k + 2] : nil) }
+            exit(0)
+        }
         if let k = args.firstIndex(of: "--render-orb-voice"), k + 2 < args.count {
             MainActor.assumeIsolated { OrbVoiceRender.run(clip: args[k + 1], out: args[k + 2]) }
             exit(0)

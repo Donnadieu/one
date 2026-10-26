@@ -126,13 +126,14 @@ final class Engine: @unchecked Sendable {
         if !Env.selfTest, let saved = UserDefaults.standard.string(forKey: "sessionID") {
             onText = nil
             onTool = nil
-            let r = await call("session/load", ["sessionId": saved, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
-            if r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) {
+            if await loadSession(saved, dir) {
                 lock.lock()
                 sessionID = saved
                 lock.unlock()
                 return nil
             }
+            // Really gone: the next message carries the end of what was on screen (Model.send).
+            lostConversation = true
         }
         let new = await newSession(dir)
         guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
@@ -144,6 +145,37 @@ final class Engine: @unchecked Sendable {
         lock.unlock()
         if !Env.selfTest { UserDefaults.standard.set(sid, forKey: "sessionID") }
         return nil
+    }
+
+    /// Set when a saved conversation couldn't be reopened and a new one was started instead.
+    var lostConversation = false
+
+    /// Reopens a saved conversation. Right after a restart the background helper answers
+    /// "draining: not_ready" for a few seconds; wait that out instead of starting a new chat
+    /// (giving up on the first try made the assistant forget the conversation at every restart).
+    private func loadSession(_ sid: String, _ dir: String) async -> Bool {
+        for attempt in 0..<15 {
+            let r = await call("session/load", ["sessionId": sid, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
+            if r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) { return true }
+            let e = "\(r["error"] ?? "")".lowercased()
+            let notYet = ["draining", "not_ready", "starting", "unavailable", "timed out"].contains { e.contains($0) }
+            guard notYet, attempt < 14 else { return false }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        return false
+    }
+
+    /// Start a new conversation on purpose ("Start fresh"). Memory and notes stay.
+    func startFresh() async -> Bool {
+        if await ensureStarted() != nil { return false }
+        let r = await newSession(Engine.workDir)
+        guard let res = r["result"] as? [String: Any], let sid = res["sessionId"] as? String else { return false }
+        lock.lock()
+        sessionID = sid
+        lock.unlock()
+        lostConversation = false
+        if !Env.selfTest { UserDefaults.standard.set(sid, forKey: "sessionID") }
+        return true
     }
 
     /// Right after a cold start the engine's background helper can answer "draining" for a few
@@ -203,8 +235,7 @@ final class Engine: @unchecked Sendable {
         let isOpen = loaded.contains(sid)
         lock.unlock()
         if !isOpen {
-            let r = await call("session/load", ["sessionId": sid, "cwd": Engine.workDir, "mcpServers": [Any]()], timeout: 120)
-            guard r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) else { return "error: couldn't pick this job back up" }
+            guard await loadSession(sid, Engine.workDir) else { return "error: couldn't pick this job back up" }
             lock.lock()
             loaded.insert(sid)
             lock.unlock()

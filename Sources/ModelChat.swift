@@ -307,6 +307,8 @@ extension Model {
         guard !paused, !thinking, let c = compose(text) else { return }
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         await ensureEngine()
+        let recap = Engine.shared.lostConversation ? onScreenRecap() : ""
+        Engine.shared.lostConversation = false
         me(c.display)
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
@@ -324,7 +326,7 @@ extension Model {
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
         let stop = await Engine.shared.prompt(
-            c.engine + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
+            c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + helperNews(), images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
@@ -356,6 +358,29 @@ extension Model {
             saveBubbles()
             if !voiceFirst, !stop.hasPrefix("error"), !paused { Speaker.shared.read(full) }
         }
+    }
+
+    /// When the saved conversation couldn't be reopened, hand the new one the end of what's on screen,
+    /// so the person never has to repeat themselves.
+    func onScreenRecap() -> String {
+        let last = bubbles.filter { !$0.text.isEmpty }.suffix(12)
+        guard !last.isEmpty else { return "" }
+        let lines = last.map { ($0.fromMe ? userName : assistantName) + ": " + String($0.text.prefix(1200)) }
+        return "\n\n(One app note, not from the user: the app restarted and the earlier conversation couldn't be reopened. "
+            + "This is the end of it, as it was on screen. Carry on from it; don't say you lost it.\n"
+            + lines.joined(separator: "\n") + ")"
+    }
+
+    /// "Start fresh": a new conversation on purpose. Memory, rooms and helpers stay.
+    func startFresh() async {
+        guard !thinking else { return }
+        Speaker.shared.stop()
+        await ensureEngine()
+        guard await Engine.shared.startFresh() else {
+            bubbles.append(Bubble(fromMe: false, text: "I couldn't start a new conversation just now. Try again in a moment?"))
+            return
+        }
+        bubbles = []
     }
 
     func reveal(_ token: Int? = nil) {

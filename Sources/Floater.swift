@@ -155,6 +155,7 @@ final class OrbHost: NSView {
     private var mainWindow: NSWindow? { NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain } }
 
     func setup() {
+        watchOrb()
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.show() }
@@ -267,7 +268,28 @@ final class OrbHost: NSView {
     }
     func syncOrb() {
         guard Model.shared.onboarded else { return }
-        if windowOnScreen { if !Listener.shared.listening && !keyTalk { hide() } } else { show() }
+        if windowOnScreen {
+            // A finished push-to-talk from another app used to leave keyTalk on, so the orb stayed over the open window.
+            if !Listener.shared.listening {
+                keyTalk = false
+                hide()
+            }
+        } else {
+            show()
+        }
+    }
+    /// Safety net: the window and the orb are never on screen together (except while you hold the talk key).
+    /// Some ways of bringing the window back (Dock, ⌘Tab, a notification) don't send a notice we listen for.
+    func watchOrb() {
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                guard Model.shared.onboarded, self.orb?.isVisible == true, self.windowOnScreen, NSApp.isActive,
+                    !Listener.shared.listening
+                else { return }
+                self.keyTalk = false
+                self.hide()
+            }
+        }
     }
 
     @objc func tuckAway(_ sender: Any?) {
@@ -280,6 +302,7 @@ final class OrbHost: NSView {
     }
 
     func openMain() {
+        keyTalk = false
         hide()
         if NSApp.isHidden { NSApp.unhide(nil) }
         if let w = mainWindow {

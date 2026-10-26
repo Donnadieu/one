@@ -34,7 +34,7 @@
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
 | HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
-| Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`) |
+| Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill) |
 | Rooms.swift | UI | rooms sheet (`RoomsView`), share-a-room sheet, note panel |
 | RoomMap.swift | UI | `RoomMap`: reads the brain's notes and lays out the map |
 | SharedRooms.swift | service | `Shared`: rooms kept in iCloud Drive, invites, clashes |

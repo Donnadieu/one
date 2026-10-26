@@ -392,12 +392,12 @@ struct ConnectionsWorld: View {
         let ask =
             with.hasPrefix("Something")
             ? """
-            \(id == "Something else" ? "I want to connect something new to you, something that isn't on the Connections list. Ask me what it is." : "I want to connect my \(id) to something One doesn't support yet.") Let's build it together.
+            \(id == "Something else" ? "I want to connect something new to you, something that isn't on the Connections list." : "I want to connect my \(id) to something One doesn't support yet.") Let's build it together.
             1. First tell me in one line: this is experimental, built by you, may break, use at my own risk.
-            2. Ask what I use (one question), then find the simplest way in: an official app or command-line tool on this Mac, an API, an export file, or my own browser. Do every step you can yourself; only ask me for things only I can do (approve a login, pick a file).
+            2. Follow your connect-goal-first skill. First ask what I want to happen, and who does what (one question with tap-choices built from outcomes, like "You text me" or "You read my texts"). Say my goal back in one line and wait for my yes. Then ask what I use. Pick a way that does THAT goal (check who sends, who receives, from whose number or account), say up front what it can't do, and if nothing free fits, tell me the honest options and their cost. Find the simplest way in: an official app or command-line tool on this Mac, an API, an export file, or my own browser. Do every step you can yourself; only ask me for things only I can do (approve a login, pick a file).
             3. Never put a password or code into this chat. Logins go through my password manager or the app's own sign-in. Still ask before any money, sending, posting or deleting.
-            4. Save it as a skill in skills/my-connections/<short-name>/SKILL.md (what it is, how to use it, what's off-limits).
-            5. Test it in front of me with one real read-only check and tell me plainly what worked and what didn't.
+            4. Save it as a skill in skills/my-connections/<short-name>/SKILL.md (my goal, how it works, what it can't do, what's off-limits).
+            5. Test it in front of me: one real read-only check, or for a sending goal one test message I said yes to. Tell me plainly what worked, what didn't, and what that means for my goal.
             6. Only if the test passed, add an entry to \(ConnectionsWorld.customFile.path) (a JSON list; keep existing entries): {"id": "\(id == "Something else" ? "<a short name for it, e.g. Smart home>" : id)", "with": "<what I use>", "skill": "my-connections/<short-name>", "tested": "<today YYYY-MM-DD>"}. That makes it show up in Connections tagged Experimental.
             """
             : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."

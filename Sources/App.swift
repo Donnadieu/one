@@ -45,6 +45,11 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HelperDoneCheck.run()) }
             return
         }
+        if CommandLine.arguments.contains("--test-helper-self") {
+            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-self-check.sh)
+            Task { @MainActor in exit(await HelperSelfCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--test-human-step") {
             Env.selfTest = true  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
             Task { @MainActor in exit(await HumanStepCheck.run()) }

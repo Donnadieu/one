@@ -211,7 +211,7 @@ extension Model {
             $0.seen = nil
         }
         let stop = await Engine.shared.promptSession(
-            sid, text, images: images,
+            sid, Helpers.forHelper(text), images: images,
             onText: { s in
                 Task { @MainActor in
                     self.helperUnderway(id)
@@ -241,6 +241,12 @@ extension Model {
             return
         }
         update(id) { h in
+            // Only the main assistant sends helpers: a helper's own [helper: …] line is dropped, logged, never started.
+            let had = !h.reply.isEmpty
+            h.reply = Helpers.dropStrayLines(h.reply, helper: h.title)
+            if had && h.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                h.reply = "I tried to hand this to another helper instead of doing it. Ask me again and I'll do it myself."
+            }
             if stop.hasPrefix("error") && h.reply.isEmpty { h.reply = "I couldn't finish this (\(stop.dropFirst(7)))." }
             let parts = Choices.split(h.reply)
             if !parts.choices.isEmpty {

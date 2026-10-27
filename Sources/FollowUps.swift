@@ -95,7 +95,7 @@ extension Model {
                     if sid == nil { break }
                 }
                 self.setState(f.id, .sending)
-                let r = await Engine.shared.steer(f.engine, session: sid)
+                let r = await Engine.shared.steer(sid == nil ? f.engine : Helpers.forHelper(f.engine), session: sid)
                 if r.hasPrefix("error") {
                     // Not taken (e.g. a step that can't take a message): it waits and is tried again shortly.
                     self.setState(f.id, .next)

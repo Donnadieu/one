@@ -53,12 +53,41 @@ if [ -d "$BRAIN_STARTER/.git" ]; then
 else
   echo "note: no brain starter at $BRAIN_STARTER; memory rooms will be unavailable in this build" >&2
 fi
-codesign --force --deep -s - "$APP"
+# Release signing: Developer ID + hardened runtime when the identity is on this Mac; ad-hoc otherwise.
+SIGN_ID="${ONE_SIGN_ID:-Developer ID Application: Omar Donnadieu Mercado (LVZ5YV868Q)}"
+SIGN_KC="$HOME/Library/Keychains/one-signing.keychain-db"
+if [ -f "$SIGN_KC" ] && KCP=$(security find-generic-password -a one -s one-signing-keychain -w 2>/dev/null); then
+  security unlock-keychain -p "$KCP" "$SIGN_KC"
+fi
+if security find-identity -v -p codesigning | grep -q "$SIGN_ID"; then
+  ENT=build/app.noindex/One.entitlements
+  cat > "$ENT" <<'ENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+  <key>com.apple.security.automation.apple-events</key><true/>
+  <key>com.apple.security.personal-information.calendars</key><true/>
+</dict></plist>
+ENTS
+  codesign --force --options runtime --timestamp --entitlements "$ENT" -s "$SIGN_ID" "$APP"
+  SIGNED=1
+else
+  codesign --force --deep -s - "$APP"
+  SIGNED=0
+fi
 echo "built $APP"
 if [[ "${1:-}" == "--install" ]]; then
   mkdir -p ~/Applications && rm -rf ~/Applications/One.app && cp -R "$APP" ~/Applications/ && echo "installed ~/Applications/One.app"
 fi
 if [[ "${1:-}" == "--package" ]]; then
+  # Notarize so Gatekeeper opens One without "Open Anyway" (needs: xcrun notarytool store-credentials one-notary).
+  if [ "$SIGNED" = 1 ] && xcrun notarytool history --keychain-profile one-notary >/dev/null 2>&1; then
+    rm -f build/notarize.zip && ditto -c -k --keepParent "$APP" build/notarize.zip
+    xcrun notarytool submit build/notarize.zip --keychain-profile one-notary --wait | tee build/notarize.log
+    grep -q "status: Accepted" build/notarize.log || { echo "notarization failed" >&2; exit 1; }
+    xcrun stapler staple "$APP" && rm -f build/notarize.zip && echo "notarized $APP"
+  fi
   STAGE=build/app.noindex/dmg
   rm -rf build/dmg "$STAGE" && mkdir -p "$STAGE" && cp -R "$APP" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
   rm -f build/One.dmg && hdiutil create -quiet -volname "One" -srcfolder "$STAGE" -ov -format UDZO build/One.dmg && echo "packaged build/One.dmg"

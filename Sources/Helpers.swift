@@ -117,10 +117,20 @@ struct NovaWithHelpers: View {
                             insertion: .scale(scale: 0.2).combined(with: .opacity),
                             removal: .offset(x: -p.x, y: -p.y).combined(with: .scale(scale: 0.1)).combined(with: .opacity)))
                 }
+                if m.helpers.count > Self.slots.count { HelperOverflow(count: m.helpers.count - Self.slots.count).offset(y: 116) }
             }
             .frame(maxWidth: .infinity).frame(height: m.helpers.isEmpty ? 150 : 250)
         }
         .animation(.spring(response: 0.7, dampingFraction: 0.8), value: m.helpers.map(\.id))
+    }
+}
+
+/// More helpers than orbs around the assistant: say how many more are out there.
+struct HelperOverflow: View {
+    let count: Int
+    var body: some View {
+        Text("+\(count) more helper\(count == 1 ? "" : "s") at work")
+            .font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
     }
 }
 

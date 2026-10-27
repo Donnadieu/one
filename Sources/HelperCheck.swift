@@ -2,7 +2,7 @@ import Foundation
 
 /// `One --test-helpers`: proves a helper cut off by a restart gets a trail file and is picked back up
 /// exactly once at launch with its trail in the prompt, that a finished helper isn't, that a third
-/// cut-off isn't picked up again, and that no more than 3 work at once. Run with ONE_SUPPORT_DIR set
+/// cut-off isn't picked up again, and that every helper cut off is picked up at once (no limit of 3). Run with ONE_SUPPORT_DIR set
 /// to an empty folder. The engine calls are stand-ins and saved helpers go through in-memory data,
 /// so the person's real settings and engine are never touched.
 enum HelperCheck {
@@ -82,16 +82,11 @@ enum HelperCheck {
         check("a third cut-off is not picked up", hs[0].resumeQueued == false && HelperTrail.pick(&hs, brief: brief).isEmpty)
         check("it shows as stopped with a plain line", hs[0].state == "stopped" && hs[0].line.hasPrefix("Stopped: cut off by a restart 3 times"))
 
-        // Five cut off at once: 3 work, 2 wait for a free slot.
+        // Five cut off at once: all five pick back up together, none waits for a slot.
         var many = (1...5).map { Helper(title: "Job \($0)", task: "Task \($0)", sid: nil, state: "working", line: "") }
         many = relaunch(many)
-        check("no more than 3 at once", HelperTrail.pick(&many, brief: brief).count == 3)
-        check("the rest wait their turn", many.filter { $0.resumeQueued == true }.count == 2)
-        many[0].state = "done"
-        let next = HelperTrail.pick(&many, brief: brief)
-        check("a free slot picks up the next one", next.count == 1 && next.first?.id == many[3].id)
-        let waiting = relaunch(many)
-        check("one still waiting when One stops again is still picked up later", waiting[4].resumeQueued == true)
+        check("five cut off at once are all picked up together", HelperTrail.pick(&many, brief: brief).count == 5)
+        check("none is left waiting", many.allSatisfy { $0.resumeQueued != true && $0.state == "working" })
 
         // Stopped on purpose (the Stop button) vs cut off by a restart.
         var mine = Helper(title: "Price watch", task: "Watch the price.", sid: "s-1", state: "working", line: "")

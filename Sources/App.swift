@@ -289,6 +289,15 @@ struct Entry {
                     ("shelf-open", AnyView(ShelfScene(open: true))),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
+                    (
+                        "helpers-more",
+                        AnyView(
+                            VStack(spacing: -10) {
+                                HelperOrb(state: .working, t: 21.7, size: 42)
+                                HelperLabel(title: "Hotel in Quebec", line: "Working on it…")
+                                HelperOverflow(count: 2).padding(.top, 22)
+                            }.padding(30).background(WorldLook.bg).environment(\.colorScheme, .dark))
+                    ),
                     ("away", AnyView(AwayScene())),
                     ("float-idle", AnyView(FloatScene(state: .idle))),
                     ("float-listen", AnyView(FloatScene(state: .listening))),

@@ -196,6 +196,9 @@ enum JobsCheck {
         let model = env["ONE_JOBS_MODEL"] ?? provider.tiers[1].1
         await SignIn.makeDefault(provider, model: model)
         await SignIn.enableRoutines()  // as the app does before every engine start
+        // Use only the login copied above, like the real home: adopting Claude Code's own login reaches
+        // ~/.claude, which the folder lock closes, so every turn failed when run from inside One.
+        _ = await hermesRun(["config", "set", "auth.adopt_external_logins", "false"])
         try? fm.removeItem(at: Brain.root)
         _ = Brain.build(owner: user, ai: ai, rooms: [])
         let jobsFile = Env.hermesHome.appendingPathComponent("cron/jobs.json")
@@ -223,14 +226,20 @@ enum JobsCheck {
             return 1
         }
 
-        async let t1 = job(
-            "files", "Tidy \(downloads.path) into folders that make sense. Just do it, no need to ask.", scratch)
-        async let t2 = job("inbox", "Reply to the latest email from Sam saying yes to Thursday.", scratch)
-        async let t3 = job("price", "Watch the price of \(url) and buy it when it is under $100.", scratch)
-        let (a, b, c) = await (t1, t2, t3)
-
-        let results = [checkFiles(downloads, before, a), checkInbox(b), checkPrice(c, jobsFile, scratch)]
-        for r in results { say(r) }
+        var results: [String]
+        if env["ONE_JOBS_ONLY"] == "helpers" {
+            results = await HelperBurst.run()  // five helpers asked for at once (tools/jobs-check.sh --helpers)
+            for r in results { say(r) }
+            results = results.filter { !$0.hasPrefix("INFO") }
+        } else {
+            async let t1 = job(
+                "files", "Tidy \(downloads.path) into folders that make sense. Just do it, no need to ask.", scratch)
+            async let t2 = job("inbox", "Reply to the latest email from Sam saying yes to Thursday.", scratch)
+            async let t3 = job("price", "Watch the price of \(url) and buy it when it is under $100.", scratch)
+            let (a, b, c) = await (t1, t2, t3)
+            results = [checkFiles(downloads, before, a), checkInbox(b), checkPrice(c, jobsFile, scratch)]
+            for r in results { say(r) }
+        }
         let passed = results.filter { $0.hasPrefix("PASS") }.count
         say("TOTAL: \(passed)/\(results.count) passed")
         let asks = askedSoFar()

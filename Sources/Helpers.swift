@@ -69,7 +69,7 @@ enum Helpers {
     }
     /// Hide helper lines while a reply is still streaming in.
     static func strip(_ text: String) -> String {
-        HelperStop.hide(text).components(separatedBy: "\n").filter {
+        Learning.hideTags(HelperStop.hide(text)).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper")
         }.joined(

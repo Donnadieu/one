@@ -223,6 +223,14 @@ final class Model: ObservableObject {
     @Published var about: (title: String, url: URL)?
     @Published var viewing: URL?
 
+    // Tell me when I learn (ModelLearning.swift)
+    var learning = Learning.load()
+    var learnTurn = LearnTurn()
+    var learnHelperTurns: [UUID: LearnTurn] = [:]
+    var learnBubbles: [UUID: UUID] = [:]  // job → the reply bubble it ended with
+    var learnQueue: [LearnShow] = []
+    var learnSaving: UUID?  // "Yes, remember it" in the main chat: the job being saved
+
     var heldText = ""
     var pendingReveal: (idx: Int, text: String, token: Int)?
     var revealCount = 0

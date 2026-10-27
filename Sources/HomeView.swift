@@ -131,7 +131,7 @@ struct HomeView: View {
                                         .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
                                     if !parts.choices.isEmpty && !m.thinking {
                                         ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
-                                            Task { await m.send(c) }
+                                            Task { await m.choose(c) }
                                         } onOther: {
                                             typing = true
                                         }

@@ -94,6 +94,15 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         } else if !Env.selfTest {
             Task { @MainActor in Updater.shared.loop() }
         }
+        if CommandLine.arguments.contains("--test-learning") {
+            Env.selfTest = true  // pure decisions on a made-up skill log; run with ONE_SUPPORT_DIR set to an empty folder
+            exit(LearningCheck.run())
+        }
+        if CommandLine.arguments.contains("--test-learning-live") {
+            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/learning-check.sh)
+            Task { @MainActor in exit(await LearningLiveCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--test-guards") {
             Env.selfTest = true  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -169,6 +178,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             while true {
                 Model.shared.scanShelf()
                 Model.shared.tendFolders()
+                Model.shared.tendLearning()
                 if tick % 5 == 0 {
                     Model.shared.tendShared()
                     Model.shared.tendRoutines()

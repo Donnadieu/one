@@ -57,6 +57,13 @@ final class Engine: @unchecked Sendable {
             }
     }
 
+    /// The main conversation's id (the same id the engine's skill log uses).
+    var mainSession: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return sessionID
+    }
+
     var running: Bool {
         lock.lock()
         defer { lock.unlock() }

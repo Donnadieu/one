@@ -50,6 +50,11 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $BIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Tell me when I learn (decisions on a made-up skill log)"
+mkdir -p "$T/lrn"
+check "new skill told once, fixes silent, the remember question once and never after a no; shared rooms left out" bash -c "ONE_SUPPORT_DIR=$T/lrn $BIN --test-learning | tee $T/lrn/out.txt | grep -q '^learning ok'"
+grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Engine helper is never stopped by a second One"
 mkdir -p "$T/gw"
 check "a second engine start or test copy leaves a healthy one alone" bash -c "ONE_SUPPORT_DIR=$T/gw $BIN --test-gateway | tee $T/gw/out.txt | grep -q '^gateway ok'"

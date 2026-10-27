@@ -46,6 +46,8 @@
 | BundledSkills.swift | service | skills that ship with One (`skills/` in the repo, Resources/skills in the app): copied into the engine at install and launch, never over an edited copy; `One --test-skills` |
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
+| BrowserKeeper.swift | service | keeps the hidden browser helpers use running: if nothing answers on the local `browser.cdp_url` port, starts Chrome again with the same saved profile (sign-ins survive a crash; optional `browser/keeper.json` names the profile); `One --browser-check` reports the browser and the Claude sign-in |
+| BrowserCheck.swift | dev only | `One --test-browser`, run by preflight |
 | GatewayGuard.swift | service | stops the engine's background helper (gateway) only when it's stale, never a healthy one another One uses |
 | FolderWatch.swift | service | notices a changed folder list (`folders`, `connectorReads`) and restarts the engine and its helper under the new lock once nothing is mid-reply, then carries on |
 | RestartCheck.swift | dev only | `One --test-restart`, run by preflight |

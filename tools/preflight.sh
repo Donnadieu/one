@@ -65,6 +65,11 @@ check "check-update and renders leave it running" kill -0 $GWP
 check "and never start an engine" bash -c "! pgrep -f '$T/gw2/engine' >/dev/null"
 kill $GWP 2>/dev/null
 
+echo "The hidden browser comes back with its saved sign-ins"
+mkdir -p "$T/br"
+check "same profile and port, hidden, never from a test copy; Claude sign-in read from its cookie" bash -c "ONE_SUPPORT_DIR=$T/br $BIN --test-browser | tee $T/br/out.txt | grep -q '^browser ok'"
+grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Restart by itself after a new folder is allowed"
 mkdir -p "$T/rs"
 check "a changed folder list restarts once with the new folder, an unchanged one never" bash -c "ONE_SUPPORT_DIR=$T/rs $BIN --test-restart | tee $T/rs/out.txt | grep -q '^restart ok'"

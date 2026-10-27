@@ -34,6 +34,8 @@
 | FollowUps.swift | state + UI | sending while busy: messages go into the running turn (engine mid-turn steer) or wait "Next up"; their tags and editor |
 | FollowUpCheck.swift | check | `One --test-followups` (tools/followups-check.sh): real turn, messages during it, all arrive in order |
 | HelperDoneCheck.swift | check | `One --test-helper-done` (tools/helper-done-check.sh, `make helperdone`): real helper finishes mid-reply, one "by the way" line after, orange until opened, good morning gets one report |
+| HelperNote.swift | helpers | The note on every prompt to a helper session (do the work yourself, never `[helper: …]` lines) and the safety net that drops and logs a stray helper line |
+| HelperSelfCheck.swift | check | `One --test-helper-self` (tools/helper-self-check.sh, `make helperself`): an opened helper asked for more work does it itself; stray `[helper: …]` lines are dropped and logged |
 | Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |

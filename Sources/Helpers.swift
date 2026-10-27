@@ -104,7 +104,7 @@ enum Helpers {
         The job: \(task)
 
         Do it now. Finish with a short message (2 to 4 lines): what you found or did, in plain words. If you need their yes before going further (money, sending, posting, deleting), stop and ask, ending with a [choices: ...] line. If the job is to keep watching something, do the first check now, say what you found, then set up a routine for the repeat checks (your scheduling tool, e.g. every 6 hours) and say how often it runs. A routine runs with nobody there to ask: its instructions must only check and report, never buy, send or delete; buying waits for their yes.
-        """ + Bridge.note + BrowserKeeper.note
+        """ + Bridge.note + BrowserKeeper.note + helperNote
     }
 }
 
@@ -165,7 +165,7 @@ struct HelperCard: View {
     @ObservedObject var m: Model
     let h: Helper
     var body: some View {
-        let parts = Choices.split(h.reply)
+        let parts = Choices.split(Helpers.strip(h.reply))  // a stray [helper: …] line never shows
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(h.title).font(.headline)
@@ -220,8 +220,11 @@ struct AwayCard: View {
                             .foregroundStyle(h.state == "needsYes" ? Color.orange : Color(hex: 0xFFE2C2))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(h.title).font(.callout.weight(.semibold))
-                            Text(h.state == "needsYes" ? "Needs your yes. Tap to answer." : Helpers.summary(Choices.split(h.reply).body, 140))
-                                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                            Text(
+                                h.state == "needsYes"
+                                    ? "Needs your yes. Tap to answer." : Helpers.summary(Choices.split(Helpers.strip(h.reply)).body, 140)
+                            )
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                         }
                         Spacer()
                     }.contentShape(Rectangle())

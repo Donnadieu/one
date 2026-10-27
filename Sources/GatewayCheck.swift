@@ -50,6 +50,14 @@ enum GatewayCheck {
         try? FileManager.default.removeItem(at: GatewayGuard.pidFile)
         check("dropped turn is recognised", Engine.dropped("error: Gateway shutting down", text: "", gatewayBefore: nil))
         check("a real error is not retried", !Engine.dropped("error: Internal error", text: "", gatewayBefore: nil))
+        check("phone chat: a set bot token keeps the helper running", Messenger.wanted("# x\n" + Messenger.tokenKey + "=123:abc\n"))
+        check("phone chat: a commented or empty token does not", !Messenger.wanted("# " + Messenger.tokenKey + "=123\n" + Messenger.tokenKey + "=\n"))
+        check(
+            "phone chat: never starts from a test copy",
+            {
+                Messenger.tend()
+                return Messenger.proc == nil
+            }())
         print(fails == 0 ? "gateway ok" : "gateway: \(fails) failed")
         return fails == 0 ? 0 : 1
     }

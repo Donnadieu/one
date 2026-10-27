@@ -190,6 +190,7 @@ final class Model: ObservableObject {
     @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
     @Published var openHelper: UUID?
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
+    var shelfScanning = false
     @Published var openedShelf: UUID?
     @Published var draftSeed: String?
     @Published var about: (title: String, url: URL)?

@@ -81,10 +81,22 @@ extension Model {
         shelf.removeAll { $0.id == id }
     }
     /// Puts any new file in the results folder on the shelf. Runs every few seconds and after each reply.
+    /// Reads the "Made by" folder off the main thread. The first read of Documents can wait on a
+    /// macOS permission prompt; on the main thread that froze the whole app until someone clicked.
     func scanShelf() {
-        let new = Shelf.adopt(shelf)
-        guard !new.isEmpty else { return }
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { shelf.insert(contentsOf: new, at: 0) }
+        guard !shelfScanning else { return }
+        shelfScanning = true
+        let have = shelf
+        Task.detached {
+            let new = Shelf.adopt(have)
+            await MainActor.run {
+                self.shelfScanning = false
+                let known = Set(self.shelf.map(\.path))
+                let fresh = new.filter { !known.contains($0.path) }
+                guard !fresh.isEmpty else { return }
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) { self.shelf.insert(contentsOf: fresh, at: 0) }
+            }
+        }
     }
     func putOnShelf(title: String, body: String, from: String) {
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let it = Shelf.keep(title: title, body: body, from: from) else { return }

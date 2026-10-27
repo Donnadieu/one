@@ -108,6 +108,13 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             print(out.joined(separator: "\n"))
             exit(0)
         }
+        // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
+        Task.detached {
+            while true {
+                Messenger.tend()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
         Task { @MainActor in
             var tick = 0
             while true {
@@ -141,6 +148,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         let previous = Engine.shared.enginePID
         Engine.shared.stop()
+        Messenger.stop()
         Engine.stopStrayGateway(previousEngine: previous, caller: "quit")
     }
     /// Closing the window keeps One running as the orb, so it can still listen and talk. Quit with ⌘Q.

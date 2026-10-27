@@ -56,6 +56,9 @@ enum Env {
         e["HERMES_YOLO_MODE"] = "1"  // regular people can't judge "script execution" prompts
         // The browser helper keeps its files in ~/.config by default, which the folder lock closes.
         e["BH_HOME"] = support.appendingPathComponent("browser").path
+        // Hermes records which phone bot is in use under ~/.local/state, which the folder lock closes,
+        // so the bot never connected. Keep that record in One's own home (also apart from any other Hermes).
+        e["HERMES_GATEWAY_LOCK_DIR"] = hermesHome.appendingPathComponent("gateway-locks").path
         e["BH_RUNTIME_DIR"] = "/tmp/one-bh-\(getuid())"  // short path: socket names have a length limit
         for k in ["ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] {
             e.removeValue(forKey: k)

@@ -62,7 +62,11 @@ def r_broad_kill(path, lines):
         if re.search(r'\b(pkill|killall)\b', l) and not re.search(r'pkill -f "\\\(Env\.(engineDir|support)', l):
             yield i, "broad process kill"
 
+# Messenger.swift: Omar's phone chat runs through One's own Telegram bot (decided 2026-10-27).
+# Telegram lives only there; WhatsApp and Telegram stay out of everything else.
 def r_messaging(path, lines):
+    if path.endswith("Messenger.swift"):
+        return
     for i, l in enumerate(lines, 1):
         if re.search(r'\b(Telegram|WhatsApp)\b', l, re.I):
             yield i, "Telegram/WhatsApp mentioned"
@@ -70,7 +74,8 @@ def r_messaging(path, lines):
 # JobsCheck: test-only, runs a local fake shop page for `--test-jobs`.
 # GatewayCheck: test-only, starts stand-in gateway processes for `--test-gateway`.
 # RestartCheck: test-only, starts stand-in gateway processes for `--test-restart`.
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck)')
+# Messenger: keeps the engine's background helper running while a phone bot is set up.
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger)')
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):
@@ -104,7 +109,7 @@ RULES = {
                       "Say it in plain words (e.g. 'sign in', 'settings', 'your files'). See docs/PRODUCT_SENSE.md."),
     "broad-kill":    (r_broad_kill,    "pkill/killall can kill other apps or the host agent.",
                       "Kill only PIDs One started (keep the Process handle, or match Application Support/One)."),
-    "no-messaging":  (r_messaging,     "One's phone path is its own app, not Telegram or WhatsApp.",
+    "no-messaging":  (r_messaging,     "Telegram code belongs only in Messenger.swift; no WhatsApp.",
                       "Remove it. Phone = native companion app (docs/PRODUCT_SENSE.md)."),
     "process-area":  (r_process_outside,"Running programs is risky; keep it in a few known places.",
                       "Move the call into Installer/Engine/Bridge/Speaker (or add the owner to PROCESS_OK with a reason)."),

@@ -327,6 +327,7 @@ struct HomeView: View {
             }
         }
         .task { await m.ensureEngine() }
+        .task { await ConnectionsWorld.prefetch() }  // so Connections opens already complete, with no wait while it slides in
     }
     /// Hold the mic to talk (let go to send), or click once to start and again to send.
     var micButton: some View {

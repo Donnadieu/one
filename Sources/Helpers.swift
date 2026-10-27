@@ -391,13 +391,13 @@ struct ShelfPanel: View {
                 VStack(spacing: 8) {
                     ForEach(m.shelf) { it in
                         ShelfCardView(item: it)
-                            .onTapGesture { m.openShelf(it.id) }
-                            .onDrag { NSItemProvider(contentsOf: it.url) ?? NSItemProvider() }
-                            .help("Click to open. Drag into Mail or Messages to share.")
-                            .contextMenu {
-                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([it.url]) }
-                                Button("Take off the shelf (the file stays)") { m.removeShelf(it.id) }
+                            .onTapGesture {
+                                ShelfCopy.shared.pick(it)
+                                m.openShelf(it.id)
                             }
+                            .onDrag { NSItemProvider(contentsOf: it.url) ?? NSItemProvider() }
+                            .help("Click to open. ⌘C copies it. Drag into Mail or Messages to share.")
+                            .modifier(ShelfCopyable(item: it) { m.removeShelf(it.id) })
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -412,6 +412,8 @@ struct ShelfPanel: View {
             }.buttonStyle(.plain).foregroundStyle(.secondary)
         }
         .padding(14).frame(width: 250)
+        .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 34) }
+        .onAppear { ShelfCopy.shared.start() }
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.07)))
         .padding(.vertical, 14).padding(.trailing, 14)
@@ -554,6 +556,7 @@ struct ShelfOpened: View {
                             Label("Show in Finder", systemImage: "folder")
                         }
                         .buttonStyle(.bordered)
+                        ShelfCopyAllButton(url: item.url)
                         Button {
                             m.openedShelf = nil
                             m.openHelper = nil
@@ -564,7 +567,7 @@ struct ShelfOpened: View {
                         }
                         .buttonStyle(.bordered)
                         Spacer()
-                        Text("Drag the card into Mail or Messages to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                        Text("Drag the card or press ⌘C to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 22).padding(.vertical, 14)
                 }

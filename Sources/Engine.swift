@@ -328,6 +328,32 @@ final class Engine: @unchecked Sendable {
         return "error: \(r["error"] ?? "no answer")"
     }
 
+    /// What the engine prints when it takes a mid-turn message. Counted per session, never shown.
+    static let steerAck = "⏩ Steer queued for the active turn"
+    private var steerAcks: [String: Int] = [:]
+    /// Anything at all came back on the main conversation (words, thoughts, steps): its turn is under way.
+    var onActivity: (@Sendable () -> Void)?
+
+    /// Hands a message to the turn running on a session, without stopping it or starting a second one:
+    /// the engine's own mid-turn steer, which puts it right after the latest step ("[OUT-OF-BAND USER
+    /// MESSAGE …]"). If it lands after the last step, the engine answers it before the turn ends.
+    /// "taken": the running turn took it. "ran": no turn was left, so the engine answered it as its own
+    /// (its words stream like any reply). "error: …": nothing was delivered.
+    func steer(_ text: String, session: String? = nil) async -> String {
+        lock.lock()
+        let sid = session ?? sessionID
+        let before = sid.map { steerAcks[$0, default: 0] } ?? 0
+        lock.unlock()
+        guard let sid else { return "error: not started" }
+        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": "/steer " + text]]], timeout: 1800)
+        if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
+        if let e = r["error"] { return "error: \(e)" }
+        lock.lock()
+        let after = steerAcks[sid, default: 0]
+        lock.unlock()
+        return after > before ? "taken" : "ran"
+    }
+
     func cancel(session sid: String) {
         write(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": sid]])
     }
@@ -409,9 +435,18 @@ final class Engine: @unchecked Sendable {
             if !toMain && hh == nil { return }  // e.g. history replayed while a session reopens
             let textCB = toMain ? onText : hh?.text
             let toolCB = toMain ? onTool : hh?.tool
-            switch u["sessionUpdate"] as? String {
+            let kind = u["sessionUpdate"] as? String
+            if toMain, ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].contains(kind ?? "") { onActivity?() }
+            switch kind {
             case "agent_message_chunk":
-                if let c = u["content"] as? [String: Any], let t = c["text"] as? String { textCB?(t) }
+                guard let c = u["content"] as? [String: Any], let t = c["text"] as? String else { break }
+                if t.hasPrefix(Engine.steerAck), let s = usid ?? mainID {
+                    lock.lock()
+                    steerAcks[s, default: 0] += 1
+                    lock.unlock()
+                    break
+                }
+                textCB?(t)
             case "tool_call":
                 if let t = u["title"] as? String { toolCB?(t) }
             default: break

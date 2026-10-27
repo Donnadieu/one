@@ -30,6 +30,8 @@ struct Bubble: Identifiable {
     let id = UUID()
     let fromMe: Bool
     var text: String
+    /// On a reply: what the person sent while it was being worked on (went into that same turn).
+    var followUps: [String] = []
 }
 
 struct Ask: Identifiable {
@@ -145,11 +147,15 @@ final class Model: ObservableObject {
     @Published var bubbles: [Bubble] = Model.savedBubbles() { didSet { saveBubbles() } }
     static func savedBubbles() -> [Bubble] {
         guard let raw = UserDefaults.standard.array(forKey: "bubbles") as? [[String: Any]] else { return [] }
-        return raw.compactMap { d in (d["t"] as? String).map { Bubble(fromMe: d["me"] as? Bool ?? false, text: $0) } }
+        return raw.compactMap { d in
+            (d["t"] as? String).map { Bubble(fromMe: d["me"] as? Bool ?? false, text: $0, followUps: d["f"] as? [String] ?? []) }
+        }
     }
     func saveBubbles() {
         guard !thinking else { return }
-        UserDefaults.standard.set(bubbles.suffix(40).filter { !$0.text.isEmpty }.map { ["me": $0.fromMe, "t": $0.text] }, forKey: "bubbles")
+        UserDefaults.standard.set(
+            bubbles.suffix(40).filter { !$0.text.isEmpty }.map { ["me": $0.fromMe, "t": $0.text, "f": $0.followUps] as [String: Any] },
+            forKey: "bubbles")
     }
     @Published var step: Step = .pickAI
     @Published var signedIn: [Provider: Bool] = [:]
@@ -157,9 +163,24 @@ final class Model: ObservableObject {
     @Published var signInNeedsPaste = false
     @Published var signInProblem: String?
     @Published var busy = false
-    @Published var thinking = false
+    /// Busy with a turn (including the moment before its voice starts). When it ends, waiting messages go next.
+    @Published var thinking = false {
+        didSet { if oldValue && !thinking { Task { @MainActor in self.nextUpReady() } } }
+    }
+    /// Messages sent while busy: "Sent to <name>" (went into the running turn) or "Next up" (waiting).
+    @Published var followUps: [FollowUp] = []
+    @Published var editingFollowUp: UUID?
+    /// The main conversation's turn is with the engine right now, and has started answering.
+    var turnLive = false
+    var turnStarted = false
+    var steeringNow = false
+    var steerRetryAt = Date.distantPast
+    /// Helpers whose current turn has started answering (they can take a message mid-turn).
+    var helperLive: Set<UUID> = []
     @Published var working: String?
     @Published var asks: [Ask] = []
+    /// Steps only the person can do (a code, a passkey…), shown with Done / I'm not at the Mac (HumanStep.swift).
+    @Published var humanSteps: [HumanStepAsk] = []
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
     @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser"].map { _ in "" }.filter { !$0.isEmpty }

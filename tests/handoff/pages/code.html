@@ -1,0 +1,9 @@
+<!doctype html><title>Two-Step Verification</title>
+<body style="font:18px sans-serif;padding:40px">
+<h1>Two-Step Verification</h1>
+<p>We sent a verification code to your phone. Enter it below.</p>
+<form onsubmit="return false">
+<label for="x7">Enter code</label><br>
+<input id="x7" name="field7" type="tel" maxlength="6" style="font-size:28px;width:200px"><br><br>
+<button id="go" type="button" style="font-size:20px" onclick="if(document.getElementById('x7').value==='424242'){location.href='/welcome.html'}else{document.getElementById('msg').textContent='Wrong code'}">Verify</button>
+<p id="msg"></p></form></body>

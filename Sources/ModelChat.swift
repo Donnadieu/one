@@ -30,6 +30,7 @@ extension Model {
                     text: warn
                 ))
         }
+        Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
@@ -45,10 +46,7 @@ extension Model {
     func talkBegin() {
         guard !talkingInApp else { return }
         talkNote = nil
-        if busyHere {
-            talkNote = "I'm still on the last thing. Give me a moment."
-            return
-        }
+        // Talking always works, busy or not: what's said goes into the running turn or waits next up.
         talkingInApp = true
         Voice.shared.stop()
         Speaker.shared.stop()
@@ -187,6 +185,7 @@ extension Model {
 
     func runHelper(_ id: UUID, _ text: String, images: [String]) async {
         guard let sid = helpers.first(where: { $0.id == id })?.sid else { return }
+        helperLive.remove(id)
         update(id) {
             $0.state = "working"
             $0.reply = ""
@@ -200,12 +199,14 @@ extension Model {
             sid, text, images: images,
             onText: { s in
                 Task { @MainActor in
+                    self.helperUnderway(id)
                     self.update(id) { $0.reply += s }
                     self.saveTrail(id, force: false)
                 }
             },
             onTool: { s in
                 Task { @MainActor in
+                    self.helperUnderway(id)
                     self.update(id) {
                         $0.line = Plain.step(s)
                         HelperTrail.add($0.line, to: &$0)
@@ -214,6 +215,8 @@ extension Model {
                 }
             })
         try? await Task.sleep(for: .milliseconds(150))
+        await helperTurnOver(id)
+        defer { Task { @MainActor in self.nextUpForHelper(id) } }  // what they sent meanwhile goes next
         let away = !NSApp.isActive
         if helpers.first(where: { $0.id == id })?.stoppedByYou == true {
             // Stopped on purpose: it stays stopped, isn't reported as done, and frees its slot.
@@ -357,7 +360,7 @@ extension Model {
     }
 
     /// Turn what you typed/said plus any pictures and files into (what you see, what the engine gets, images).
-    private func compose(_ text: String) -> (display: String, engine: String, images: [String])? {
+    func compose(_ text: String) -> Composed? {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let ref = about
         guard !(t.isEmpty && pictures.isEmpty && files.isEmpty && ref == nil) else { return nil }
@@ -387,20 +390,32 @@ extension Model {
             }
             forEngine += ")"
         }
-        return (tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t, forEngine, pics.map { $0.data.base64EncodedString() })
+        return Composed(
+            display: tags.isEmpty ? t : tags.joined(separator: "  ") + "\n" + t, engine: forEngine,
+            images: pics.map { $0.data.base64EncodedString() }, typed: t)
     }
 
     /// toNova: the floating orb always talks to Nova, never to an open helper.
     func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
         if !toNova, let hid = openHelper, let h = openedHelper {
-            guard !paused, h.state != "working", let c = compose(text) else { return }
+            guard let c = compose(text) else { return }
+            // Busy or stopped: never refused. It goes into the helper's running turn, or next.
+            if paused || h.state == "working" { return followUp(c, helper: hid, hidden: false) }
             await ensureEngine()
             update(hid) { $0.asked = c.display }
             await runHelper(hid, c.engine, images: c.images)
             return
         }
-        guard !paused, !thinking, let c = compose(text) else { return }
+        guard let c = compose(text) else { return }
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
+        // Busy (or stopped): the message goes into the running turn as it runs, or waits next up. Never a second turn, never a stop.
+        if paused || thinking { return followUp(c, helper: nil, hidden: hidden) }
+        thinking = true  // taken now, before any wait, so two sends can never both start a turn
+        await runTurn(c, hidden: hidden)
+    }
+
+    /// One turn of the main conversation. `thinking` is already set.
+    func runTurn(_ c: Composed, hidden: Bool) async {
         await ensureEngine()
         let recap = Engine.shared.lostConversation ? onScreenRecap() : ""
         Engine.shared.lostConversation = false
@@ -420,20 +435,27 @@ extension Model {
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
+        Engine.shared.onActivity = { Task { @MainActor in self.turnUnderway() } }
         let message =
             c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + BrowserKeeper.note + FolderWatch.note + helperNews()
         let gateway = GatewayGuard.recordedPID()
+        turnLive = true
+        turnStarted = false
         var stop = await Engine.shared.prompt(message, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
         let soFar = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         if Engine.dropped(stop, text: soFar, gatewayBefore: gateway) {
-            // The engine's helper restarted under this message: send it again once, quietly.
+            // The engine's helper restarted under this message: send it again once, quietly,
+            // with anything they'd already sent into it, so none of it is lost.
             heldText = ""
             if idx < bubbles.count { bubbles[idx].text = "" }
             working = "Picking that back up…"
-            stop = await Engine.shared.promptAgain(message, images: c.images)
+            turnStarted = false
+            let sentSoFar = followUps.filter { $0.helper == nil && $0.state == .sent }.map(\.engine)
+            stop = await Engine.shared.promptAgain(([message] + sentSoFar).joined(separator: "\n\n"), images: c.images)
             try? await Task.sleep(for: .milliseconds(150))
         }
+        await turnOver(idx, failed: stop.hasPrefix("error"))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
         let (clean, jobs) = Helpers.extract(full)
@@ -471,7 +493,9 @@ extension Model {
     func onScreenRecap() -> String {
         let last = bubbles.filter { !$0.text.isEmpty }.suffix(12)
         guard !last.isEmpty else { return "" }
-        let lines = last.map { ($0.fromMe ? userName : assistantName) + ": " + String($0.text.prefix(1200)) }
+        let lines = last.map { b in
+            b.followUps.map { userName + ": " + $0 } + [(b.fromMe ? userName : assistantName) + ": " + String(b.text.prefix(1200))]
+        }.flatMap { $0 }
         return "\n\n(One app note, not from the user: the app restarted and the earlier conversation couldn't be reopened. "
             + "This is the end of it, as it was on screen. Carry on from it; don't say you lost it.\n"
             + lines.joined(separator: "\n") + ")"
@@ -533,6 +557,8 @@ extension Model {
             asks.forEach { $0.answer(nil) }
             asks.removeAll()
             thinking = false
+        } else {
+            sendWaiting()  // back on: what they sent while stopped goes now, in order
         }
     }
 }

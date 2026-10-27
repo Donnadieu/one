@@ -70,6 +70,40 @@ enum Installer {
                 + r2)
         return (try? t.write(to: basef, atomically: true, encoding: .utf8)) != nil
     }
+    /// Hook appended to the engine's `tools/browser_vault_tool.py`: it loads One's human-step hand-off
+    /// (`tools/one_human_step.py`, copied next to it) and never breaks the vault if that fails.
+    static let humanStepHook = """
+
+        # One: hand a step only a person can do to the person (tools/one_human_step.py, added by One).
+        try:
+            from tools.one_human_step import install as _one_human_step_install
+            _one_human_step_install(globals())
+        except Exception as _one_exc:  # never break the vault
+            logger.warning("one_human_step not installed: %s", _one_exc)
+
+        """
+    /// Copies the hand-off module into the engine and hooks it into browser_vault (idempotent).
+    @discardableResult static func applyHumanStep() -> Bool {
+        let fm = FileManager.default
+        let tools = Env.engineDir.appendingPathComponent("tools")
+        let vault = tools.appendingPathComponent("browser_vault_tool.py")
+        guard let src = Bundle.main.url(forResource: "one_human_step", withExtension: "py"),
+            fm.fileExists(atPath: vault.path)
+        else { return false }
+        let dst = tools.appendingPathComponent("one_human_step.py")
+        if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
+            try? fm.removeItem(at: dst)
+            guard (try? fm.copyItem(at: src, to: dst)) != nil else { return false }
+        }
+        guard var t = try? String(contentsOf: vault, encoding: .utf8) else { return false }
+        if t.contains("_one_human_step_install") { return true }
+        // Only hook a vault that still has the pieces the module wraps.
+        guard t.contains("def browser_vault_enter_code("), t.contains("def _handle_vault("), t.contains("BROWSER_VAULT_SCHEMA") else {
+            return false
+        }
+        t += humanStepHook
+        return (try? t.write(to: vault, atomically: true, encoding: .utf8)) != nil
+    }
     /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
     static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
         guard let script = Bundle.main.url(forResource: "hermes-install", withExtension: "sh") else {
@@ -130,6 +164,7 @@ enum Installer {
                 if p.terminationStatus == 0 && FileManager.default.isExecutableFile(atPath: Env.ownHermes) {
                     try? FileManager.default.removeItem(at: scratch)
                     applyOverlay()
+                    applyHumanStep()
                     BundledSkills.sync()
                     _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)

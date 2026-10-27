@@ -75,7 +75,8 @@ def r_messaging(path, lines):
 # GatewayCheck: test-only, starts stand-in gateway processes for `--test-gateway`.
 # RestartCheck: test-only, starts stand-in gateway processes for `--test-restart`.
 # Messenger: keeps the engine's background helper running while a phone bot is set up.
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger)')
+# BrowserKeeper: starts the hidden browser again (same saved profile) when it's down; One is outside the lock.
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper)')
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):

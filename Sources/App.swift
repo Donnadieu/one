@@ -72,6 +72,10 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await RestartCheck.run()) }
             return
         }
+        if CommandLine.arguments.contains("--test-browser") {
+            Env.selfTest = true  // pure decisions; never starts Chrome. Run with ONE_SUPPORT_DIR set to an empty folder
+            exit(BrowserCheck.run())
+        }
         if CommandLine.arguments.contains("--test-gateway") {
             Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
             exit(GatewayCheck.run())
@@ -107,6 +111,13 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             }
             print(out.joined(separator: "\n"))
             exit(0)
+        }
+        // The hidden browser helpers use: started again with its saved sign-ins if it goes down.
+        Task.detached {
+            while true {
+                BrowserKeeper.tend()
+                try? await Task.sleep(for: .seconds(10))
+            }
         }
         // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
         Task.detached {
@@ -177,6 +188,7 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if args.contains("--browser-check") { runHeadless { exit(await BrowserKeeper.check()) } }
         if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
             MainActor.assumeIsolated {
                 Speaker.shared.start()

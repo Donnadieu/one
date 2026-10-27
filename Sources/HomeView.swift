@@ -119,12 +119,13 @@ struct HomeView: View {
                             FollowUpList(m: m, helper: h.id)
                         } else if let ask = lastAsk {
                             VStack(spacing: 12) {
-                                Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
+                                ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true, accent: true)
+                                    .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
                                 FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
                                 if let r = lastReply, !r.text.isEmpty {
                                     let parts = Choices.split(Helpers.strip(r.text))
-                                    MarkdownText(text: parts.body, size: 16)
+                                    ChatText(text: parts.body, size: 16)
                                         .frame(maxWidth: .infinity, alignment: .leading).padding(18)
                                         .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
                                         .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))

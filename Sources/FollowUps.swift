@@ -240,6 +240,7 @@ struct FollowUpLine: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(text).font(.callout).foregroundStyle(Color.accentColor.opacity(waiting ? 0.75 : 1)).multilineTextAlignment(.center)
+                .textSelection(.enabled)
             Text(tag).font(.caption2.weight(.semibold))
                 .foregroundStyle(waiting ? WorldLook.bg : Color.secondary)
                 .padding(.horizontal, 8).padding(.vertical, 3)

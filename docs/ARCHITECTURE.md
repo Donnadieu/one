@@ -40,6 +40,8 @@
 | HelperNote.swift | helpers | The note on every prompt to a helper session (do the work yourself, never `[helper: …]` lines) and the safety net that drops and logs a stray helper line |
 | HelperSelfCheck.swift | check | `One --test-helper-self` (tools/helper-self-check.sh, `make helperself`): an opened helper asked for more work does it itself; stray `[helper: …]` lines are dropped and logged |
 | Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
+| ChatText.swift | UI | `ChatText`: every chat message (the person's and the assistant's, home and helpers) as one selectable AppKit text with Copy / Copy as Markdown on right-click; `ReaderText` for the Ready for you and file readers |
+| SelectCheck.swift | dev only | `One --test-select <case\|all>`: drag-select, ⌘C, ⌘A, right-click copy, link, choice row, scroll wheel, sent into a test window |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
 | HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |

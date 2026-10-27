@@ -162,11 +162,11 @@ struct HelperCard: View {
                 }
                 .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
             }
-            if let a = h.asked, !a.isEmpty { Text(a).font(.callout).foregroundStyle(Color.accentColor) }
+            if let a = h.asked, !a.isEmpty { ChatText(text: a, size: ChatText.callout, plain: true, accent: true) }
             if h.reply.isEmpty {
                 Text(h.state == "working" || h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
             } else {
-                MarkdownText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
+                ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
                 if h.state == "stopped" {
                     // Its orb says "tap to see what it did"; in here they already see it.
                     Text(h.line.components(separatedBy: " · ").first ?? h.line).font(.callout).foregroundStyle(.secondary)

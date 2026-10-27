@@ -8,6 +8,10 @@ import SwiftUI
 struct NoteText: NSViewRepresentable {
     let text: String
     var size: CGFloat = 14
+    /// Where links go; by default only web links open (in the browser).
+    var open: ((URL) -> Void)? = nil
+    /// The system's text colours (chat readers) instead of the rooms' cream.
+    var system = false
 
     func makeNSView(context: Context) -> NSScrollView {
         let tv = NoteText.textView(width: 320)
@@ -15,30 +19,42 @@ struct NoteText: NSViewRepresentable {
         tv.isVerticallyResizable = true
         tv.textContainer?.widthTracksTextView = true
         tv.delegate = context.coordinator
+        context.coordinator.open = open
+        tv.markdown = text
+        tv.plainCopy = ChatText.plain(text)
         let sv = NSScrollView()
         sv.drawsBackground = false
         sv.hasVerticalScroller = true
         sv.autohidesScrollers = true
         sv.scrollerStyle = .overlay
         sv.documentView = tv
-        tv.textStorage?.setAttributedString(NoteText.attributed(text, size: size))
+        tv.textStorage?.setAttributedString(look(text))
         context.coordinator.shown = text
         return sv
     }
     func updateNSView(_ sv: NSScrollView, context: Context) {
-        guard context.coordinator.shown != text, let tv = sv.documentView as? NSTextView else { return }
+        context.coordinator.open = open
+        guard context.coordinator.shown != text, let tv = sv.documentView as? ChatTextView else { return }
         context.coordinator.shown = text
-        tv.textStorage?.setAttributedString(NoteText.attributed(text, size: size))
+        tv.markdown = text
+        tv.plainCopy = ChatText.plain(text)
+        tv.textStorage?.setAttributedString(look(text))
         tv.setSelectedRange(NSRange(location: 0, length: 0))
         tv.scroll(.zero)
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
+    func look(_ s: String) -> NSAttributedString {
+        system ? NoteText.attributed(s, size: size, body: .labelColor, dim: .secondaryLabelColor) : NoteText.attributed(s, size: size)
+    }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var shown = ""
+        var open: ((URL) -> Void)?
         /// Web links open in the browser; links to other notes do nothing here (the linked notes sit below).
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-            if let u = link as? URL ?? (link as? String).flatMap(URL.init(string:)), ["http", "https"].contains(u.scheme ?? "") {
+            if let open, let u = link as? URL ?? (link as? String).flatMap(URL.init(string:)) {
+                open(u)
+            } else if let u = link as? URL ?? (link as? String).flatMap(URL.init(string:)), ["http", "https"].contains(u.scheme ?? "") {
                 NSWorkspace.shared.open(u)
             }
             return true
@@ -47,9 +63,9 @@ struct NoteText: NSViewRepresentable {
 
     static let cream = NSColor(srgbRed: 0xF4 / 255, green: 0xEF / 255, blue: 0xE8 / 255, alpha: 1)
 
-    /// A read-only, selectable text view with One's colours.
-    static func textView(width: CGFloat) -> NSTextView {
-        let tv = NSTextView(usingTextLayoutManager: false)
+    /// A read-only, selectable text view with One's colours (and the Copy / Copy as Markdown menu).
+    static func textView(width: CGFloat) -> ChatTextView {
+        let tv = ChatTextView(usingTextLayoutManager: false)
         tv.frame = NSRect(x: 0, y: 0, width: width, height: 10)
         tv.isEditable = false
         tv.isSelectable = true
@@ -70,10 +86,10 @@ struct NoteText: NSViewRepresentable {
     }
 
     /// The note's Markdown as one attributed string: the same blocks `MarkdownText` draws.
-    static func attributed(_ src: String, size: CGFloat) -> NSAttributedString {
+    static func attributed(
+        _ src: String, size: CGFloat, body: NSColor = cream.withAlphaComponent(0.9), dim: NSColor = cream.withAlphaComponent(0.5)
+    ) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        let body = cream.withAlphaComponent(0.9)
-        let dim = cream.withAlphaComponent(0.5)
         let blocks = MarkdownText.blocks(src)
         for (i, b) in blocks.enumerated() {
             let p = NSMutableParagraphStyle()
@@ -96,17 +112,14 @@ struct NoteText: NSViewRepresentable {
                 piece = NSMutableAttributedString(string: mark + "\t", attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: dim])
                 piece.append(inline(t, size: size, color: body))
             case .quote(let t):
-                let block = NSTextBlock()
-                block.setWidth(2, type: .absoluteValueType, for: .border, edge: .minX)
-                block.setBorderColor(dim.withAlphaComponent(0.4), for: .minX)
-                block.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
-                p.textBlocks = [block]
-                piece = inline(t, size: size, color: dim)
+                // Indents, not NSTextBlock: the text view lays blocks out as plain paragraphs.
+                p.headIndent = 12
+                piece = NSMutableAttributedString(
+                    string: "▎  ", attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: dim.withAlphaComponent(0.4)])
+                piece.append(inline(t, size: size, color: dim))
             case .code(let c):
-                let block = NSTextBlock()
-                block.backgroundColor = cream.withAlphaComponent(0.06)
-                block.setWidth(10, type: .absoluteValueType, for: .padding)
-                p.textBlocks = [block]
+                p.firstLineHeadIndent = 10
+                p.headIndent = 10
                 piece = NSMutableAttributedString(
                     string: c, attributes: [.font: NSFont.monospacedSystemFont(ofSize: size - 2, weight: .regular), .foregroundColor: body])
             case .table(let rows):

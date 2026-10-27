@@ -243,21 +243,51 @@ struct ConnectionsWorld: View {
     @State var picked: String? = nil
     @State var note: String? = nil
     @State var option: String? = nil
-    var on: [String: Double] {
-        var d: [String: Double] = [:]
-        for (i, id) in ConnectionsWorld.connected().enumerated() { d[id] = -10 - Double(i) }
-        return d
+    /// What's connected, read off the main thread and kept, never per frame: the calendar check is a
+    /// slow call to macOS (~40 ms), and running it on every animation frame made Connections come in
+    /// at ~11 frames a second ("clack, clack, clack"). Home reads it ahead (`prefetch`), so the screen
+    /// slides in already complete; it's read again on open and after a change.
+    @State var status: Status? = nil
+    @State var shown = ConnectionsWorld.cached != nil
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    struct Status: Sendable, Equatable {
+        var on: [String: Double]
+        var custom: [Custom]
+        static func load() -> Status {
+            var d: [String: Double] = [:]
+            for (i, id) in ConnectionsWorld.connected().enumerated() { d[id] = -10 - Double(i) }
+            return Status(on: d, custom: ConnectionsWorld.custom())
+        }
+    }
+    static var cached: Status? = nil
+    static func prefetch() async { cached = await Task.detached { Status.load() }.value }
+    /// Renders (fixedT) have no time to wait, so they read it right away.
+    var now: Status { status ?? ConnectionsWorld.cached ?? (fixedT != nil ? Status.load() : Status(on: [:], custom: [])) }
+    var on: [String: Double] { now.on }
+    /// Reads the status again; only what changed moves, in one short fade (or everything, the first time).
+    func reload() async {
+        let s = await Task.detached { Status.load() }.value
+        let before = now
+        ConnectionsWorld.cached = s
+        if s == before && shown {
+            status = s
+            return
+        }
+        withAnimation(.easeOut(duration: 0.25)) {
+            status = s
+            shown = true
+        }
     }
     /// Connections the assistant built with the person ("Something else…"). It writes
     /// hermes/connections.json after a test passes: [{"id":"News","with":"Feedly","skill":"my-connections/feedly","tested":"2026-10-24"}]
-    struct Custom: Codable, Hashable {
+    struct Custom: Codable, Hashable, Sendable {
         var id: String
         var with: String
         var skill: String?
         var tested: String?
     }
-    static var customFile: URL { Env.hermesHome.appendingPathComponent("connections.json") }
-    static func custom() -> [Custom] {
+    nonisolated static var customFile: URL { Env.hermesHome.appendingPathComponent("connections.json") }
+    nonisolated static func custom() -> [Custom] {
         guard let d = try? Data(contentsOf: customFile) else { return [] }
         return (try? JSONDecoder().decode([Custom].self, from: d)) ?? []
     }
@@ -265,7 +295,7 @@ struct ConnectionsWorld: View {
         let left = custom().filter { $0.id != id }
         if let d = try? JSONEncoder().encode(left) { try? d.write(to: customFile) }
     }
-    static func connected() -> [String] {
+    nonisolated static func connected() -> [String] {
         var c = ["Files", "Browser", "Web"]
         for x in custom() where !c.contains(x.id) { c.append(x.id) }
         if Bridge.calendarOK && Bridge.calendarAccounts > 0 { c.append("Calendar") }
@@ -291,9 +321,9 @@ struct ConnectionsWorld: View {
     static let other = Node(
         id: "Something else", symbol: "plus", line: "Not on the list? Tell me what you use and we'll build it together.", voice: nil)
     /// The usual connections, anything built together under a new name, and "Something else" last.
-    static func nodes() -> [Node] {
+    static func nodes(_ made: [Custom] = custom()) -> [Node] {
         let known = Set(worldNodes.map(\.id))
-        let extra = custom().filter { !known.contains($0.id) }.map {
+        let extra = made.filter { !known.contains($0.id) }.map {
             Node(id: $0.id, symbol: "puzzlepiece.extension", line: "Built together with you: \($0.with).", voice: nil)
         }
         return worldNodes + extra + [other]
@@ -303,11 +333,12 @@ struct ConnectionsWorld: View {
     }
     func options(_ id: String) -> [String] {
         var o = ConnectionsWorld.how[id] ?? []
-        for x in ConnectionsWorld.custom() where x.id == id && !o.contains(x.with) { o.insert(x.with, at: max(o.count - 1, 0)) }
+        for x in now.custom where x.id == id && !o.contains(x.with) { o.insert(x.with, at: max(o.count - 1, 0)) }
         return o
     }
     var body: some View {
-        let all = ConnectionsWorld.nodes()
+        let st = now
+        let all = ConnectionsWorld.nodes(st.custom)
         let sel = picked.flatMap { id in all.first { $0.id == id } }
         ZStack {
             WorldLook.bg.ignoresSafeArea()
@@ -317,8 +348,10 @@ struct ConnectionsWorld: View {
                         .foregroundStyle(WorldLook.cream.opacity(0.5))
                     Text(sel?.line ?? "What \(m.name) can reach for you.").font(.system(size: 22, weight: .medium)).tracking(-0.2)
                         .foregroundStyle(.white).multilineTextAlignment(.center).frame(maxWidth: 460)
-                    let exp = ConnectionsWorld.custom().count
-                    Text(sel == nil ? "\(on.count) connected\(exp > 0 ? ", \(exp) experimental" : ""). Tap one to see it or change it." : " ")
+                    let exp = st.custom.count
+                    // Until the status is read, a blank line of the same height, so nothing below moves when it arrives.
+                    let counts = "\(st.on.count) connected\(exp > 0 ? ", \(exp) experimental" : ""). Tap one to see it or change it."
+                    Text(sel == nil && (shown || fixedT != nil) ? counts : " ")
                         .font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.6))
                 }.frame(minHeight: 110).padding(.top, 26).padding(.horizontal, 24)
                 GeometryReader { geo in
@@ -327,19 +360,21 @@ struct ConnectionsWorld: View {
                         WorldCanvas(
                             t: fixedT ?? tl.date.timeIntervalSince(WorldLook.start),
                             lit: picked.flatMap { id in all.firstIndex { $0.id == id } }, picking: picked == nil,
-                            linked: on, speaking: false,
+                            linked: st.on, speaking: false,
                             tap: { n in
                                 withAnimation(.easeOut(duration: 0.3)) {
                                     picked = picked == n.id ? nil : n.id
                                     note = nil
                                 }
                             },
-                            dim: ConnectionsWorld.soon.subtracting(on.keys), nodes: all)
-                    }.scaleEffect(k).frame(width: geo.size.width, height: geo.size.height)
+                            dim: ConnectionsWorld.soon.subtracting(st.on.keys), nodes: all)
+                    }.scaleEffect(k * (shown || fixedT != nil || reduceMotion ? 1 : 0.96)).frame(width: geo.size.width, height: geo.size.height)
+                        .opacity(shown || fixedT != nil ? 1 : 0)
                 }
                 detail(sel).frame(height: 120).padding(.bottom, 22)
             }
         }.preferredColorScheme(.dark)
+            .task { if fixedT == nil { await reload() } }
     }
     /// Connect: things One can do itself (Calendar on this Mac, a KeePass file) happen right here.
     /// Everything else is handed to the assistant, which walks them through it in the chat
@@ -414,15 +449,17 @@ struct ConnectionsWorld: View {
                 return
             }
         }
-        func have() -> Bool { isMail ? Bridge.mailAccounts > 0 : Bridge.calendarAccounts > 0 }
+        // The calendar count is a slow call to macOS: keep it off the main thread so the screen keeps moving while it waits.
+        func have() async -> Bool { isMail ? Bridge.mailAccounts > 0 : await Task.detached { Bridge.calendarAccounts > 0 }.value }
         func done() {
             if isMail { UserDefaults.standard.set(true, forKey: "mailConnected") }
             m.markConnected(id)
             note = nil
             picked = nil
+            Task { await reload() }
             Task { _ = await Speaker.shared.sayNow(isMail ? "Got it. I can see your email now." : "Got it. I can see your calendar now.") }
         }
-        if have() {
+        if await have() {
             done()
             return
         }
@@ -434,7 +471,7 @@ struct ConnectionsWorld: View {
         Task { _ = await Speaker.shared.sayNow(line) }
         for _ in 0..<200 {
             try? await Task.sleep(for: .seconds(3))
-            if have() {
+            if await have() {
                 done()
                 NSApp.activate(ignoringOtherApps: true)
                 return
@@ -447,6 +484,7 @@ struct ConnectionsWorld: View {
         if ConnectionsWorld.custom().contains(where: { $0.id == id }) {
             ConnectionsWorld.removeCustom(id)
             picked = nil
+            Task { await reload() }
             return
         }
         switch id {
@@ -457,12 +495,13 @@ struct ConnectionsWorld: View {
         default: break
         }
         picked = nil
+        Task { await reload() }
     }
     @ViewBuilder func detail(_ sel: Node?) -> some View {
         if let n = sel {
             VStack(spacing: 12) {
                 let opts = options(n.id)
-                let mine = ConnectionsWorld.custom().first { $0.id == n.id }
+                let mine = now.custom.first { $0.id == n.id }
                 if !opts.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(opts, id: \.self) { o in

@@ -231,6 +231,14 @@ struct Entry {
             MainActor.assumeIsolated { SelectCheck.run(k + 1 < args.count ? args[k + 1] : "reply") }
             exit(0)
         }
+        if let k = args.firstIndex(of: "--test-connections-open") {
+            Env.selfTest = true  // touches no settings or brain: one window, the Connections sheet opened in it
+            MainActor.assumeIsolated {
+                ConnectionsCheck.run(
+                    rounds: k + 1 < args.count ? Int(args[k + 1]) ?? 3 : 3, pictures: k + 2 < args.count ? args[k + 2] : nil)
+            }
+            exit(0)
+        }
         if args.contains("--browser-check") { runHeadless { exit(await BrowserKeeper.check()) } }
         if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
             MainActor.assumeIsolated {

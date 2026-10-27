@@ -46,7 +46,8 @@
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
 | HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
-| Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill) |
+| Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |
+| ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]`: opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |
 | Rooms.swift | UI | rooms sheet (`RoomsView`), share-a-room sheet, note panel |
 | RoomMap.swift | UI | `RoomMap`: reads the brain's notes and lays out the map |
 | SharedRooms.swift | service | `Shared`: rooms kept in iCloud Drive, invites, clashes |

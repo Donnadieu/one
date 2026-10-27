@@ -26,6 +26,7 @@
 | HelperCheck.swift | dev only | `One --test-helpers`, run by preflight |
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
 | VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; stand-in voice), run by preflight |
+| ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | Pictures.swift | service | images and files attached to a message |
 | Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
 | ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |

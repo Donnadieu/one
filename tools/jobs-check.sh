@@ -20,7 +20,7 @@ PROVIDER="${ONE_JOBS_PROVIDER:-claude}"  # claude = the subscription One already
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-jobs.XXXXXX")
 # The engine runs inside the folder lock, which closes the home folder, so it can't open an app in
 # ~/Repos: run a copy from the scratch folder (the engine calls it for email).
-cp -R build/app.noindex/One.app "$S/One.app"
+tools/test-copy.sh jobs-test "$S" >/dev/null  # own bundle id: never your real One or its settings
 echo "scratch: $S (kept for reading: transcripts, steps, routines)"
 # A clean environment, like opening One from the Finder: Hermes variables from whatever launched
 # this script (e.g. an agent's own gateway) would steer One's engine.
@@ -28,6 +28,7 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:
   LANG="${LANG:-en_US.UTF-8}" OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ONE_JOBS_PROVIDER="$PROVIDER" HERMES_RUNTIME_DIR="$HOME/Library/Application Support/One/hermes/tools" ONE_JOBS_ONLY="$ONLY" ONE_JOBS_DIR="$S" ONE_FAKE_MAIL="$S/inbox.json" \
   perl -e 'alarm 900; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-jobs > "$S/out.txt" 2>"$S/err.txt"
 rc=$?
+defaults delete ai.forjado.one.jobs-test >/dev/null 2>&1
 grep -E '^(PASS|FAIL|INFO|TOTAL|model:|permission|restored)' "$S/out.txt"
 [ $rc = 142 ] && echo "FAIL timeout: no result after 15 minutes"
 grep -q '^TOTAL' "$S/out.txt" || { echo "FAIL no result (exit $rc)"; tail -5 "$S/out.txt" "$S/err.txt"; }

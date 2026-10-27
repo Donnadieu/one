@@ -35,11 +35,11 @@ enum HelperStopCheck {
         let fm = FileManager.default
         let dst = Env.hermesHome.appendingPathComponent("auth.json")
         try? fm.removeItem(at: dst)
-        try? fm.copyItem(at: Env.support.appendingPathComponent("hermes/auth.json"), to: dst)
+        try? fm.copyItem(at: TestWorld.realSupport.appendingPathComponent("hermes/auth.json"), to: dst)
         let tools = Env.hermesHome.appendingPathComponent("tools")
         if (try? fm.destinationOfSymbolicLink(atPath: tools.path)) == nil {
             try? fm.removeItem(at: tools)
-            try? fm.createSymbolicLink(at: tools, withDestinationURL: Env.support.appendingPathComponent("hermes/tools"))
+            try? fm.createSymbolicLink(at: tools, withDestinationURL: TestWorld.realSupport.appendingPathComponent("hermes/tools"))
         }
         await SignIn.makeDefault(.claude, model: Provider.claude.tiers[1].1)
         _ = await hermesRun(["config", "set", "auth.adopt_external_logins", "false"])

@@ -27,9 +27,7 @@ printf 'import os, sys, runpy\nsys.stdout.reconfigure(line_buffering=True)\nsys.
   ONE_HANDOFF_DIR="$S/support/handoff" ONE_HANDOFF_CDP=http://127.0.0.1:$PORT ONE_TEST_SCRIPT="$REPO/tests/handoff/e2e_engine.py" \
   perl -e 'alarm 240; exec @ARGV' "$ENG/.hermes/bin/hermes" --run-module one_handoff_run > "$S/engine.txt" 2>&1 ) &
 EP=$!
-cp -R build/app.noindex/One.app "$S/One.app"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ai.forjado.one.handoff-test" "$S/One.app/Contents/Info.plist"
-codesign --force -s - "$S/One.app" >/dev/null 2>&1
+tools/test-copy.sh handoff-test "$S" >/dev/null  # own bundle id: never your real One or its settings
 ONE_SUPPORT_DIR="$S/support" ONE_HANDOFF_CDP=http://127.0.0.1:$PORT perl -e 'alarm 200; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-human-step > "$S/one.txt" 2>"$S/one.err"
 rc=$?
 wait $EP

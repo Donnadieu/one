@@ -15,6 +15,8 @@
 | File | Area | Responsibility |
 |---|---|---|
 | Env.swift | foundation | paths, `Access.profile()` (the folder lock), engine environment |
+| TestWorld.swift | foundation | the person's Mac is production: `TestWorld.enter()` (the only way into a test mode; refuses as the real One, scratch One folder), `Env.production`, `isProduction(url)` |
+| ProductionCheck.swift | dev only | `One --test-production`: a test copy keeps to its own world; the Oct 27 shelf move replayed on fakes |
 | Installer.swift | service | install Hermes (pinned commit), KeePass overlay, provider sign-in, tools Python |
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |
 | Voice.swift | service | Kokoro voice process, speaking, listening (push to talk) |
@@ -47,7 +49,7 @@
 | HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |
-| ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]`: opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |
+| ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]` (from a test copy): opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |
 | Rooms.swift | UI | rooms sheet (`RoomsView`), share-a-room sheet, note panel |
 | RoomMap.swift | UI | `RoomMap`: reads the brain's notes and lays out the map |
 | SharedRooms.swift | service | `Shared`: rooms kept in iCloud Drive, invites, clashes |

@@ -10,7 +10,8 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | No broad process kills | `one-lint: broad-kill` |
 | No Telegram/WhatsApp | `one-lint: no-messaging` |
 | Programs only run from services | `one-lint: process-area` |
-| Test hooks never touch real state | `one-lint: test-selftest` |
+| The person's files and settings are production: no test, check or render touches them | `TestWorld.enter()` refuses under the real bundle id and gives a scratch One folder; `one-lint: test-selftest` + `test-copy`; preflight "Your files and settings are production" (real build refuses, `One --test-production`, nothing in Made by or on the shelf went missing) |
+| Only the person's own One moves or forgets their Ready for you files and cards | `Env.production` in `Shelf.load`/`Shelf.save`; missing cards kept in `shelfMissing`; preflight `--test-production` |
 | Email is never sent by One | `one-lint: no-mail-send` |
 | No secrets in source or in the app | `one-lint: no-secrets`, preflight "no keys or tokens bundled" |
 | Consistent formatting | `swift-format lint` (`.swift-format`) |

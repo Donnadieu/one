@@ -104,6 +104,17 @@ final class Engine: @unchecked Sendable {
         return r
     }
 
+    /// Is this process already inside a folder lock? (Then sandbox-exec refuses to apply another one.)
+    nonisolated static var insideLock: Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+        p.arguments = ["-p", "(version 1)(allow default)", "/usr/bin/true"]
+        p.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 71
+    }
+
     func start() async -> String? {
         let previous = enginePID
         stop()
@@ -115,6 +126,12 @@ final class Engine: @unchecked Sendable {
         let profile = Access.profile()
         FolderWatch.engineStarted(profile: profile)
         p.arguments = ["-p", profile, hp, "acp"]
+        if Env.selfTest && Engine.insideLock {
+            // A test run by the assistant itself is already inside the folder lock, where a second lock
+            // can't be applied: the test engine runs under that same lock.
+            p.executableURL = URL(fileURLWithPath: hp)
+            p.arguments = ["acp"]
+        }
         p.environment = Env.vars()
         let cwd = Brain.exists ? Brain.root : Env.support
         p.currentDirectoryURL = cwd

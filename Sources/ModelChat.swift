@@ -114,7 +114,7 @@ extension Model {
         return HelperTrail.restore(hs)  // the ones a restart cut off get picked back up once the engine is ready
     }
 
-    /// Picks up helpers a restart cut off, up to 3 working at once. Runs once the engine is ready and
+    /// Picks up helpers a restart cut off, all at once. Runs once the engine is ready and
     /// whenever a helper finishes. Tells the person once per helper, in the chat, on the orb and out loud.
     func resumeInterrupted() {
         guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
@@ -164,11 +164,7 @@ extension Model {
         helpers.removeAll {
             ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && $0.id != openHelper && $0.resumeQueued != true
         }
-        if helpers.filter({ $0.state == "working" }).count >= 3 {
-            bubbles.append(
-                Bubble(fromMe: false, text: "I already have 3 helpers busy. I'll take \"\(title)\" as soon as one is free; ask me again in a bit."))
-            return
-        }
+        // No limit: every helper starts right away (the engine runs all its conversations at once).
         while helpers.count >= 4, let k = helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true }) { helpers.remove(at: k) }
         var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
         h.started = Date()
@@ -263,7 +259,7 @@ extension Model {
             }
         }
         saveTrail(id)
-        resumeInterrupted()  // a slot is free: pick up the next helper a restart cut off
+        resumeInterrupted()  // pick up any helper a restart cut off that's still waiting
         if openHelper != id, !stop.hasPrefix("error") { Task { await deliverHelper(id) } }
         if away, let h = helpers.first(where: { $0.id == id }) {
             let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."

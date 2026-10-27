@@ -5,11 +5,11 @@ import Foundation
 /// One itself (not the helper) writes `Support/One/helpers/<id>.md` for every helper: the whole job,
 /// when it started, the plain-words steps it took and its latest reply, saved as it goes. When One
 /// stopped while a helper was working, the next launch sends that helper its job again with this trail,
-/// at most `maxResumes` times, keeping the limit of 3 working at once.
+/// at most `maxResumes` times. There's no limit on how many work at once: the engine runs every
+/// conversation in parallel (`max_concurrent_sessions` is unset in its config).
 @MainActor
 enum HelperTrail {
     static let maxResumes = 2
-    static let maxWorking = 3
     static var folder: URL { Env.support.appendingPathComponent("helpers", isDirectory: true) }
     static func url(_ id: UUID) -> URL { folder.appendingPathComponent("\(id.uuidString).md") }
     private static var lastWrite: [UUID: Date] = [:]
@@ -104,12 +104,11 @@ enum HelperTrail {
         return hs
     }
 
-    /// Queued helpers to start now (oldest first, never more than 3 working). Marks them working,
+    /// Queued helpers to start now (all of them, oldest first). Marks them working,
     /// counts the resume and leaves a note for the assistant. Returns each helper's id and the prompt to send.
     static func pick(_ hs: inout [Helper], brief: (String) -> String) -> [(id: UUID, prompt: String)] {
         var out: [(id: UUID, prompt: String)] = []
         for k in hs.indices where hs[k].resumeQueued == true && hs[k].stoppedByYou != true {
-            guard hs.filter({ $0.state == "working" }).count < maxWorking else { break }
             let prompt = resumePrompt(hs[k], brief: brief(hs[k].task))
             hs[k].resumeQueued = false
             hs[k].resumes = (hs[k].resumes ?? 0) + 1

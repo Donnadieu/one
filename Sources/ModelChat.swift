@@ -34,6 +34,7 @@ extension Model {
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
         await SignIn.enableRoutines()
+        await PhoneVoice.sync()  // phone chats speak with the same voice as the Mac
         if let e = await Engine.shared.ensureStarted() {
             bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))
         } else {

@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
-cp tools/speak.py tools/install_voice.sh "$APP/Contents/Resources/"
+cp tools/speak.py tools/speak_file.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
 # Skills that ship with One (skills/<category>/<name>/SKILL.md); One copies them into the engine (BundledSkills).
 cp -R skills "$APP/Contents/Resources/skills"

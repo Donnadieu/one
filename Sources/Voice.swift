@@ -318,6 +318,7 @@ final class Speaker: @unchecked Sendable {
     /// Switch voices: restart the voice process with the new one, then say a short line in it.
     func use(voice: String, sample: String?) {
         UserDefaults.standard.set(voice, forKey: "voiceID")
+        Task { await PhoneVoice.sync() }  // phone chats follow the new voice
         stop()
         q.async {
             self.proc?.terminate()

@@ -50,6 +50,18 @@ enum GuardsCheck {
         try? fm.moveItem(at: held, to: leak)
         check("putting it back on purpose (share it anyway) sticks", SharedGuard.tend().isEmpty && fm.fileExists(atPath: leak.path))
 
+        // A skill in the shared room that a private job edits is held back too (not only new files).
+        let skill = shared.appendingPathComponent("skills/learned/pitch/SKILL.md")
+        try? fm.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? "---\nname: pitch\ndescription: Use when pitching.\n---\n\nOpen with the problem.\n".write(to: skill, atomically: true, encoding: .utf8)
+        check("a new shared skill with nothing private stays", SharedGuard.tend().isEmpty && fm.fileExists(atPath: skill.path))
+        try? fm.setAttributes([.modificationDate: Date().addingTimeInterval(-60)], ofItemAtPath: skill.path)
+        _ = SharedGuard.tend()
+        try? "---\nname: pitch\ndescription: Use when pitching.\n---\n\nOpen with the problem.\n\(secret)\n".write(
+            to: skill, atomically: true, encoding: .utf8)
+        let skillNotes = SharedGuard.tend()
+        check("a shared skill changed to copy a private note is held back", !fm.fileExists(atPath: skill.path) && skillNotes.count == 1)
+
         // Experimental connections: off until tested.
         let skills = ExperimentalGuard.dir
         for n in ["feedly", "smart-home"] {

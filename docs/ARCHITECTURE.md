@@ -56,6 +56,10 @@
 | TalkKey.swift | UI | push-to-talk key: `TalkKey`, `TalkKeys` hotkeys, `TalkKeySheet` |
 | Previews.swift | dev only | scenes for `--render-world` |
 | BundledSkills.swift | service | skills that ship with One (`skills/` in the repo, Resources/skills in the app): copied into the engine at install and launch, never over an edited copy; `One --test-skills` |
+| Learning.swift | service | "tell me when I learn": reads the engine's skill log (`skills/.curator_ledger.jsonl`, by entry id, never the skills folder or the chat stream), matches lines to One's chats, decides new skill / fix / ask; `learning.json`; Undo (engine rollback, or Trash for room skills); `LearnedDirs` (private rooms' `skills/learned` in `skills.external_dirs`, never a shared room) |
+| ModelLearning.swift | state | `extension Model`: counts each job's steps, the line + Undo after a new skill, the "want me to remember?" question ~2 min after a long or repeated job, taps (`choose`), saving into a room, Learned cards |
+| LearningCheck.swift | dev only | `One --test-learning`, run by preflight (decisions on a made-up log) |
+| LearningLiveCheck.swift | check | `One --test-learning-live` (tools/learning-check.sh, `make learning`): new skill, fix, long job, No, Yes, helper, Undo, with the real engine |
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
 | BrowserKeeper.swift | service | keeps the hidden browser helpers use running: if nothing answers on the local `browser.cdp_url` port, starts Chrome again with the same saved profile (sign-ins survive a crash; optional `browser/keeper.json` names the profile); `One --browser-check` reports the browser and the Claude sign-in |

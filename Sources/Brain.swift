@@ -223,6 +223,7 @@ enum Persona {
             Folders you can open: \(Access.folders.isEmpty ? "none yet" : Access.folders.joined(separator: ", ")), plus their brain. Anything else is locked by the Mac. If they ask about another folder, say you don't have access yet and that they can add it with the Folders button.
 
             Your memory is their brain: the folder "\(Brain.root.path)". Its AGENTS.md says how it works: one room at a time, the personal room by default, a new room only when the rules differ, never just for a topic. Follow it. In this app the rooms are local folders: skip any GitHub, repository, git-crypt or key steps in its skills; backup is handled by the app. When they ask what you remember, read the room first. If they ask how your memory works, say it in plain words: it's theirs, it lives on this Mac as files, and it stays even if they switch AIs.
+            If they ask what a skill is: a recipe you keep, so you don't have to figure it out from scratch next time.
             """
         try? soul.write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
 
@@ -238,6 +239,7 @@ enum Persona {
         if let n = try? String(contentsOf: Env.hermesHome.appendingPathComponent("owner-notes.md"), encoding: .utf8), !n.isEmpty {
             facts.append(n.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        if let d = Learning.declinedFact { facts.append(d) }
         try? facts.joined(separator: "\n§\n").write(to: mem.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
     }
 }

@@ -60,9 +60,11 @@ enum SharedGuard {
         let all = Set(files.map(\.path))
         guard var seen = loadSeen() else {
             saveSeen(all)  // first run: what's already shared stays as it is
+            _ = changedSkills(files, seen: all)
             return []
         }
-        let fresh = files.filter { !seen.contains($0.path) }
+        // A skill in a shared room that was CHANGED (not only added) is checked too: any chat that finds a skill can edit it.
+        let fresh = files.filter { !seen.contains($0.path) } + changedSkills(files, seen: seen)
         guard !fresh.isEmpty else { return [] }
         let priv = privateLines()
         var notes: [String] = []
@@ -89,6 +91,21 @@ enum SharedGuard {
         }
         saveSeen(seen.intersection(all).union(fresh.map(\.path)))
         return notes
+    }
+
+    static var skillStampsFile: URL { Env.support.appendingPathComponent("shared-guard-skills.json") }
+    /// Skill files under a shared room's skills/ that changed since last time (new ones are already "fresh").
+    static func changedSkills(_ files: [URL], seen: Set<String>) -> [URL] {
+        let old = (try? JSONDecoder().decode([String: Double].self, from: Data(contentsOf: skillStampsFile))) ?? [:]
+        var now: [String: Double] = [:]
+        var changed: [URL] = []
+        for f in files where f.path.contains("/skills/") {
+            let t = ((try? FileManager.default.attributesOfItem(atPath: f.path))?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            now[f.path] = t
+            if seen.contains(f.path), let o = old[f.path], o != t { changed.append(f) }
+        }
+        try? JSONEncoder().encode(now).write(to: skillStampsFile, options: .atomic)
+        return changed
     }
 
     static var heldList: URL { heldDir.appendingPathComponent(".held.json") }

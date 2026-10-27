@@ -34,6 +34,8 @@ extension Model {
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
+        await LearnedDirs.sync()  // skills saved into private rooms count as skills; shared rooms never
+        Task { await LearnedDirs.checkLedgerOn() }
         await SignIn.enableRoutines()
         await PhoneVoice.sync()  // phone chats speak with the same voice as the Mac
         if let e = await Engine.shared.ensureStarted() {
@@ -201,6 +203,7 @@ extension Model {
     func runHelper(_ id: UUID, _ text: String, images: [String]) async {
         guard let sid = helpers.first(where: { $0.id == id })?.sid else { return }
         helperLive.remove(id)
+        learnHelperStart(id)
         update(id) {
             $0.state = "working"
             $0.reply = ""
@@ -224,6 +227,7 @@ extension Model {
                 Task { @MainActor in
                     guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line
                     self.helperUnderway(id)
+                    self.learnHelperStep(id, s)
                     self.update(id) {
                         $0.line = Plain.step(s)
                         HelperTrail.add($0.line, to: &$0)
@@ -268,6 +272,7 @@ extension Model {
             // Orange until they open it, unless they're looking at it right now or it's part of a routine (reported in the chat).
             h.seen = self.openHelper == id || h.routine != nil
         }
+        learnHelperFinished(id, stop: stop)
         if let h = helpers.first(where: { $0.id == id }), !stop.hasPrefix("error") {
             let said = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
             if !said.isEmpty {
@@ -422,13 +427,20 @@ extension Model {
                 if voiceFirst { self.heldText += s } else if idx < self.bubbles.count { self.bubbles[idx].text += s }
             }
         }
-        Engine.shared.onTool = { s in Task { @MainActor in self.working = Plain.step(s) } }
+        Engine.shared.onTool = { s in
+            Task { @MainActor in
+                self.working = Plain.step(s)
+                self.learnStep(s)
+            }
+        }
         Engine.shared.onPermission = { q, opts, answer in
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
         Engine.shared.onActivity = { Task { @MainActor in self.turnUnderway() } }
         let message =
             c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + BrowserKeeper.note + FolderWatch.note + helperNews()
+            + (hidden ? "" : Learning.kindNote)
+        learnStart(hidden: hidden)
         let gateway = GatewayGuard.recordedPID()
         turnLive = true
         turnStarted = false
@@ -461,6 +473,7 @@ extension Model {
             let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }
+        full = learnFinish(full, stop: stop, idx: idx)  // [job-kind:] / [learned:] read and hidden; the job recorded
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }

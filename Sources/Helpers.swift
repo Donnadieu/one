@@ -422,10 +422,7 @@ struct FileViewer: View {
                         .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
                     }.padding(.horizontal, 22).padding(.vertical, 16)
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                    ScrollView {
-                        MarkdownText(text: text.isEmpty ? "Nothing written here yet." : text, size: 15).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 22).padding(.vertical, 18)
-                    }
+                    ReaderText(text: text.isEmpty ? "Nothing written here yet." : text)
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                     HStack(spacing: 8) {
                         Button {
@@ -512,12 +509,7 @@ struct ShelfOpened: View {
                             if item.url.pathExtension.lowercased() == "pdf" { PDFReader(url: item.url) } else { QuickLookView(url: item.url) }
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView {
-                            MarkdownText(text: shown, size: 15)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 22).padding(.vertical, 18)
-                        }
+                        ReaderText(text: shown)
                     }
                     Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                     HStack(spacing: 8) {

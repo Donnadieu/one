@@ -226,6 +226,11 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if let k = args.firstIndex(of: "--test-select") {
+            Env.selfTest = true  // touches no settings or brain: one window, events sent into it, the clipboard
+            MainActor.assumeIsolated { SelectCheck.run(k + 1 < args.count ? args[k + 1] : "reply") }
+            exit(0)
+        }
         if args.contains("--browser-check") { runHeadless { exit(await BrowserKeeper.check()) } }
         if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
             MainActor.assumeIsolated {
@@ -262,7 +267,9 @@ struct Entry {
             let out = args[k + 1]
             MainActor.assumeIsolated {
                 HelperStopScene.ready()
+                ChatText.still = true
                 let views: [(String, AnyView)] = [
+                    ("chat-select", AnyView(SelectCheck.scene())),
                     ("tour", AnyView(WorldCanvas(t: 30, lit: 1, picking: false, linked: [:], speaking: true).background(WorldLook.bg))),
                     (
                         "md",

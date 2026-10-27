@@ -257,24 +257,49 @@ enum Shelf {
     }
     static func load() -> [ShelfItem] {
         guard let d = UserDefaults.standard.data(forKey: "shelf"), var v = try? JSONDecoder().decode([ShelfItem].self, from: d) else { return [] }
-        // The assistant was renamed: move results from the old "Made by …" folder into the new one.
         let fm = FileManager.default
-        for k in v.indices where !v[k].path.hasPrefix(folder.path + "/") {
-            let old = URL(fileURLWithPath: v[k].path)
-            guard fm.fileExists(atPath: old.path), old.deletingLastPathComponent().lastPathComponent.hasPrefix("Made by ") else { continue }
-            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            let dest = folder.appendingPathComponent(old.lastPathComponent)
-            if (try? fm.moveItem(at: old, to: dest)) != nil {
-                v[k].path = dest.path
+        // The assistant was renamed: move results from the old "Made by …" folder in Documents into the new one.
+        // Only the person's own One ever moves their files (never a test, check or render: TestWorld.swift).
+        if Env.production {
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.path
+            for k in v.indices where !v[k].path.hasPrefix(folder.path + "/") {
+                let old = URL(fileURLWithPath: v[k].path)
                 let dir = old.deletingLastPathComponent()
-                if (try? fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }.isEmpty) == true { try? fm.removeItem(at: dir) }
+                guard fm.fileExists(atPath: old.path), dir.lastPathComponent.hasPrefix("Made by "),
+                    dir.deletingLastPathComponent().standardizedFileURL.path == docs,
+                    folder.deletingLastPathComponent().standardizedFileURL.path == docs
+                else { continue }
+                try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                let dest = folder.appendingPathComponent(old.lastPathComponent)
+                if (try? fm.moveItem(at: old, to: dest)) != nil {
+                    v[k].path = dest.path
+                    if (try? fm.contentsOfDirectory(atPath: dir.path).filter { $0 != ".DS_Store" }.isEmpty) == true { try? fm.removeItem(at: dir) }
+                }
             }
         }
-        let kept = v.filter { FileManager.default.fileExists(atPath: $0.path) }
-        save(kept)
+        // A card whose file is gone is kept aside (`shelfMissing`), never forgotten, and comes back when the file does.
+        let saved = (UserDefaults.standard.data(forKey: "shelfMissing")).flatMap { try? JSONDecoder().decode([ShelfItem].self, from: $0) } ?? []
+        let (kept, missing) = reconcile(v, missing: saved) { fm.fileExists(atPath: $0) }
+        if Env.production {
+            UserDefaults.standard.set(try? JSONEncoder().encode(missing), forKey: "shelfMissing")
+            save(kept)
+        }
         return kept
     }
-    static func save(_ v: [ShelfItem]) { UserDefaults.standard.set(try? JSONEncoder().encode(v), forKey: "shelf") }
+    /// Cards with a file are shown; cards without one are kept aside, and come back when their file does.
+    static func reconcile(_ shelf: [ShelfItem], missing: [ShelfItem], exists: (String) -> Bool) -> (kept: [ShelfItem], missing: [ShelfItem]) {
+        var v = shelf
+        var m = missing
+        let back = m.filter { x in exists(x.path) && !v.contains { $0.path == x.path } }
+        v += back
+        m.removeAll { x in back.contains { $0.path == x.path } }
+        for x in v where !exists(x.path) && !m.contains(where: { $0.path == x.path }) { m.append(x) }
+        return (v.filter { exists($0.path) }, m)
+    }
+    static func save(_ v: [ShelfItem]) {
+        guard Env.production else { return }  // a test, check or render keeps its shelf in memory only
+        UserDefaults.standard.set(try? JSONEncoder().encode(v), forKey: "shelf")
+    }
     /// Save a finished result as a file in Documents › Made by Nova.
     /// Files the assistant made directly (PDFs, documents…) that aren't on the shelf yet.
     static func adopt(_ have: [ShelfItem]) -> [ShelfItem] {

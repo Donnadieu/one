@@ -27,7 +27,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if CommandLine.arguments.contains("--test-updates") {
-            Env.selfTest = true  // own settings suite and a fake release list; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // own settings suite and a fake release list; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
                 print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
                 exit(2)
@@ -36,38 +36,38 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if CommandLine.arguments.contains("--test-followups") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
             Task { @MainActor in exit(await FollowUpCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-helper-done") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
             Task { @MainActor in exit(await HelperDoneCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-helper-stop") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-stop-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-stop-check.sh)
             Task { @MainActor in exit(await HelperStopCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-update-helpers") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-stop-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-stop-check.sh)
             let after = CommandLine.arguments.contains("--after")
             Task { @MainActor in exit(await HelperStopCheck.update(after: after)) }
             return
         }
         if CommandLine.arguments.contains("--test-helper-self") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-self-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-self-check.sh)
             Task { @MainActor in exit(await HelperSelfCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-human-step") {
-            Env.selfTest = true  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
+            TestWorld.enter()  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
             Task { @MainActor in exit(await HumanStepCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-helpers") {
-            Env.selfTest = true  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
                 print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
                 exit(2)
@@ -76,7 +76,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if CommandLine.arguments.contains("--test-voice") {
-            Env.selfTest = true  // stand-in voice, its own settings suite; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // stand-in voice, its own settings suite; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
                 print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
                 exit(2)
@@ -95,33 +95,37 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in Updater.shared.loop() }
         }
         if CommandLine.arguments.contains("--test-learning") {
-            Env.selfTest = true  // pure decisions on a made-up skill log; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // pure decisions on a made-up skill log; run with ONE_SUPPORT_DIR set to an empty folder
             exit(LearningCheck.run())
         }
         if CommandLine.arguments.contains("--test-learning-live") {
-            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/learning-check.sh)
+            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/learning-check.sh)
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-guards") {
-            Env.selfTest = true  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
+            TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
         }
         if CommandLine.arguments.contains("--test-restart") {
-            Env.selfTest = true  // scratch Hermes home and in-memory folder lists; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // scratch Hermes home and in-memory folder lists; run with ONE_SUPPORT_DIR set to an empty folder
             Task { @MainActor in exit(await RestartCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-browser") {
-            Env.selfTest = true  // pure decisions; never starts Chrome. Run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // pure decisions; never starts Chrome. Run with ONE_SUPPORT_DIR set to an empty folder
             exit(BrowserCheck.run())
         }
+        if CommandLine.arguments.contains("--test-production") {
+            TestWorld.enter()  // a test copy only: your files and settings are production (tools/test-copy.sh)
+            exit(ProductionCheck.run())
+        }
         if CommandLine.arguments.contains("--test-gateway") {
-            Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
             exit(GatewayCheck.run())
         }
         if CommandLine.arguments.contains("--test-shared") {
-            Env.selfTest = true  // brain goes to a scratch copy, never the real one
+            TestWorld.enter()  // brain goes to a scratch copy, never the real one
             // Two people, one cloud folder: Omar makes a room, Sam joins, both add entries.
             let d = UserDefaults.standard
             d.set("Omar", forKey: "userName")
@@ -237,12 +241,12 @@ struct Entry {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
         if let k = args.firstIndex(of: "--test-select") {
-            Env.selfTest = true  // touches no settings or brain: one window, events sent into it, the clipboard
+            TestWorld.enter()  // a test copy only: one window, events sent into it, the clipboard
             MainActor.assumeIsolated { SelectCheck.run(k + 1 < args.count ? args[k + 1] : "reply") }
             exit(0)
         }
         if let k = args.firstIndex(of: "--test-connections-open") {
-            Env.selfTest = true  // touches no settings or brain: one window, the Connections sheet opened in it
+            TestWorld.enter()  // a test copy only: one window, the Connections sheet opened in it
             MainActor.assumeIsolated {
                 ConnectionsCheck.run(
                     rounds: k + 1 < args.count ? Int(args[k + 1]) ?? 3 : 3, pictures: k + 2 < args.count ? args[k + 2] : nil)
@@ -277,7 +281,7 @@ struct Entry {
             exit(0)
         }
         if args.contains("--test-shelf-copy"), let k = args.firstIndex(of: "--test-shelf-copy"), k + 1 < args.count {
-            Env.selfTest = true  // only the clipboard is touched
+            TestWorld.enter()  // only the clipboard is touched
             let ok = MainActor.assumeIsolated { ShelfCopy.check(args[k + 1], stop: k + 2 < args.count ? args[k + 2] : nil) }
             exit(ok ? 0 : 1)
         }
@@ -461,7 +465,7 @@ struct Entry {
             exit(0)
         }
         if args.contains("--test-skills") {
-            Env.selfTest = true  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
+            TestWorld.enter()  // scratch Hermes home; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
                 print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
                 exit(2)
@@ -512,7 +516,7 @@ struct Entry {
             }
         }
         if args.contains("--test-jobs") {
-            Env.selfTest = true  // scratch brain and Hermes home; see JobsCheck.swift
+            TestWorld.enter()  // scratch brain and Hermes home; see JobsCheck.swift
             JobsCheck.run()
         }
         if args.contains("--reset") {
@@ -522,7 +526,7 @@ struct Entry {
         }
         if args.contains("--selftest") {
             // Uses a throwaway Hermes home and an OPENROUTER_API_KEY from the environment.
-            Env.selfTest = true
+            TestWorld.enter()
             runHeadless {
                 print("hermes:", Env.hermesPath ?? "missing")
                 for p in Provider.allCases { print("[\(p.title)] signed in (selftest home):", await SignIn.isSignedIn(p)) }
@@ -562,7 +566,7 @@ struct Entry {
         }
         if let i = args.firstIndex(of: "--signin-probe"), i + 1 < args.count, let p = Provider(rawValue: args[i + 1]) {
             // Starts a real sign-in, prints what the app would show, then cancels.
-            Env.selfTest = true
+            TestWorld.enter()
             runHeadless {
                 let s = SignIn()
                 let seen = Box([String]())

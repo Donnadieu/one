@@ -10,6 +10,7 @@
 | Rooms + sharing | 5/10 | two-Mac iCloud share untested |
 | Shipped skills | 7/10 | copy/update/keep tested by preflight; Basecamp sign-in from a never-connected Mac untested |
 | Updater | 7/10 | detection and announce-once tested every preflight (`--test-updates`); full swap not automated; live notification and spoken line not yet seen on a real Mac |
+| Test isolation | 8/10 | since 0.9.33 every test mode refuses as the real One and gets a scratch folder (`TestWorld`), every check script uses `tools/test-copy.sh`, preflight proves nothing in Made by or on the shelf went missing; handoff-check still drops a temporary runner file into the engine folder |
 | Code health | 7/10 | split into 25 area files; all files under 600 lines (baseline empty) |
 
-Updated: 2026-10-26
+Updated: 2026-10-27

@@ -166,7 +166,7 @@ enum JobsCheck {
         // Default: the Claude subscription One already signed in to (no extra cost). ONE_JOBS_PROVIDER=openrouter uses the key.
         let useClaude = (env["ONE_JOBS_PROVIDER"] ?? "claude") == "claude"
         if useClaude {
-            let real = Env.support.appendingPathComponent("hermes/auth.json")
+            let real = TestWorld.realSupport.appendingPathComponent("hermes/auth.json")
             let dst = Env.hermesHome.appendingPathComponent("auth.json")
             guard fm.fileExists(atPath: real.path) else {
                 say("FAIL setup: One isn't signed in to Claude on this Mac")
@@ -180,7 +180,7 @@ enum JobsCheck {
         let tools = Env.hermesHome.appendingPathComponent("tools")
         if (try? fm.destinationOfSymbolicLink(atPath: tools.path)) == nil {
             try? fm.removeItem(at: tools)
-            try? fm.createSymbolicLink(at: tools, withDestinationURL: Env.support.appendingPathComponent("hermes/tools"))
+            try? fm.createSymbolicLink(at: tools, withDestinationURL: TestWorld.realSupport.appendingPathComponent("hermes/tools"))
         }
         if !useClaude && (env["OPENROUTER_API_KEY"] ?? "").count <= 10 {
             say("FAIL setup: OPENROUTER_API_KEY is not set")

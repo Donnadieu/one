@@ -88,9 +88,17 @@ def r_process_outside(path, lines):
 
 def r_test_hook_selftest(path, lines):
     for i, l in enumerate(lines, 1):
-        m = re.search(r'args\.contains\("(--test-[\w-]+)"\)', l)
-        if m and not any("selfTest = true" in x for x in lines[i - 1:i + 6]):
-            yield i, f"{m.group(1)} doesn't set Env.selfTest first"
+        m = re.search(r'args\.(?:contains|firstIndex)\((?:of: )?"(--test-[\w-]+)"\)', l)
+        if m and not any("TestWorld.enter()" in x for x in lines[i - 1:i + 6]):
+            yield i, f"{m.group(1)} doesn't call TestWorld.enter() first"
+        if "selfTest = true" in l.split("//", 1)[0] and not path.endswith("TestWorld.swift"):
+            yield i, "sets Env.selfTest by hand"
+
+def r_test_copy(path, lines):
+    """Shell side: check scripts run One only from a test copy (tools/test-copy.sh)."""
+    for i, l in enumerate(lines, 1):
+        if re.search(r'(cp -R|ditto)\s+"?build/(app\.noindex/)?One\.app', l):
+            yield i, "copies the built One by hand"
 
 def r_mail_send(path, lines):
     for i, l in enumerate(lines, 1):
@@ -115,19 +123,27 @@ RULES = {
                       "Remove it. Phone = native companion app (docs/PRODUCT_SENSE.md)."),
     "process-area":  (r_process_outside,"Running programs is risky; keep it in a few known places.",
                       "Move the call into Installer/Engine/Bridge/Speaker (or add the owner to PROCESS_OK with a reason)."),
-    "test-selftest": (r_test_hook_selftest,"Test hooks must never touch the user's real brain or settings.",
-                      "Set Env.selfTest = true as the first line of the hook and export/import UserDefaults around it."),
+    "test-selftest": (r_test_hook_selftest,"The person's files and settings are production; a test never touches them.",
+                      "Make TestWorld.enter() the first line of the hook (never set Env.selfTest yourself); run it from tools/test-copy.sh."),
+    "test-copy":     (r_test_copy,     "A copy of One with the real bundle id shares the person's settings (Oct 27: it moved their files).",
+                      "Use APP=$(tools/test-copy.sh <name> <folder>): its own bundle id and settings."),
     "no-mail-send":  (r_mail_send,     "The assistant drafts email; the person always presses Send.",
                       "Open a visible draft instead (Bridge --mail draft)."),
     "no-secrets":    (r_secret_in_source,"The repo is public.",
                       "Load it at build time from outside the repo, or from the user's Keychain at run time."),
 }
 
+SHELL_RULES = {"test-copy"}
+
 def scan():
     found = []
-    for path in swift_files():
+    shell = sorted(os.path.relpath(os.path.join(ROOT, "tools", f), ROOT) for f in os.listdir(os.path.join(ROOT, "tools"))
+                   if f.endswith(".sh") and f != "test-copy.sh")
+    for path in list(swift_files()) + shell:
         lines = open(os.path.join(ROOT, path), encoding="utf-8").read().split("\n")
         for rid, (fn, _, _) in RULES.items():
+            if (rid in SHELL_RULES) != path.endswith(".sh"):
+                continue
             for line, msg in fn(path, lines):
                 found.append((rid, path, line, msg))
     return found

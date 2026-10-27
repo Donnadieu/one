@@ -10,9 +10,7 @@ cd "$(dirname "$0")/.."
 case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAIL build (run ./build.sh)"; exit 1; } ;; esac
 ID=ai.forjado.one.helperstop-test
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-helperstop.XXXXXX")
-cp -R build/app.noindex/One.app "$S/One.app"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $ID" "$S/One.app/Contents/Info.plist"
-codesign --force -s - "$S/One.app" >/dev/null 2>&1
+tools/test-copy.sh "${ID#ai.forjado.one.}" "$S" >/dev/null  # own bundle id: never your real One or its settings
 defaults delete "$ID" >/dev/null 2>&1
 run() {
   env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \

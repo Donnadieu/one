@@ -18,7 +18,8 @@ enum Env {
     /// used to restart the person's live engine helper and fail the message they were waiting on.
     static var commandLine: Bool { CommandLine.arguments.dropFirst().contains { $0.hasPrefix("--") } }
     static var support: URL {
-        let base = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) }
+        // A test never gets the real folder: ONE_SUPPORT_DIR, or the scratch folder TestWorld.enter() made.
+        let base = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) } ?? (selfTest ? TestWorld.scratch : nil)
         let u =
             base
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

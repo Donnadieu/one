@@ -30,6 +30,7 @@ struct Helper: Identifiable, Codable {
     var resumeQueued: Bool?  // cut off by a restart, waiting to be picked back up
     var restartNews: String?  // the assistant hasn't been told it was picked back up yet
     var stoppedByYou: Bool?  // stopped on purpose (the Stop button): never picked back up after a restart
+    var updatePaused: Bool?  // paused so an update could install: picks back up after the restart, never counted as a cut-off
     var seen: Bool?  // false: finished and not opened yet (orange until they tap it). nil = from before this existed: seen.
     var routine: UUID?  // sent for a good morning / status report: the assistant gives one combined report when the batch is done
     /// Finished, but they haven't opened it yet.
@@ -48,6 +49,7 @@ enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
         "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here; One tells you when to add one \"By the way, <title> is done. Tap it to take a look.\" line, after you finish what you're saying. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
+            + HelperStop.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     static func extract(_ text: String) -> (String, [(String, String)]) {
@@ -67,7 +69,10 @@ enum Helpers {
     }
     /// Hide helper lines while a reply is still streaming in.
     static func strip(_ text: String) -> String {
-        text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("[helper") }.joined(
+        HelperStop.hide(text).components(separatedBy: "\n").filter {
+            let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
+            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper")
+        }.joined(
             separator: "\n")
     }
     /// A good morning / afternoon / evening or a status report: its helpers report back together, in one reply.
@@ -110,6 +115,7 @@ enum Helpers {
 
 struct NovaWithHelpers: View {
     @ObservedObject var m: Model
+    @State var stopAsk: UUID?  // a long press on a working helper's orb: ask "Stop this helper?"
     static func orbTime(_ t: Double, _ i: Int) -> Double { t + Double(i) * 3.1 }
     static let slots: [CGPoint] = [CGPoint(x: -168, y: -34), CGPoint(x: 168, y: -34), CGPoint(x: -150, y: 76), CGPoint(x: 150, y: 76)]
     var body: some View {
@@ -125,6 +131,7 @@ struct NovaWithHelpers: View {
                 ForEach(shown, id: \.element.id) { i, h in
                     let p = Self.slots[i]
                     Button {
+                        if stopAsk == h.id { return }  // the long press already asked; this is its release
                         m.focusHelper(h.id)
                     } label: {
                         VStack(spacing: -10) {
@@ -137,6 +144,14 @@ struct NovaWithHelpers: View {
                     }
                     .buttonStyle(.plain)
                     .help(h.state == "working" ? h.line : "Tap to see this job")
+                    .contextMenu { if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } } }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
+                    .popover(isPresented: Binding(get: { stopAsk == h.id }, set: { if !$0 { stopAsk = nil } })) {
+                        HelperStopAsk(title: h.title) { stop in
+                            if stop { m.stopHelper(h.id) }
+                            stopAsk = nil
+                        }
+                    }
                     .offset(x: p.x + sin(t * 0.4 + Double(i) * 1.7) * 4, y: p.y + sin(t * 0.55 + Double(i) * 2.3) * 5)
                     .opacity(m.openHelper == nil || m.openHelper == h.id ? 1 : 0.5)
                     .transition(
@@ -158,50 +173,6 @@ struct HelperOverflow: View {
     var body: some View {
         Text("+\(count) more helper\(count == 1 ? "" : "s") at work")
             .font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
-    }
-}
-
-struct HelperCard: View {
-    @ObservedObject var m: Model
-    let h: Helper
-    var body: some View {
-        let parts = Choices.split(Helpers.strip(h.reply))  // a stray [helper: …] line never shows
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Text(h.title).font(.headline)
-                Text("· " + (h.state == "working" ? "working" : h.state == "needsYes" ? "needs your yes" : h.state == "stopped" ? "stopped" : "done"))
-                    .foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
-                Spacer()
-                Button {
-                    m.openHelper = nil
-                } label: {
-                    Label(m.name, systemImage: "chevron.left")
-                }
-                .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
-            }
-            if let a = h.asked, !a.isEmpty { Text(a).font(.callout).foregroundStyle(Color.accentColor) }
-            if h.reply.isEmpty {
-                Text(h.state == "working" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
-            } else {
-                MarkdownText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !parts.choices.isEmpty && h.state != "working" {
-                ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
-                    Task { await m.send(c) }
-                } onOther: {
-                }
-            }
-            if h.state == "done" || h.state == "stopped" {
-                HStack {
-                    Spacer()
-                    Button("Got it") { m.dismissHelper(h.id) }.buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(
-                        Color(hex: 0x141416))
-                }
-            }
-        }
-        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xF0A04B, h.state == "needsYes" ? 0.55 : 0), lineWidth: 1.2))
     }
 }
 

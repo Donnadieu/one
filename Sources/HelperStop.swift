@@ -1,0 +1,251 @@
+import AppKit
+import SwiftUI
+
+// MARK: - Stopping one helper: from its orb (right-click or long press), its card, or the assistant's [stop-helper: …] line.
+// A stopped helper keeps what it made, stays stopped after a restart, and can be started again with its original job.
+// Updates never stop helpers: they're paused and pick back up by themselves after the restart.
+
+enum HelperStop {
+    /// Told to the assistant on every prompt (old conversations never see a new SOUL).
+    static var note: String {
+        "\n\n(One app note, not from the user: to stop a helper, when they say \"stop the <name> helper\", \"stop that one\" or \"stop all\", "
+            + "add a line exactly like [stop-helper: <its exact title>] or [stop-helper: all], and confirm in one short line, like "
+            + "\"Stopped Flight to Quebec. What it found so far stays under its orb.\" One stops it. Never stop one they didn't ask about.)"
+    }
+    /// The same rule in the assistant's SOUL (`Persona.write`).
+    static let soul =
+        "To stop a helper, when they say \"stop the <name> helper\", \"stop that one\" or \"stop all\", add a line exactly like [stop-helper: Flight to Quebec] (the helper's exact title) or [stop-helper: all], and confirm in one short line, like \"Stopped Flight to Quebec. What it found so far stays under its orb.\" Never stop one they didn't ask about."
+
+    /// Pull "[stop-helper: Title]" and "[stop-helper: all]" out of the assistant's reply, on their own line or
+    /// in the middle of one (the assistant sometimes runs it into its sentence).
+    static func extract(_ text: String) -> (String, [String]) {
+        guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[stop-helper:([^\\]\\n]*)\\][ \\t]*", options: [.caseInsensitive]) else {
+            return (text, [])
+        }
+        let ns = text as NSString
+        var names: [String] = []
+        var out = ""
+        var at = 0
+        for r in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let n = ns.substring(with: r.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            if !n.isEmpty { names.append(n) }
+            out += ns.substring(with: NSRange(location: at, length: r.range.location - at))
+            let before = out.last
+            let after = r.range.upperBound < ns.length ? ns.substring(with: NSRange(location: r.range.upperBound, length: 1)) : "\n"
+            if let b = before, b != "\n", after != "\n" { out += "\n" }  // run into a sentence: keep the two sentences apart
+            at = r.range.upperBound
+        }
+        guard !names.isEmpty else { return (text, []) }
+        var seen = Set<String>()
+        names = names.filter { seen.insert($0.lowercased()).inserted }  // the same line twice stops it once
+        out += ns.substring(from: at)
+        var lines = out.components(separatedBy: "\n")
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+        while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() }
+        return (lines.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n"), names)
+    }
+    /// While a reply streams in: hide a stop line, even half-written.
+    static func hide(_ text: String) -> String {
+        var t = extract(text).0
+        if let k = t.lastIndex(of: "[") {
+            let tail = t[k...].lowercased()
+            if "[stop-helper:".hasPrefix(tail) || (tail.hasPrefix("[stop-helper") && !tail.contains("]")) {
+                t = String(t[..<k]).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return t
+    }
+
+    /// Which helpers a stop line means: "all" = every one still at work; otherwise the exact title
+    /// (any case), the most recently sent on ties. Only helpers still at work (or waiting to pick back up) count.
+    static func match(_ name: String, in hs: [Helper]) -> [UUID] {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'“”‘’"))).lowercased()
+        let live = hs.enumerated().filter { $0.element.state == "working" || $0.element.resumeQueued == true }
+        if n == "all" { return live.map(\.element.id) }
+        let same = live.filter { $0.element.title.lowercased() == n }
+        let pick = same.max { a, b in
+            (a.element.started ?? .distantPast, a.offset) < (b.element.started ?? .distantPast, b.offset)
+        }
+        return pick.map { [$0.element.id] } ?? []
+    }
+    static func notFound(_ name: String) -> String { "I couldn't find a helper called \"\(name)\" that's still working." }
+
+    static let pausedLine = "Paused for the update · picks back up by itself"
+    /// An update is about to restart One: a working helper is paused, not stopped. It picks back up after the
+    /// restart like any helper a restart cut off, and the pause never counts toward the restart limit.
+    @MainActor static func pauseForUpdate(_ h: inout Helper) {
+        guard h.state == "working" else { return }
+        h.state = "stopped"
+        h.resumeQueued = true
+        h.updatePaused = true
+        h.stoppedByYou = nil
+        h.line = pausedLine
+        HelperTrail.add("Paused for an update", to: &h)
+    }
+
+    /// The word next to a helper's title in its card.
+    static func word(_ h: Helper) -> String {
+        switch h.state {
+        case "working": "working"
+        case "needsYes": "needs your yes"
+        case "stopped": h.resumeQueued == true ? "paused" : "stopped"
+        default: "done"
+        }
+    }
+}
+
+extension Model {
+    /// The assistant wrote "[stop-helper: …]": stop the match. Returns a plain line if nothing matched.
+    func stopHelpers(named name: String) -> String? {
+        let ids = HelperStop.match(name, in: helpers)
+        if ids.isEmpty {
+            // Already stopped (the same line twice in one reply, or asked again): nothing to say.
+            let n = name.lowercased().trimmingCharacters(in: .whitespaces)
+            if n == "all" || helpers.contains(where: { $0.stoppedByYou == true && $0.title.lowercased() == n }) { return nil }
+            return HelperStop.notFound(name)
+        }
+        ids.forEach { stopHelper($0) }
+        return nil
+    }
+
+    /// "Start again" on a stopped helper: its original job goes out again as a new helper.
+    func startAgain(_ id: UUID) {
+        guard let h = helpers.first(where: { $0.id == id }), h.state == "stopped", h.resumeQueued != true else { return }
+        let wasOpen = openHelper == id
+        if wasOpen { openHelper = nil }
+        helpers.removeAll { $0.id == id }
+        spawnHelper(title: h.title, task: h.task)
+        if wasOpen, let new = helpers.last?.id { openHelper = new }
+    }
+
+    /// Just before an update restarts One: every working helper is paused and picks back up after the restart.
+    func pauseHelpersForUpdate() {
+        for k in helpers.indices where helpers[k].state == "working" {
+            HelperStop.pauseForUpdate(&helpers[k])
+            HelperTrail.flush(helpers[k])
+        }
+    }
+}
+
+/// A long press on a working helper's orb: stop it?
+struct HelperStopAsk: View {
+    let title: String
+    let done: (Bool) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Stop \(title)?").font(.headline)
+            Text("What it found so far stays here.").font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Keep going") { done(false) }.buttonStyle(.bordered)
+                Button("Stop this helper") { done(true) }
+                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+            }
+        }
+        .padding(16).frame(width: 270, alignment: .leading)
+    }
+}
+
+struct HelperCard: View {
+    @ObservedObject var m: Model
+    let h: Helper
+    var body: some View {
+        let parts = Choices.split(Helpers.strip(h.reply))  // a stray [helper: …] line never shows
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Text(h.title).font(.headline)
+                Text("· " + HelperStop.word(h)).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
+                Spacer()
+                Button {
+                    m.openHelper = nil
+                } label: {
+                    Label(m.name, systemImage: "chevron.left")
+                }
+                .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
+            }
+            if let a = h.asked, !a.isEmpty { Text(a).font(.callout).foregroundStyle(Color.accentColor) }
+            if h.reply.isEmpty {
+                Text(h.state == "working" || h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
+            } else {
+                MarkdownText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
+                if h.state == "stopped" {
+                    // Its orb says "tap to see what it did"; in here they already see it.
+                    Text(h.line.components(separatedBy: " · ").first ?? h.line).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            if !parts.choices.isEmpty && h.state != "working" && h.state != "stopped" {
+                ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
+                    Task { await m.send(c) }
+                } onOther: {
+                }
+            }
+            buttons
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xF0A04B, h.state == "needsYes" ? 0.55 : 0), lineWidth: 1.2))
+    }
+
+    @ViewBuilder var buttons: some View {
+        if h.state == "working" {
+            HStack {
+                Spacer()
+                Button {
+                    m.stopHelper(h.id)
+                } label: {
+                    Label("Stop this helper", systemImage: "stop.circle")
+                }
+                .buttonStyle(.bordered).help("Stops this job. What it found so far stays here.")
+            }
+        } else if h.state == "done" || (h.state == "stopped" && h.resumeQueued != true) {
+            HStack(spacing: 8) {
+                Spacer()
+                if h.state == "stopped" {
+                    Button {
+                        m.startAgain(h.id)
+                    } label: {
+                        Label("Start again", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered).help("Sends this job out again, from the start")
+                }
+                Button("Got it") { m.dismissHelper(h.id) }.buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(
+                    Color(hex: 0x141416))
+            }
+        }
+    }
+}
+
+/// Render-only (`--render-world helper-stop`): a stopped helper's orb next to a working one, and a stopped helper
+/// opened as a conversation with the update card above it.
+struct HelperStopScene: View {
+    var working = false  // the opened helper is still at work: its Stop button
+    static func helper(_ state: String, line: String, reply: String = "") -> Helper {
+        var h = Helper(title: "Flight to Quebec", task: "Find the cheapest flight to Quebec City.", sid: nil, state: state, line: line)
+        h.reply = reply
+        h.stoppedByYou = state == "stopped" ? true : nil
+        return h
+    }
+    @MainActor static func ready() {
+        Updater.shared.available = (
+            "0.9.28", "- Stop any helper from its orb or by asking\n- Updates no longer wait for helpers", URL(fileURLWithPath: "/")
+        )
+    }
+    var body: some View {
+        let stopped = Self.helper(
+            "stopped", line: HelperTrail.stoppedLine, reply: "So far the cheapest is **$212** on Dec 20 (United, from EWR).")
+        HStack(alignment: .top, spacing: 30) {
+            VStack(spacing: 26) {
+                ForEach(Array([Self.helper("working", line: "Checking Google Flights…"), stopped].enumerated()), id: \.offset) { i, h in
+                    VStack(spacing: -10) {
+                        HelperOrb(state: h.viewState, t: 21.7 + Double(i) * 3.1, size: 42)
+                        HelperLabel(title: h.title, line: h.line)
+                    }
+                }
+            }.frame(width: 200)
+            VStack(spacing: 14) {
+                UpdateCard()
+                HelperCard(m: Model.shared, h: working ? Self.helper("working", line: "Checking Google Flights…") : stopped)
+            }.frame(width: 520)
+        }
+        .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(WorldLook.bg).environment(\.colorScheme, .dark)
+    }
+}

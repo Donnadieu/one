@@ -42,6 +42,8 @@ final class Updater: ObservableObject {
         Env.selfTest ? (UserDefaults(suiteName: "ai.forjado.one.updates-test") ?? .standard) : .standard
     }
     static let every: Double = 15 * 60
+    /// Longest an update waits for the reply in progress before it goes ahead.
+    static let replyWait: Double = 20
     private var etag: String?
     private var lastList: Data?
     private var lastCheck = Date.distantPast
@@ -136,12 +138,16 @@ final class Updater: ObservableObject {
     func install() async {
         guard let a = available else { return }
         let m = Model.shared
-        if m.thinking || m.helpers.contains(where: { $0.state == "working" }) {
-            state = "I'll update as soon as I finish what I'm doing."
-            while m.thinking || m.helpers.contains(where: { $0.state == "working" }) { try? await Task.sleep(for: .seconds(5)) }
+        // Only the reply in progress is waited for, and not for long. Working helpers never hold an update back:
+        // they're paused just before the restart and pick back up by themselves after it.
+        if m.thinking {
+            state = "I'll update as soon as I finish this reply."
+            let end = Date().addingTimeInterval(Updater.replyWait)
+            while m.thinking && Date() < end { try? await Task.sleep(for: .milliseconds(500)) }
         }
         state = "Downloading the new version…"
-        let dir = Env.support.appendingPathComponent("update", isDirectory: true)
+        // A test copy keeps its download in its own throwaway home, never in the person's update folder.
+        let dir = (Env.selfTest ? Env.hermesHome : Env.support).appendingPathComponent("update", isDirectory: true)
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let (tmp, resp) = try? await URLSession.shared.download(from: a.zip), (resp as? HTTPURLResponse)?.statusCode == 200 else {
@@ -167,10 +173,13 @@ final class Updater: ObservableObject {
             return
         }
         let target = Bundle.main.bundlePath
+        // A test copy only stops its own engine (the person's running One shares the engine folder).
         let script = """
             #!/bin/bash
             while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.5; done
+            if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
             pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
+            else kill \(Engine.shared.enginePID.map(String.init) ?? "0") 2>/dev/null; fi
             xattr -dr com.apple.quarantine "\(newApp.path)" 2>/dev/null
             rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp.path)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
             \(ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1" ? "echo done > \"\(dir.path)/swapped\"" : "open \"\(target)\"")
@@ -187,6 +196,7 @@ final class Updater: ObservableObject {
             return
         }
         state = "Restarting…"
+        m.pauseHelpersForUpdate()  // after this, nothing they did is lost: each picks back up after the restart
         Engine.shared.stop()
         try? await Task.sleep(for: .milliseconds(400))
         NSApp.terminate(nil)

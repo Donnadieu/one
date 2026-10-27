@@ -23,6 +23,8 @@
 | Brain.swift | service | the memory folder and room templates, persona (SOUL) |
 | Helpers.swift | service + UI | background helper sessions, the Ready for you shelf |
 | HelperTrail.swift | service | each helper's trail file (`Support/One/helpers/<id>.md`) and picking helpers back up after a restart (all at once, no limit on helpers working; max 2 times each) |
+| HelperStop.swift | helpers | stopping one helper (orb right-click or long press, "Stop this helper" in its card, the assistant's `[stop-helper: …]` line), "Start again", pausing helpers for an update; `HelperCard` |
+| HelperStopCheck.swift | check | `One --test-helper-stop` and `--test-update-helpers` (tools/helper-stop-check.sh, `make helperstop`): real stops end only that turn and stay stopped; a real update swap with a helper at work, which picks back up after |
 | HelperCheck.swift | dev only | `One --test-helpers`, run by preflight |
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
 | VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; stand-in voice), run by preflight |

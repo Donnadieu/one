@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself
+.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helperstop
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -24,6 +24,8 @@ helperdone:       ## finished helpers: orange until opened, one "by the way" lin
 	tools/helper-done-check.sh
 helperself:       ## a helper you talk to does the work itself, never a [helper: …] line (real engine)
 	tools/helper-self-check.sh
+helperstop:       ## stop a helper (button, by asking), it stays stopped; an update with a helper at work resumes it (real engine)
+	tools/helper-stop-check.sh
 handoff:          ## a code step handed to the person, end to end on a local test page (no real account, no cost)
 	tools/handoff-check.sh
 hooks:            ## install the git pre-commit hook (fast checks only)

@@ -568,3 +568,32 @@ struct AwayScene: View {
         .environment(\.colorScheme, .dark)
     }
 }
+
+/// Render-only: a helper's orb through its life. Working, needs a yes, finished and not opened yet (orange, same as a yes),
+/// then opened (check mark). Uses real `Helper` values so the look follows `Helper.viewState`.
+struct HelperStatesScene: View {
+    static func helper(_ state: String, seen: Bool?, line: String) -> Helper {
+        var h = Helper(title: "Flight to Quebec", task: "", sid: nil, state: state, line: line)
+        h.seen = seen
+        return h
+    }
+    var body: some View {
+        let hs = [
+            Self.helper("working", seen: nil, line: "Checking Google Flights…"),
+            Self.helper("needsYes", seen: false, line: "Needs your yes"),
+            Self.helper("done", seen: false, line: "Done · $248 on United"),
+            Self.helper("done", seen: true, line: "Done · $248 on United"),
+        ]
+        HStack(spacing: 34) {
+            ForEach(Array(hs.enumerated()), id: \.offset) { i, h in
+                VStack(spacing: -10) {
+                    HelperOrb(state: h.viewState, t: 21.7 + Double(i) * 3.1, size: 42)
+                    HelperLabel(
+                        title: h.title, line: h.waiting && h.state == "done" ? "Done · tap to take a look" : h.line,
+                        warm: h.state == "needsYes" || h.waiting)
+                }
+            }
+        }
+        .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(WorldLook.bg).environment(\.colorScheme, .dark)
+    }
+}

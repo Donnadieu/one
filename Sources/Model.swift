@@ -177,6 +177,11 @@ final class Model: ObservableObject {
     var steerRetryAt = Date.distantPast
     /// Helpers whose current turn has started answering (they can take a message mid-turn).
     var helperLive: Set<UUID> = []
+    /// Finished helpers waiting for the end of the current reply, to get one "by the way" line.
+    var doneQueue: [UUID] = []
+    var doneNoteWaiting = false
+    /// Good morning / status report batches already reported.
+    var routinesTold: Set<UUID> = []
     @Published var working: String?
     @Published var asks: [Ask] = []
     /// Steps only the person can do (a code, a passkey…), shown with Done / I'm not at the Mac (HumanStep.swift).

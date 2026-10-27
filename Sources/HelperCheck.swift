@@ -107,6 +107,28 @@ enum HelperCheck {
         check("even if One quit before the cancel landed", relaunch([saved])[0].resumeQueued != true)
         check("and it stays stopped after another restart", relaunch(relaunch([mine]))[0].state == "stopped")
 
+        // A finished helper stays orange until it's opened, also across a restart; then it shows the check mark.
+        var fin = Helper(title: "Hotel search", task: "Find a hotel.", sid: "s-4", state: "done", line: "Done")
+        fin.seen = false
+        check("a finished helper not opened yet glows orange like a yes", fin.waiting && fin.viewState == .needsYes)
+        check("and still does after a restart", relaunch([fin])[0].viewState == .needsYes)
+        fin.seen = true
+        check("opened, it shows the check mark", !fin.waiting && fin.viewState == .done)
+        var old = fin
+        old.seen = nil
+        check("one finished before this existed counts as opened", old.viewState == .done)
+        // Only good mornings and status reports get one combined report; everything else just a "by the way" line.
+        check("good morning and status reports are routines", Helpers.isRoutine("Good morning!") && Helpers.isRoutine("status report please"))
+        check("other asks are not", !Helpers.isRoutine("Find me a flight to Quebec"))
+        let a = Helper(title: "Flights", task: "", sid: nil, state: "done", line: "")
+        let b = Helper(title: "Hotels", task: "", sid: nil, state: "done", line: "")
+        let one = Helpers.doneNote([a], user: "Omar")
+        check("the note asks for one by-the-way line", one.contains("\"By the way, Flights is done. Tap it to take a look.\""))
+        check("and says not to repeat the result or ask its question", one.contains("Don't repeat") && one.contains("don't ask its question"))
+        check(
+            "several finished in one reply share one line",
+            Helpers.doneNote([a, b], user: "Omar").contains("By the way, Flights and Hotels are done. Tap them"))
+
         try? fm.removeItem(at: HelperTrail.folder)
         print(fails == 0 ? "helpers ok" : "helpers FAILED (\(fails))")
         return fails == 0 ? 0 : 1

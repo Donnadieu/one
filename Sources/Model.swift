@@ -215,6 +215,7 @@ final class Model: ObservableObject {
     // Helpers
     @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
     @Published var openHelper: UUID?
+    var helperTurnEnded: [UUID: Date] = [:]  // when each helper's last engine turn ended (checks read it)
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     var shelfScanning = false
     @Published var openedShelf: UUID?

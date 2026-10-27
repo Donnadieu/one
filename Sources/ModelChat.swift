@@ -121,7 +121,7 @@ extension Model {
         for p in picked {
             guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
             HelperTrail.flush(h)
-            let line = HelperTrail.told(h.title)
+            let line = h.restartNews ?? HelperTrail.told(h.title)
             bubbles.append(Bubble(fromMe: false, text: line))
             Floater.shared.note(line)
             Task {
@@ -168,6 +168,7 @@ extension Model {
     func spawnHelper(title: String, task: String, routine: UUID? = nil) {
         helpers.removeAll {
             ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && !$0.waiting && $0.id != openHelper && $0.resumeQueued != true
+                && $0.stoppedByYou != true  // stopped by you: kept (with what it made and Start again) until Got it, or room is needed
         }
         // No limit: every helper starts right away (the engine runs all its conversations at once).
         // Ones they haven't opened yet are the last to make room.
@@ -221,6 +222,7 @@ extension Model {
             },
             onTool: { s in
                 Task { @MainActor in
+                    guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line
                     self.helperUnderway(id)
                     self.update(id) {
                         $0.line = Plain.step(s)
@@ -229,6 +231,12 @@ extension Model {
                     self.saveTrail(id)
                 }
             })
+        helperTurnEnded[id] = Date()
+        if helpers.first(where: { $0.id == id })?.updatePaused == true {
+            // Paused for an update: the engine is going away. It picks back up after the restart; nothing else happens now.
+            saveTrail(id)
+            return
+        }
         try? await Task.sleep(for: .milliseconds(150))
         await helperTurnOver(id)
         defer { Task { @MainActor in self.nextUpForHelper(id) } }  // what they sent meanwhile goes next
@@ -441,6 +449,12 @@ extension Model {
         await turnOver(idx, failed: stop.hasPrefix("error"))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
+        let (unstopped, stops) = HelperStop.extract(full)
+        if !stops.isEmpty {
+            // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
+            full = unstopped
+            for s in stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
+        }
         let (clean, jobs) = Helpers.extract(full)
         if !jobs.isEmpty {
             full = clean

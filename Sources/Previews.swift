@@ -417,7 +417,7 @@ struct HelperOrb: View {
                 }
             }
             FloatingOrb(state: state == .working ? .working : .idle, size: size, fixedT: t)
-                .saturation(state == .done || state == .stopped ? 0.3 : 1)
+                .saturation(state == .done || state == .stopped ? 0.3 : 1).opacity(state == .stopped ? 0.5 : 1)  // stopped: dim, no check
             if warm {
                 Circle().fill(
                     RadialGradient(

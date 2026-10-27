@@ -107,6 +107,46 @@ enum HelperCheck {
         check("even if One quit before the cancel landed", relaunch([saved])[0].resumeQueued != true)
         check("and it stays stopped after another restart", relaunch(relaunch([mine]))[0].state == "stopped")
 
+        // Stop by chat: the assistant's [stop-helper: …] line.
+        let (said, names) = HelperStop.extract("Stopped Flight to Quebec.\n[stop-helper: Flight to Quebec]\n[STOP-HELPER: all]\n")
+        check("a stop line is taken out of the reply", said == "Stopped Flight to Quebec." && names == ["Flight to Quebec", "all"])
+        check("and hidden while it streams", Helpers.strip("Ok.\n[stop-helper: X]") == "Ok." && Helpers.strip("Ok. [stop-hel") == "Ok.")
+        let (inl, inlNames) = HelperStop.extract("By the way, X is done.[stop-helper: Price check]  Stopped Price check.")
+        check("the same stop line twice stops it once", HelperStop.extract("[stop-helper: A]\n[stop-helper: a]").1 == ["A"])
+        check(
+            "a stop line run into a sentence is taken out too", inlNames == ["Price check"] && inl == "By the way, X is done.\nStopped Price check.")
+        var t1 = Helper(title: "Flight to Quebec", task: "", sid: nil, state: "working", line: "")
+        t1.started = Date(timeIntervalSince1970: 100)
+        var t2 = Helper(title: "flight to quebec", task: "", sid: nil, state: "working", line: "")
+        t2.started = Date(timeIntervalSince1970: 200)
+        let t3 = Helper(title: "Hotel", task: "", sid: nil, state: "working", line: "")
+        let t4 = Helper(title: "Flight to Quebec", task: "", sid: nil, state: "done", line: "")
+        let pool = [t1, t2, t3, t4]
+        check("a stop line matches the title in any case, the most recent on ties", HelperStop.match("FLIGHT TO QUEBEC", in: pool) == [t2.id])
+        check("\"all\" means every helper still at work", Set(HelperStop.match("all", in: pool)) == Set([t1.id, t2.id, t3.id]))
+        check("a finished helper or an unknown name matches nothing", HelperStop.match("Movie times", in: pool).isEmpty)
+        check(
+            "the assistant is told how, every turn and in its SOUL",
+            Helpers.note.contains("[stop-helper: all]") && HelperStop.soul.contains("[stop-helper:"))
+
+        // An update never stops a helper: it's paused, picks back up after the restart, and that isn't counted as a cut-off.
+        var upd = Helper(title: "Long job", task: "Do it.", sid: "s-9", state: "working", line: "")
+        upd.resumes = HelperTrail.maxResumes  // even one already picked up the most times
+        HelperStop.pauseForUpdate(&upd)
+        check("an update pauses a working helper", upd.state == "stopped" && upd.resumeQueued == true && upd.stoppedByYou != true)
+        var back = relaunch([upd])
+        check("after the update it's queued to pick back up", back[0].resumeQueued == true && back[0].line == HelperStop.pausedLine)
+        check("never marked stopped by you", back[0].stoppedByYou != true && back[0].line != HelperTrail.stoppedLine)
+        let resumed = HelperTrail.pick(&back, brief: brief)
+        check("it's picked back up", resumed.count == 1 && back[0].state == "working")
+        check("and the update didn't count toward the restart limit", back[0].resumes == HelperTrail.maxResumes && back[0].updatePaused == nil)
+        check("the person is told it was paused for the update", back[0].restartNews == HelperTrail.toldUpdate("Long job"))
+        var mid = Helper(title: "Stopped one", task: "", sid: nil, state: "working", line: "")
+        HelperTrail.stopByYou(&mid)
+        HelperStop.pauseForUpdate(&mid)
+        check(
+            "a helper stopped by you stays stopped through an update", relaunch([mid])[0].resumeQueued != true && mid.trail?.last == "Stopped by you")
+
         // A finished helper stays orange until it's opened, also across a restart; then it shows the check mark.
         var fin = Helper(title: "Hotel search", task: "Find a hotel.", sid: "s-4", state: "done", line: "Done")
         fin.seen = false

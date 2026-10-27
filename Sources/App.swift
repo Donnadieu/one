@@ -40,6 +40,11 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await FollowUpCheck.run()) }
             return
         }
+        if CommandLine.arguments.contains("--test-helper-done") {
+            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
+            Task { @MainActor in exit(await HelperDoneCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--test-human-step") {
             Env.selfTest = true  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
             Task { @MainActor in exit(await HumanStepCheck.run()) }
@@ -351,6 +356,7 @@ struct Entry {
                                 HelperOverflow(count: 2).padding(.top, 22)
                             }.padding(30).background(WorldLook.bg).environment(\.colorScheme, .dark))
                     ),
+                    ("helper-states", AnyView(HelperStatesScene())),
                     ("away", AnyView(AwayScene())),
                     ("float-idle", AnyView(FloatScene(state: .idle))),
                     ("float-listen", AnyView(FloatScene(state: .listening))),
@@ -374,7 +380,9 @@ struct Entry {
                                 ? 960
                                 : name.hasPrefix("connections")
                                     ? 560
-                                    : name.hasPrefix("cw-") ? 720 : name == "me-card" ? 420 : (name.hasPrefix("shelf") || name == "map" ? 820 : 620),
+                                    : name.hasPrefix("cw-")
+                                        ? 720
+                                        : name == "me-card" ? 420 : (name.hasPrefix("shelf") || name == "map" || name == "helper-states" ? 820 : 620),
                             height: name == "live-rooms" || name == "reader"
                                 ? 600
                                 : name == "connections"
@@ -382,7 +390,9 @@ struct Entry {
                                     : name.hasPrefix("cw-")
                                         ? 680
                                         : name == "me-card"
-                                            ? 400 : name == "connections-mail" ? 680 : (name.hasPrefix("shelf") || name == "map" ? 450 : 440)))
+                                            ? 400
+                                            : name == "connections-mail"
+                                                ? 680 : (name.hasPrefix("shelf") || name == "map" || name == "helper-states" ? 450 : 440)))
                     r.scale = 2
                     if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                         let png = rep.representation(using: .png, properties: [:])

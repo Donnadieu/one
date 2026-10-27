@@ -30,12 +30,16 @@ struct Helper: Identifiable, Codable {
     var resumeQueued: Bool?  // cut off by a restart, waiting to be picked back up
     var restartNews: String?  // the assistant hasn't been told it was picked back up yet
     var stoppedByYou: Bool?  // stopped on purpose (the Stop button): never picked back up after a restart
+    var seen: Bool?  // false: finished and not opened yet (orange until they tap it). nil = from before this existed: seen.
+    var routine: UUID?  // sent for a good morning / status report: the assistant gives one combined report when the batch is done
+    /// Finished, but they haven't opened it yet.
+    var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
         switch state {
         case "working": .working
         case "needsYes": .needsYes
         case "stopped": .stopped
-        default: .done
+        default: seen == false ? .needsYes : .done  // same orange pulse as "needs your yes" until it's opened
         }
     }
 }
@@ -43,7 +47,7 @@ struct Helper: Identifiable, Codable {
 enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
-        "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path.)"
+        "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here; One tells you when to add one \"By the way, <title> is done. Tap it to take a look.\" line, after you finish what you're saying. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     static func extract(_ text: String) -> (String, [(String, String)]) {
@@ -65,6 +69,26 @@ enum Helpers {
     static func strip(_ text: String) -> String {
         text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("[helper") }.joined(
             separator: "\n")
+    }
+    /// A good morning / afternoon / evening or a status report: its helpers report back together, in one reply.
+    static func isRoutine(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return ["good morning", "good afternoon", "good evening", "status report", "status update", "morning brief"].contains { t.contains($0) }
+    }
+    /// The hidden note after a reply ends: one plain "by the way" line for the helpers that just finished, never their result.
+    static func doneNote(_ hs: [Helper], user: String) -> String {
+        let done = hs.filter { $0.state == "done" }.map { "\"\($0.title)\"" }
+        let yes = hs.filter { $0.state == "needsYes" }.map { "\"\($0.title)\"" }
+        var what: [String] = []
+        if !done.isEmpty { what.append(list(done) + (done.count == 1 ? " is done" : " are done")) }
+        if !yes.isEmpty { what.append(list(yes) + (yes.count == 1 ? " needs \(user)'s yes" : " need \(user)'s yes")) }
+        return "(One app note, not from the user: \(what.joined(separator: ", and ")). Its orb is orange and holds the whole result; "
+            + "\(user) opens it there and can talk to it there. Reply with exactly ONE short plain line, like: "
+            + "\"By the way, \(list(hs.map(\.title))) \(hs.count == 1 ? "is" : "are") done. Tap \(hs.count == 1 ? "it" : "them") to take a look.\" "
+            + "Don't repeat, summarise or hint at the result, don't ask its question, no choices line, nothing else.)"
+    }
+    static func list(_ v: [String]) -> String {
+        v.count < 2 ? (v.first ?? "") : v.dropLast().joined(separator: ", ") + " and " + v.last!
     }
     static func short(_ s: String, _ n: Int = 34) -> String { s.count > n ? String(s.prefix(n - 1)) + "…" : s }
     static func summary(_ body: String, _ n: Int = 40) -> String {
@@ -105,7 +129,10 @@ struct NovaWithHelpers: View {
                     } label: {
                         VStack(spacing: -10) {
                             HelperOrb(state: h.viewState, t: Self.orbTime(t, i), size: 42)
-                            HelperLabel(title: Helpers.short(h.title, 24), line: Helpers.short(h.line, 32), warm: h.state == "needsYes")
+                            HelperLabel(
+                                title: Helpers.short(h.title, 24),
+                                line: Helpers.short(h.waiting && h.state == "done" ? "Done · tap to take a look" : h.line, 32),
+                                warm: h.state == "needsYes" || h.waiting)
                         }.contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

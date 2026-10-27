@@ -69,6 +69,7 @@ extension Model {
     func openShelf(_ id: UUID) {
         openedShelf = id
         if let k = shelf.firstIndex(where: { $0.id == id }) { shelf[k].fresh = false }
+        if let h = helpers.first(where: { $0.shelfID == id }) { markSeen(h.id) }  // its card opened: the helper's been seen
     }
     func removeShelf(_ id: UUID) {
         if openedShelf == id { openedShelf = nil }
@@ -147,6 +148,12 @@ extension Model {
     func focusHelper(_ id: UUID) {
         openHelper = openHelper == id ? nil : id
         update(id) { $0.finishedAway = false }
+        if openHelper == id { markSeen(id) }
+    }
+    /// They opened a finished helper: its orb stops glowing orange and shows the check mark, and no "by the way" goes out for it.
+    func markSeen(_ id: UUID) {
+        if helpers.first(where: { $0.id == id })?.seen == false { update(id) { $0.seen = true } }
+        doneQueue.removeAll { $0 == id }
     }
     func dismissHelper(_ id: UUID) {
         if openHelper == id { openHelper = nil }
@@ -158,14 +165,21 @@ extension Model {
         withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { gone.contains($0.id) } }
     }
 
-    func spawnHelper(title: String, task: String) {
+    func spawnHelper(title: String, task: String, routine: UUID? = nil) {
         helpers.removeAll {
-            ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && $0.id != openHelper && $0.resumeQueued != true
+            ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && !$0.waiting && $0.id != openHelper && $0.resumeQueued != true
         }
         // No limit: every helper starts right away (the engine runs all its conversations at once).
-        while helpers.count >= 4, let k = helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true }) { helpers.remove(at: k) }
+        // Ones they haven't opened yet are the last to make room.
+        while helpers.count >= 4,
+            let k = helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true && !$0.waiting })
+                ?? helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true })
+        {
+            helpers.remove(at: k)
+        }
         var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
         h.started = Date()
+        h.routine = routine
         HelperTrail.flush(h)
         withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { helpers.append(h) }
         let id = h.id
@@ -194,6 +208,7 @@ extension Model {
             $0.toldNova = false
             $0.resumeQueued = false
             $0.stoppedByYou = nil  // asked again: it's working again
+            $0.seen = nil
         }
         let stop = await Engine.shared.promptSession(
             sid, text, images: images,
@@ -222,6 +237,7 @@ extension Model {
             // Stopped on purpose: it stays stopped, isn't reported as done, and frees its slot.
             saveTrail(id)
             resumeInterrupted()
+            if let b = helpers.first(where: { $0.id == id })?.routine { Task { await deliverRoutine(b) } }
             return
         }
         update(id) { h in
@@ -235,6 +251,8 @@ extension Model {
                 h.line = "Done · " + Helpers.summary(parts.body, 30)
             }
             h.finishedAway = away || (self.openHelper != id && h.state == "needsYes")
+            // Orange until they open it, unless they're looking at it right now or it's part of a routine (reported in the chat).
+            h.seen = self.openHelper == id || h.routine != nil
         }
         if let h = helpers.first(where: { $0.id == id }), !stop.hasPrefix("error") {
             let said = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -263,11 +281,17 @@ extension Model {
         }
         saveTrail(id)
         resumeInterrupted()  // pick up any helper a restart cut off that's still waiting
-        if openHelper != id, !stop.hasPrefix("error") { Task { await deliverHelper(id) } }
+        let routine = helpers.first(where: { $0.id == id })?.routine
+        if let b = routine {
+            Task { await deliverRoutine(b) }
+        } else if openHelper != id, !stop.hasPrefix("error") {
+            queueDoneNote(id)
+        }
         if away, let h = helpers.first(where: { $0.id == id }) {
             let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."
             Floater.shared.note(line)
-            if !thinking { Task { _ = await Speaker.shared.sayNow(line) } }  // heard even with One in the background
+            // Heard even with One in the background. Regular helpers get the assistant's own "by the way" line instead.
+            if !thinking, routine != nil || stop.hasPrefix("error") { Task { _ = await Speaker.shared.sayNow(line) } }
         }
     }
 
@@ -310,53 +334,6 @@ extension Model {
                 "\n\n(One app note, not from the user: WELCOME INTERVIEW. Run the personal room's setup (\(Brain.root.path)/personal-room/skills/setup/SKILL.md) as a friendly get-to-know-you interview. Start with what makes the room's purpose clear: what you should be for them in this room, and what you should push them toward. Then its setup questions. One question per message. End every question with a [choices: ...] line whose last two answers are exactly Skip | That's enough for now. Write each answer into the room as it comes. On 'That's enough for now', thank them, say in one line what you saved, and that they can say 'get to know me' any time to continue.)"
         }
         return out
-    }
-
-    /// What Nova should know about her helpers: who's still working, and full results she hasn't seen yet.
-    /// A helper finished: the assistant tells you what it found right away, in the chat and out loud.
-    /// Before, it only said "X is done", and asking got "I have the update" instead of the update itself.
-    func deliverHelper(_ id: UUID) async {
-        while thinking || paused { try? await Task.sleep(for: .milliseconds(500)) }
-        guard let h = helpers.first(where: { $0.id == id }), h.toldNova != true else { return }
-        let ask = h.state == "needsYes" ? " It needs their yes: say exactly what for and offer the choices." : ""
-        await send(
-            "(One app note, not from the user: your helper \"\(h.title)\" just finished. Give \(userName) the actual result now, "
-                + "in your own words: the real content they asked for (the numbers, names, times, what changed), short and complete. "
-                + "Never just say you have the update or that it's ready.\(ask))", toNova: true, hidden: true)
-    }
-
-    func helperNews() -> String {
-        guard !helpers.isEmpty else { return "" }
-        var lines: [String] = []
-        for k in helpers.indices {
-            let h = helpers[k]
-            switch h.state {
-            case "working":
-                if let n = h.restartNews {
-                    lines.append("- \(h.title): still working. A restart cut it off and One picked it back up by itself; they were told: \"\(n)\"")
-                    helpers[k].restartNews = nil
-                } else {
-                    lines.append("- \(h.title): still working (\(h.line)).")
-                }
-            case "stopped":
-                lines.append(
-                    h.resumeQueued == true
-                        ? "- \(h.title): cut off by a restart; One picks it back up by itself in a moment."
-                        : "- \(h.title): stopped, not finished (\(h.line)).")
-            default:
-                let what = h.state == "needsYes" ? "is waiting for the user's yes" : "is DONE"
-                if h.toldNova == true {
-                    lines.append("- \(h.title): \(what) (you were already given its result).")
-                } else {
-                    var r = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if r.count > 2500 { r = String(r.prefix(2500)) + "…" }
-                    lines.append("- \(h.title): \(what). Its result:\n\(r.isEmpty ? "(no text)" : r)")
-                    helpers[k].toldNova = true
-                }
-            }
-        }
-        return "\n\n(One app note, not from the user: status of your helpers right now. Trust this over anything said earlier.\n"
-            + lines.joined(separator: "\n") + ")"
     }
 
     /// Turn what you typed/said plus any pictures and files into (what you see, what the engine gets, images).
@@ -461,7 +438,8 @@ extension Model {
         let (clean, jobs) = Helpers.extract(full)
         if !jobs.isEmpty {
             full = clean
-            for j in jobs { spawnHelper(title: j.0, task: j.1) }
+            let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
+            for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."

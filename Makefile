@@ -20,6 +20,8 @@ jobs:             ## three core jobs end to end with the real engine (OpenRouter
 	tools/jobs-check.sh
 followups:        ## sending while busy, end to end with the real engine (one or two short Claude turns)
 	tools/followups-check.sh
+helperdone:       ## finished helpers: orange until opened, one "by the way" line, routines report together (real engine)
+	tools/helper-done-check.sh
 handoff:          ## a code step handed to the person, end to end on a local test page (no real account, no cost)
 	tools/handoff-check.sh
 hooks:            ## install the git pre-commit hook (fast checks only)

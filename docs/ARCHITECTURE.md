@@ -30,8 +30,10 @@
 | Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
 | ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |
 | ModelChat.swift | state | `extension Model`: sending, talking in the window, helpers, shelf, per-prompt notes, reveal |
+| ModelHelpers.swift | state | `extension Model`: a finished helper stays orange until opened, one "by the way" line after the reply in progress, routines report together; `helperNews` status note |
 | FollowUps.swift | state + UI | sending while busy: messages go into the running turn (engine mid-turn steer) or wait "Next up"; their tags and editor |
 | FollowUpCheck.swift | check | `One --test-followups` (tools/followups-check.sh): real turn, messages during it, all arrive in order |
+| HelperDoneCheck.swift | check | `One --test-helper-done` (tools/helper-done-check.sh, `make helperdone`): real helper finishes mid-reply, one "by the way" line after, orange until opened, good morning gets one report |
 | Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |

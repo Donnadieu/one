@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: build format format-check lint check preflight full release-check hooks jobs
+.PHONY: build format format-check lint check preflight full release-check hooks jobs followups
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -18,5 +18,7 @@ full:             ## preflight plus a fresh install into an empty folder (~3 min
 release-check: format-check lint full
 jobs:             ## three core jobs end to end with the real engine (OpenRouter, ~10 min, costs a little)
 	tools/jobs-check.sh
+followups:        ## sending while busy, end to end with the real engine (one or two short Claude turns)
+	tools/followups-check.sh
 hooks:            ## install the git pre-commit hook (fast checks only)
 	git config core.hooksPath .githooks

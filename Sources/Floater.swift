@@ -400,10 +400,11 @@ final class OrbHost: NSView {
                 return
             }
             Task { @MainActor in
-                if Model.shared.thinking { self.note("Got it. I'll do that right after this.") }
-                while Model.shared.thinking { try? await Task.sleep(nanoseconds: 400_000_000) }
+                // Busy: it goes straight into what's running (or next up). Never waits here, never stops anything.
+                let busy = Model.shared.thinking
+                if busy { self.note("Got it. I'm passing that on.") }
                 await Model.shared.send(heard, toNova: true)
-                if NSApp.isActive { self.tuckIfOneInFront(after: 0) } else { self.showReply() }
+                if NSApp.isActive { self.tuckIfOneInFront(after: busy ? 4 : 0) } else if !busy { self.showReply() }
             }
         }
     }
@@ -426,8 +427,10 @@ final class OrbHost: NSView {
                 return
             }
             Task { @MainActor in
+                let busy = Model.shared.thinking
+                if busy { self.note("Got it. I'm passing that on.") }
                 await Model.shared.send(heard, toNova: true)
-                self.showReply()
+                if !busy { self.showReply() }
             }
         }
     }

@@ -30,6 +30,8 @@
 | Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
 | ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |
 | ModelChat.swift | state | `extension Model`: sending, talking in the window, helpers, shelf, per-prompt notes, reveal |
+| FollowUps.swift | state + UI | sending while busy: messages go into the running turn (engine mid-turn steer) or wait "Next up"; their tags and editor |
+| FollowUpCheck.swift | check | `One --test-followups` (tools/followups-check.sh): real turn, messages during it, all arrive in order |
 | Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |

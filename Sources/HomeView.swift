@@ -115,9 +115,12 @@ struct HomeView: View {
                         }
                         if let h = m.openedHelper {
                             HelperCard(m: m, h: h).transition(.opacity.combined(with: .offset(y: 8)))
+                            FollowUpList(m: m, helper: h.id)
                         } else if let ask = lastAsk {
                             VStack(spacing: 12) {
                                 Text(ask.text).font(.callout).foregroundStyle(Color.accentColor).multilineTextAlignment(.center)
+                                // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
+                                FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
                                 if let r = lastReply, !r.text.isEmpty {
                                     let parts = Choices.split(Helpers.strip(r.text))
                                     MarkdownText(text: parts.body, size: 16)
@@ -356,7 +359,6 @@ struct HomeView: View {
                 }
         )
         .help("Hold to talk, or click to start and click again to send")
-        .disabled(m.paused)
         .animation(.easeOut(duration: 0.12), value: l.level)
     }
     @ViewBuilder var talkLine: some View {
@@ -385,7 +387,7 @@ struct HomeView: View {
                 } label: {
                     Image(systemName: "paperclip").font(.system(size: 20, weight: .light))
                 }
-                .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)").disabled(m.paused)
+                .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)")
                 TextField(
                     m.about != nil
                         ? "What do you want to know? Or just press send."
@@ -395,11 +397,11 @@ struct HomeView: View {
                 .textFieldStyle(.plain).font(.title3).focused($typing)
                 .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
                 .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
-                .onSubmit(go).disabled(m.paused)
+                .onSubmit(go)
                 micButton
                 Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
-                    .buttonStyle(.plain).disabled(
-                        m.paused || m.busyHere || (draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil))
+                    // Never locked while busy: a message sent now goes into the running turn, or next up.
+                    .buttonStyle(.plain).disabled(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil)
             }
         }
     }

@@ -35,6 +35,11 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await UpdaterCheck.run()) }
             return
         }
+        if CommandLine.arguments.contains("--test-followups") {
+            Env.selfTest = true  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
+            Task { @MainActor in exit(await FollowUpCheck.run()) }
+            return
+        }
         if CommandLine.arguments.contains("--test-helpers") {
             Env.selfTest = true  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -241,6 +246,20 @@ struct Entry {
                                 ).padding(18).frame(maxWidth: .infinity, alignment: .leading).background(
                                     RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.06)))
                                 ChoiceRow(choices: Choices.split("x\n[choices: Yes, go ahead | Not now | Change the plan]").choices) { _ in }
+                            }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))
+                    ),
+                    (
+                        "followups",
+                        AnyView(
+                            VStack(spacing: 12) {
+                                StepLine(text: "Searching the web for “flights PHL to Quebec”…").foregroundStyle(.secondary)
+                                Text("Find me a flight to Quebec City for Dec 20").font(.callout).foregroundStyle(Color.accentColor)
+                                VStack(spacing: 6) {
+                                    FollowUpLine(text: "Newark is fine too", tag: "Sent to Ava", waiting: false)
+                                    FollowUpLine(text: "Window seat if you can", tag: "Sent to Ava", waiting: false)
+                                    FollowUpLine(text: "And a hotel near the old town", tag: "Next up", waiting: true)
+                                    FollowUpEditor(words: "Under $200 a night") { _ in }
+                                }
                             }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))
                     ),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),

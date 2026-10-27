@@ -49,6 +49,9 @@
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
 | BrowserKeeper.swift | service | keeps the hidden browser helpers use running: if nothing answers on the local `browser.cdp_url` port, starts Chrome again with the same saved profile (sign-ins survive a crash; optional `browser/keeper.json` names the profile); `One --browser-check` reports the browser and the Claude sign-in |
+| HumanStep.swift | service + UI | a step only the person can do (code, passkey, security key, robot check): reads `handoff/<id>.request.json` written by the engine overlay `tools/overlay/tools/one_human_step.py`, shows the line with Done / I'm not at the Mac, writes `<id>.answer.json` |
+| StepWindow.swift | UI | the window in front: a live view of the hidden browser's own tab over its DevTools port (picture stream, clicks, typing, paste, scroll), so the shared browser and its sign-ins are never restarted |
+| HumanStepCheck.swift | dev only | `One --test-human-step` (run by `make handoff` / tools/handoff-check.sh): plays the person on a local test page in a throwaway Chrome |
 | BrowserCheck.swift | dev only | `One --test-browser`, run by preflight |
 | GatewayGuard.swift | service | stops the engine's background helper (gateway) only when it's stale, never a healthy one another One uses |
 | FolderWatch.swift | service | notices a changed folder list (`folders`, `connectorReads`) and restarts the engine and its helper under the new lock once nothing is mid-reply, then carries on |

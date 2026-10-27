@@ -32,6 +32,7 @@ PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
 cp tools/speak.py tools/speak_file.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
+cp tools/overlay/tools/one_human_step.py "$APP/Contents/Resources/"
 # Skills that ship with One (skills/<category>/<name>/SKILL.md); One copies them into the engine (BundledSkills).
 cp -R skills "$APP/Contents/Resources/skills"
 # Sign in with Google is dropped from releases (email and calendar use the Mac's own accounts). Developer builds only: ONE_GOOGLE=1.

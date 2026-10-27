@@ -179,6 +179,8 @@ final class Model: ObservableObject {
     var helperLive: Set<UUID> = []
     @Published var working: String?
     @Published var asks: [Ask] = []
+    /// Steps only the person can do (a code, a passkey…), shown with Done / I'm not at the Mac (HumanStep.swift).
+    @Published var humanSteps: [HumanStepAsk] = []
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
     @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser"].map { _ in "" }.filter { !$0.isEmpty }

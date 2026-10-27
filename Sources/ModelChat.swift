@@ -30,6 +30,7 @@ extension Model {
                     text: warn
                 ))
         }
+        Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()

@@ -107,6 +107,7 @@ struct HomeView: View {
                         if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
                             AwayCard(m: m, hs: away).transition(.opacity)
                         }
+                        ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) } }
                         if !m.asks.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)

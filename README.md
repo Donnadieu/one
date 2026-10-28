@@ -92,6 +92,7 @@ Enforced by the Mac or by One's code (the assistant can't get around it):
 - **A newly allowed folder takes effect by itself:** when the folder list changes, One waits until nothing is mid-reply, restarts its engine under the new lock, reopens the same conversation and lets the assistant carry on.
 - **Email can't be sent:** One only creates drafts; you press Send.
 - **No browser window pops up on your screen:** helpers and routines browse in hidden browsers. A command that would open, show or drive a visible browser (`open -a`, AppleScript, a browser started without `--headless`) is blocked and logged, and the assistant asks you in plain words: "I need to open <browser> to <reason>. Can I?". Only your yes in One's chat lets that one window through, once. The engine's own browser tools are kept hidden, and the code/passkey hand-off window only shows when you tap Show the window. (Limit: it reads commands before they run, so a program that opens a browser by itself without saying so can still get through.)
+- **A robot check stops the job and asks you:** when a page in the hidden browser stays on a Cloudflare / "verify you are human" check, One asks by itself ("Can I show you the window?", with Yes, show it / Not now) and turns the helper that was browsing orange. Only your yes shows that one window; after you tick it, the helper carries on with the job as asked. A helper whose reply skips that ask still ends on it. (Sign-ins, codes and passkeys inside a job are asked the same way, but that part relies on the assistant, below.)
 - **Passwords stay out of the chat:** logins are filled from your password manager without the model seeing them.
 - **Updates and the engine version:** One installs the Hermes version it was tested with.
 - **Shared rooms:** a new file you add to a shared room (or a change to one of its skills) that copies lines from your private rooms is held back on your Mac, and One tells you. You can still say "share it anyway". A shared room's skills are never handed to the engine, so a private job can't edit them.
@@ -105,6 +106,7 @@ Relies on the assistant following its instructions (usually works, not guarantee
 - Asking before paying, posting or deleting on a website, or before posting or changing anything in Basecamp (Basecamp only offers full access).
 - Keeping each private room's notes out of your other private rooms (shared rooms are checked in code).
 - A tested experimental connection doing only what it says.
+- Stopping and asking when it hits a sign-in, a code, a passkey or a button only you can press, instead of skipping that part or doing the job another way (the rule is in its instructions and on every helper turn; robot checks are caught in code, above).
 - Saving a skill you said yes to into the right room (One checks the file is there before it says so), and not saving recipes for a kind of job you said no to (if it does anyway, One undoes it by itself).
 
 ## Privacy

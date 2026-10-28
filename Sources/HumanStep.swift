@@ -18,6 +18,7 @@ struct HumanStepAsk: Identifiable, Equatable {
     let port: Int
     let target: String
     let url: String
+    var ask = false  // One's own ask (BlockedAsk): "Yes, show it" / "Not now" first, then Done
 }
 
 enum HumanStep {
@@ -40,7 +41,7 @@ enum HumanStep {
             out.append(
                 HumanStepAsk(
                     id: id, site: site, kind: kind, line: j["line"] as? String ?? line(site: site, kind: kind), port: port, target: target,
-                    url: j["url"] as? String ?? ""))
+                    url: j["url"] as? String ?? "", ask: j["ask"] as? Bool ?? false))
         }
         return out
     }
@@ -91,6 +92,7 @@ extension Model {
     func answerHumanStep(_ id: String, _ answer: String) {
         HumanStep.answer(id, answer)
         closeHumanStep(id)
+        blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
     }
 
     func closeHumanStep(_ id: String) {
@@ -103,9 +105,29 @@ extension Model {
 struct HumanStepCard: View {
     let a: HumanStepAsk
     let answer: (String) -> Void
+    @State private var shown = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(a.line).font(.headline).fixedSize(horizontal: false, vertical: true)
+            if a.ask && !shown {
+                // One's own ask: the window shows only after their yes.
+                HStack {
+                    Button("Yes, show it") {
+                        shown = true
+                        HumanStep.windows[a.id]?.show()
+                    }.buttonStyle(.borderedProminent)
+                    Button("Not now") { answer("away") }.buttonStyle(.bordered)
+                    Spacer()
+                }
+            } else {
+                buttons
+            }
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.12)))
+    }
+    var buttons: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Button("Done") { answer("done") }.buttonStyle(.borderedProminent)
                 Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
@@ -113,7 +135,5 @@ struct HumanStepCard: View {
                 Button("Show the window") { HumanStep.windows[a.id]?.show() }.buttonStyle(.bordered)
             }
         }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange.opacity(0.12)))
     }
 }

@@ -105,6 +105,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
+        if BlockedAskCheck.launch() { return }  // --test-blocked
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -172,10 +173,11 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: .seconds(10))
             }
         }
-        // A step only the person can do (a code, a passkey…): the page comes to the front within a second.
+        // A step only the person can do (a code, a passkey…) within a second; a robot check, every 4 s (BlockedAsk).
         Task { @MainActor in
-            while true {
+            for tick in 0... {
                 Model.shared.tendHumanSteps()
+                if tick % 4 == 0 { Task { await Model.shared.tendBlocked() } }
                 try? await Task.sleep(for: .seconds(1))
             }
         }

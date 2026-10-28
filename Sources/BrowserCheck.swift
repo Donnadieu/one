@@ -1,3 +1,4 @@
+import SQLite3
 import Foundation
 
 // MARK: - `One --test-browser`: the hidden-browser keeper's decisions, without starting Chrome
@@ -77,8 +78,51 @@ enum BrowserCheck {
             "SOUL says using their Chrome is built")
 
         BrowserGuardCheck.run(expect)
+        humanCheck(expect)
 
         print(fails.isEmpty ? "browser ok" : "browser FAILED: \(fails.count)")
         return fails.isEmpty ? 0 : 1
+    }
+
+    /// The "verify you are human" loop: a normal user agent when hidden, a plain window for the tick.
+    static func humanCheck(_ expect: (Bool, String) -> Void) {
+        let ua = BrowserKeeper.userAgent(version: "156.0.8078.48") ?? ""
+        expect(
+            ua == "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+            "hidden browser sends the user agent Chrome sends in a window (no HeadlessChrome)")
+        expect(BrowserKeeper.userAgent(version: "") == nil, "unknown Chrome version: no made-up user agent")
+        if let app = BrowserKeeper.chromeApp {
+            let a = BrowserKeeper.launchArguments(BrowserKeeper.Plan(port: 9223, profile: "/tmp/p", headless: true), app: app)
+            let u = a.first { $0.hasPrefix("--user-agent=") } ?? ""
+            expect(u.contains("Chrome/") && !u.contains("Headless") && a.contains("--headless=new"), "still hidden, with the normal user agent")
+        }
+        let h = HumanCheck.headedArguments(profile: "/tmp/p", url: "https://claude.ai/design", app: "/Applications/Google Chrome.app")
+        expect(h.contains("--user-data-dir=/tmp/p") && h.last == "https://claude.ai/design", "the check window opens the same profile on the page")
+        expect(
+            !h.contains {
+                $0.hasPrefix("--remote-debugging") || $0.hasPrefix("--headless") || $0.contains("Automation") || $0.hasPrefix("--user-agent")
+            },
+            "the check window has nothing attached: no DevTools port, no automation flags, Chrome's own user agent")
+        expect(!h.contains("-g"), "the check window comes to the front (their tap on Show the window is the yes)")
+        let ask = HumanStepAsk(id: "x", site: "claude.ai", kind: "check", line: "", port: 9223, target: "t", url: "https://claude.ai/")
+        let code = HumanStepAsk(id: "y", site: "claude.ai", kind: "code", line: "", port: 9223, target: "t", url: "https://claude.ai/")
+        expect(HumanCheck.wanted(ask) && !HumanCheck.wanted(code), "only robot checks get the plain window; codes keep the live view")
+        expect(HumanCheck.mainChrome(profile: "/tmp/one-no-such-profile-\(getpid())") == nil, "no Chrome holds an unused profile")
+
+        // The pass is read from the profile's cookie file, the way Chrome stores it.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("one-cf-\(getpid())")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = dir.appendingPathComponent("Cookies").path
+        let when = Int64((Date().timeIntervalSince1970 + 11_644_473_600) * 1_000_000)
+        var db: OpaquePointer?
+        sqlite3_open(f, &db)
+        sqlite3_exec(db, "CREATE TABLE cookies (host_key TEXT, name TEXT, creation_utc INTEGER, last_update_utc INTEGER)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('.claude.ai', 'cf_clearance', 1, \(when)), ('.claude.ai', 'sessionKey', 1, 1)", nil, nil, nil)
+        sqlite3_close(db)
+        let t = HumanCheck.lastClearance(cookies: f, site: "claude.ai") ?? 0
+        expect(abs(t - Date().timeIntervalSince1970) < 5, "sees the check's cookie land (last update time)")
+        expect(HumanCheck.lastClearance(cookies: f, site: "example.com") == nil, "another site's check doesn't count")
+        expect(HumanCheck.lastClearance(cookies: f + "-missing", site: "claude.ai") == nil, "no cookie file, no pass")
+        try? FileManager.default.removeItem(at: dir)
     }
 }

@@ -44,6 +44,12 @@ struct HomeView: View {
     }
     var lastAsk: Bubble? { m.bubbles.last(where: { $0.fromMe }) }
     var lastReply: Bubble? { m.bubbles.last.flatMap { $0.fromMe ? nil : $0 } }
+    /// Everything said since their last message, in order: a reply stays on screen when a "by the way" line or a
+    /// routine result comes after it (only the last one showed before, so the reply vanished under the notice).
+    var sinceAsk: [Bubble] {
+        let k = m.bubbles.lastIndex(where: { $0.fromMe }).map { $0 + 1 } ?? 0
+        return Array(m.bubbles[k...].filter { !$0.text.isEmpty }.suffix(6))
+    }
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -118,7 +124,7 @@ struct HomeView: View {
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
                                 FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
-                                if let r = lastReply, !r.text.isEmpty {
+                                ForEach(sinceAsk) { r in
                                     let parts = Choices.split(Helpers.strip(r.text))
                                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                                         MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
@@ -126,7 +132,7 @@ struct HomeView: View {
                                     }
                                     .frame(maxWidth: 620).padding(.horizontal, 4)
                                     .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
-                                    if !parts.choices.isEmpty && !m.thinking {
+                                    if r.id == lastReply?.id && !parts.choices.isEmpty && !m.thinking {
                                         ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
                                             Task { await m.choose(c) }
                                         } onOther: {

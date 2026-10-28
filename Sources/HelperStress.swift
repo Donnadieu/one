@@ -192,6 +192,8 @@ enum HelperStress {
         func at() -> String { String(format: "%5.1fs", Date().timeIntervalSince(t0)) }
         let fm = FileManager.default
         switch phase {
+        case "queue":
+            return await queueCheck(m)  // QueueCheck.swift: one line for everything the assistant says
         case "start":
             m.helpers = []
             m.bubbles = []

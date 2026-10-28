@@ -71,6 +71,7 @@ def prompt(rid, sid, text):
     with c_lock:
         cancelled.discard(sid)
     if text.startswith("/steer "):
+        log(ev="steer", sid=sid, text=text[7:87])
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)
@@ -106,6 +107,34 @@ def prompt(rid, sid, text):
     if m:  # asked to close a helper: the line the assistant writes for it
         log(ev="close-reply", sid=sid)
         chunk(sid, "Closed %s.\n[close-helper: %s]\n" % (m.group(1).strip(), m.group(1).strip()))
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESSLONG n=(\d+) secs=(\d+(?:\.\d+)?)", text)
+    if m:  # a long reply, streamed sentence by sentence over secs (the queue check)
+        n, secs = int(m.group(1)), float(m.group(2))
+        log(ev="main-start", sid=sid, kind="long")
+        for i in range(1, n + 1):
+            chunk(sid, "Sentence %02d of the long reply, with enough words in it to be spoken as its own part of the voice. " % i)
+            time.sleep(secs / n)
+        chunk(sid, "END-OF-LONG-REPLY.")
+        log(ev="main-end", sid=sid, kind="long")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r'\(One app note, not from the user: "([^"]+)" (is done|needs \S+ yes)', text)
+    if m:  # a "by the way" notice: the one line the assistant says for it
+        title, done = m.group(1), m.group(2) == "is done"
+        log(ev="main-start", sid=sid, kind="note", title="%s %s" % (title, "done" if done else "needsYes"))
+        time.sleep(0.3)
+        chunk(sid, "By the way, %s %s. Tap it to take a look." % (title, "is done" if done else "needs your yes"))
+        log(ev="main-end", sid=sid, kind="note")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"QUEUEMSG (\S+)", text)
+    if m:  # a message the person sent during the reply
+        log(ev="main-start", sid=sid, kind="msg", title=m.group(1))
+        time.sleep(0.3)
+        chunk(sid, "Got %s." % m.group(1))
+        log(ev="main-end", sid=sid, kind="msg")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     log(ev="main", sid=sid, text=text[:80])

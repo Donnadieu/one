@@ -54,7 +54,7 @@ extension Model {
         guard let h = helpers.first(where: { $0.id == id }) else { return }
         if h.state == "working" || h.resumeQueued == true { stopHelper(id) }
         if openHelper == id { openHelper = nil }
-        doneQueue.removeAll { $0 == id }
+        outbox.removeAll { $0 == .helperNews(id) }
         Helpers.log("helper \"\(h.title)\" closed by you (\(h.state))")
         withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
     }

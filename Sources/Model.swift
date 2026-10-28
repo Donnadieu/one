@@ -77,9 +77,8 @@ final class Model: ObservableObject {
             if let cut = body.range(of: "\n⚠️") { body = String(body[..<cut.lowerBound]) }
             if body.isEmpty || body.hasPrefix("[SILENT]") { continue }
             let title = t.split(separator: "\n").first.map { $0.replacingOccurrences(of: "# Cron Job: ", with: "") } ?? "A routine"
-            bubbles.append(Bubble(fromMe: false, text: "**\(title)**\n\n\(body)"))
             Floater.shared.note("\(title) is done.")
-            if !thinking { Task { _ = await Speaker.shared.read(body) } }
+            enqueue(.line(bubble: "**\(title)**\n\n\(body)", spoken: body))  // after whatever is being said, never into it
         }
     }
 
@@ -109,11 +108,7 @@ final class Model: ObservableObject {
     func updateReady() {
         let line = "A new version of One is ready. Want me to update?"
         Floater.shared.note(line)
-        Task {
-            for _ in 0..<60 where thinking || !Speaker.shared.ready { try? await Task.sleep(for: .seconds(5)) }
-            guard !thinking else { return }
-            _ = await Speaker.shared.sayNow(line)
-        }
+        enqueue(.line(bubble: nil, spoken: line))  // after whatever is being said, never into it
     }
     /// The notification was clicked: open One on Home, where the update card is.
     func showUpdate() {
@@ -183,9 +178,9 @@ final class Model: ObservableObject {
     var steerRetryAt = Date.distantPast
     /// Helpers whose current turn has started answering (they can take a message mid-turn).
     var helperLive: Set<UUID> = []
-    /// Finished helpers waiting for the end of the current reply, to get one "by the way" line.
-    var doneQueue: [UUID] = []
-    var doneNoteWaiting = false
+    /// Everything the main assistant says, in one first-in, first-out line (SayQueue.swift).
+    var outbox: [Outgoing] = []
+    var outboxRunning = false
     /// Good morning / status report batches already reported.
     var routinesTold: Set<UUID> = []
     @Published var working: String?

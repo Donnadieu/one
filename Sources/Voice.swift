@@ -170,7 +170,10 @@ final class Speaker: @unchecked Sendable {
     }
     /// Main thread. Silences now but keeps the line awake.
     func hush() {
-        guard stand == nil else { return }  // self-tests never touch the audio line
+        guard stand == nil else {  // self-tests never touch the audio line
+            endsAt = .distantPast
+            return
+        }
         node.stop()
         track.clips = []
         endsAt = .distantPast
@@ -254,7 +257,7 @@ final class Speaker: @unchecked Sendable {
     private var onFirst: (() -> Void)?
     /// `started` runs when the first sentence starts playing (or right away if there's nothing to say).
     func read(_ reply: String, started: (() -> Void)? = nil) {
-        guard ready || stand != nil, !Speaker.prefs.bool(forKey: "voiceMuted") else {
+        guard canSpeak, !Speaker.prefs.bool(forKey: "voiceMuted") else {
             started?()
             return
         }
@@ -265,6 +268,8 @@ final class Speaker: @unchecked Sendable {
             started?()
             return
         }
+        outstanding = parts.count
+        lastStep = Date()
         onFirst = started
         for sentence in parts { queue.append((sentence, g)) }
         pump()
@@ -296,7 +301,10 @@ final class Speaker: @unchecked Sendable {
             let (_, url) = pending.remove(at: k)
             nextIndex += 1
             reached += 1
+            outstanding = max(0, outstanding - 1)
+            lastStep = Date()
             if let url, stand == nil { enqueue(url) }
+            if stand != nil, standSecs > 0 { endsAt = max(endsAt, Date()).addingTimeInterval(standSecs) }  // self-tests: "plays" this long
             if let f = onFirst {
                 onFirst = nil
                 f()
@@ -304,6 +312,17 @@ final class Speaker: @unchecked Sendable {
         }
     }
     var talking: Bool { Date() < endsAt }
+    /// Sentences of the reply being read that haven't reached the audio line yet (still being made).
+    private var outstanding = 0
+    private var lastStep = Date.distantPast
+    /// Main thread. A reply is being read: a sentence is playing OR the next ones are still being made. `talking`
+    /// alone reads false in the gap between two sentences, which let notices start a new turn mid-reply.
+    /// (A voice process that stops answering for 20 s doesn't hold the line forever.)
+    var busy: Bool { talking || (outstanding > 0 && Date().timeIntervalSince(lastStep) < 20) }
+    /// The live voice is up (or a self-test stand-in is).
+    var canSpeak: Bool { ready || stand != nil }
+    /// Self-tests only: how long each stand-in sentence "plays".
+    var standSecs = 0.0
     /// Stop talking just this once (Esc, or a click on the orb while it talks): the rest of this reply's
     /// sentences are dropped and the sound stops now, with the line kept awake. Unlike the mute, nothing
     /// is remembered, the reply's text and helpers carry on, and the next reply speaks as usual.
@@ -339,6 +358,7 @@ final class Speaker: @unchecked Sendable {
         pending = []
         queue = []
         nextIndex = 0
+        outstanding = 0
         if let f = onFirst {
             onFirst = nil
             DispatchQueue.main.async { f() }

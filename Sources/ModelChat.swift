@@ -128,13 +128,8 @@ extension Model {
             helpers.first { $0.id == p.id && ($0.busyTries == nil || $0.busyTries == 1) }.map { $0.restartNews ?? HelperTrail.told($0.title) }
         }
         if let line = told.count == 1 ? told.first : (told.isEmpty ? nil : HelperTrail.toldMany(told.count)) {
-            bubbles.removeAll { $0.text == line }
-            bubbles.append(Bubble(fromMe: false, text: line))
             Floater.shared.note(line)
-            Task {
-                for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
-                _ = await Speaker.shared.sayNow(line)  // silent when muted
-            }
+            enqueue(.line(bubble: line, spoken: line))  // after whatever is being said, never into it (silent when muted)
         }
         for p in picked {
             guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
@@ -164,7 +159,7 @@ extension Model {
     /// They opened a finished helper: its orb stops glowing orange and shows the check mark, and no "by the way" goes out for it.
     func markSeen(_ id: UUID) {
         if helpers.first(where: { $0.id == id })?.seen == false { update(id) { $0.seen = true } }
-        doneQueue.removeAll { $0 == id }
+        outbox.removeAll { $0 == .helperNews(id) }
     }
     /// "Got it" on the While you were gone card: the card goes, every orb stays (only closing one removes it).
     func clearAway() {
@@ -309,7 +304,7 @@ extension Model {
             let line = h.state == "needsYes" ? "\(h.title) needs your yes." : "\(h.title) is done."
             Floater.shared.note(line)
             // Heard even with One in the background. Regular helpers get the assistant's own "by the way" line instead.
-            if !thinking, routine != nil || stop.hasPrefix("error") { Task { _ = await Speaker.shared.sayNow(line) } }
+            if routine != nil || stop.hasPrefix("error") { enqueue(.line(bubble: nil, spoken: line)) }
         }
     }
 
@@ -399,7 +394,10 @@ extension Model {
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.
             if paused || h.state == "working" { return followUp(c, helper: hid, hidden: false) }
             await ensureEngine()
-            update(hid) { $0.asked = c.display }
+            update(hid) {
+                $0.asked = c.display
+                $0.toldState = nil  // asked something new: its next finish gets its own notice
+            }
             await runHelper(hid, c.engine, images: c.images)
             return
         }
@@ -407,8 +405,14 @@ extension Model {
         if !hidden { c.engine += blockedYes(text, helper: nil) }
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
-        // Busy (or stopped): the message goes into the running turn as it runs, or waits next up. Never a second turn, never a stop.
-        if paused || thinking { return followUp(c, helper: nil, hidden: hidden) }
+        // Busy, talking, stopped or something already waiting: it goes at the back of the one line (SayQueue.swift),
+        // shown as Next up, and is sent once everything before it is fully over. It never cuts into a reply.
+        if !sayFree || !outbox.isEmpty || outboxRunning {
+            if hidden { return enqueue(.note(c.engine)) }
+            let f = FollowUp(c: c, helper: nil)
+            followUps.append(f)
+            return enqueue(.message(f.id))
+        }
         thinking = true  // taken now, before any wait, so two sends can never both start a turn
         await runTurn(c, hidden: hidden)
     }
@@ -423,7 +427,7 @@ extension Model {
         let idx = bubbles.count - 1
         thinking = true
         working = nil
-        let voiceFirst = Speaker.shared.ready && !UserDefaults.standard.bool(forKey: "voiceMuted")
+        let voiceFirst = Speaker.shared.canSpeak && !Speaker.prefs.bool(forKey: "voiceMuted")
         heldText = ""
         Engine.shared.onText = { s in
             Task { @MainActor in
@@ -562,7 +566,7 @@ extension Model {
     }
 
     /// Something is being said out loud right now (or a reply is waiting on its first words).
-    var voicePlaying: Bool { Speaker.shared.talking || pendingReveal != nil }
+    var voicePlaying: Bool { Speaker.shared.busy || pendingReveal != nil }
     /// Stop talking just this once (Esc, or a click on the orb while it talks): the voice stops now and the
     /// held words show at once. Never the mute: the reply, helpers and the next reply's voice carry on.
     func hushVoice() {

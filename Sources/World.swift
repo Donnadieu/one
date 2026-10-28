@@ -419,7 +419,7 @@ struct WorldStage: View {
                     Text("Tap to connect. You can change this anytime.").font(.system(size: 13))
                         .foregroundStyle(WorldLook.cream.opacity(0.6)).opacity(picking ? 1 : 0)
                 }
-                .frame(minHeight: 120).padding(.top, 28).padding(.horizontal, 24)
+                .frame(minHeight: 120).starCalm(floor: 0.15).padding(.top, 28).padding(.horizontal, 24)
                 .id(m.worldCaption).transition(.opacity.combined(with: .offset(y: -6)))
                 .animation(.easeOut(duration: 0.32), value: m.worldCaption)
                 GeometryReader { geo in
@@ -432,6 +432,7 @@ struct WorldStage: View {
                     }
                     .scaleEffect(k)
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .overlay(Color.clear.frame(width: 2, height: 2).starCalm(radius: 95 * k, feather: 45 * k))  // the orb
                 }
                 ZStack {
                     Button("Skip tour") { m.skipTour = true }.buttonStyle(.plain)
@@ -451,8 +452,9 @@ struct WorldStage: View {
                         }
                         .buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.6))
                     }.opacity(picking ? 1 : 0).allowsHitTesting(picking)
-                }.frame(height: 90).padding(.bottom, 26).animation(.easeOut(duration: 0.6), value: m.touring)
+                }.frame(height: 90).starCalm(floor: 0.15).padding(.bottom, 26).animation(.easeOut(duration: 0.6), value: m.touring)
             }
+            .withStars()
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $folderSheet) {

@@ -106,40 +106,6 @@ enum HelperRings {
     }
 }
 
-/// About 44 faint specks of dust around the assistant, denser near it, never under the orb or a helper's label.
-enum HelperDust {
-    struct Speck {
-        let p: CGPoint
-        let r: CGFloat
-        let base: Double
-        let ph: Double
-        let f: Double
-    }
-    static func make(_ n: Int, spots: [HelperRings.Spot], label: CGFloat, k: CGFloat) -> [Speck] {
-        var seed: UInt64 = 7 + UInt64(n) * 131
-        func rnd() -> Double {
-            seed = (seed &* 16807) % 2_147_483_647
-            return Double(seed) / 2_147_483_647
-        }
-        var out: [Speck] = []
-        var guardN = 0
-        while out.count < 44 && guardN < 800 {
-            guardN += 1
-            let a = rnd() * 6.283
-            let r = pow(rnd(), 0.8)
-            let p = CGPoint(x: cos(a) * r * 450 * k, y: sin(a) * r * 245)
-            if hypot(p.x, p.y) < 82 { continue }
-            let hit = spots.contains { s in
-                let x = s.at.x * k
-                return abs(p.x - x) < label / 2 + 6 && p.y > s.at.y - s.orb / 2 - 8 && p.y < s.at.y + s.orb / 2 + 40
-            }
-            if hit { continue }
-            out.append(Speck(p: p, r: 0.5 + rnd() * 0.6, base: 0.05 + 0.1 * (1 - r), ph: rnd() * 6.28, f: 0.3 + rnd() * 0.7))
-        }
-        return out
-    }
-}
-
 /// The assistant in the middle and every helper around it, on faint dashed orbits. No limit.
 struct HelperConstellation: View {
     @ObservedObject var m: Model
@@ -154,7 +120,6 @@ struct HelperConstellation: View {
         GeometryReader { g in
             // A narrow window pulls the orbits in to fit; orbs and words keep their size.
             let k = hs.isEmpty ? 1 : min(1, max(0.55, (g.size.width - 16) / (2 * lay.reachX)))
-            let dust = HelperDust.make(hs.count, spots: lay.spots, label: lay.look.label, k: k)
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: calm || m.helpers.isEmpty)) { tl in
                 let t = calm ? 21.7 : tl.date.timeIntervalSince(WorldLook.start)
                 ZStack {
@@ -166,17 +131,11 @@ struct HelperConstellation: View {
                                 ctx.stroke(
                                     Path(ellipseIn: e), with: .color(WorldLook.cream.opacity(0.075)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                             }
-                            for d in dust {
-                                let tw = 0.5 + 0.5 * sin(t * d.f + d.ph)
-                                let a = d.base * (0.4 + tw)
-                                ctx.fill(
-                                    Path(ellipseIn: CGRect(x: c.x + d.p.x - d.r, y: c.y + d.p.y - d.r, width: d.r * 2, height: d.r * 2)),
-                                    with: .color(Color(hex: 0xFFF4E8, a)))
-                            }
                         }
                         .allowsHitTesting(false)
                     }
                     Orb(size: 92, active: m.thinking)  // the assistant's own orb: unchanged (Omar)
+                        .starCalm(radius: 100, feather: 50)  // the galaxy keeps clear of the orb
                         .opacity(m.openHelper == nil ? 1 : 0.5)
                         .contentShape(Circle())
                         .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
@@ -215,7 +174,7 @@ struct HelperConstellation: View {
             if stopAsk == h.id { return }  // the long press already asked; this is its release
             m.focusHelper(h.id)
         } label: {
-            face
+            face.starCalm(pad: 8, feather: 16, floor: 0.15)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(h.title), \(line)")

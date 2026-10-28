@@ -15,6 +15,8 @@ struct HomeView: View {
     nonisolated(unsafe) static var still = false
     /// Renders only: a desktop picture to draw the glass over (`--render-world home-glass`).
     nonisolated(unsafe) static var stillDesk: NSImage?
+    /// Renders only: the galaxy is drawn behind the whole fake window (title row included), not inside home.
+    nonisolated(unsafe) static var outerStars = false
     /// Renders only: a draft to show in the ask box, and whether the writing panel is open.
     nonisolated(unsafe) static var stillDraft = ""
     nonisolated(unsafe) static var stillWriting = false
@@ -45,15 +47,15 @@ struct HomeView: View {
             VStack(spacing: 0) {
                 // Pinned above the scrolling part, so the greeting can never slide up under the title row.
                 Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
-                    .foregroundStyle(WorldLook.cream).padding(.top, 18).padding(.bottom, 12).lineLimit(1)
+                    .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
                 StillScroll {
                     VStack(spacing: 12) {
                         HelperConstellation(m: m, still: HomeView.still)
                         if m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
-                                .transition(.opacity)
+                                .starCalm(floor: 0.2).transition(.opacity)
                         }
-                        if !HomeView.still { UpdateCard() }  // also inside an opened helper, so an update is never missed
+                        if !HomeView.still { UpdateCard().starCalm() }  // also inside an opened helper, so an update is never missed
                         if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {
                             VStack(alignment: .leading, spacing: 12) {
                                 Label("\(info.createdBy) invited you into a room", systemImage: "person.2.fill").font(.headline)
@@ -71,7 +73,7 @@ struct HomeView: View {
                                 }
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
                         }
                         if m.openHelper == nil && !m.interviewOffered && !m.thinking && Brain.exists {
                             VStack(alignment: .leading, spacing: 12) {
@@ -93,21 +95,21 @@ struct HomeView: View {
                                 }
                             }
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
                         }
                         if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
-                            AwayCard(m: m, hs: away).transition(.opacity)
+                            AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                         }
-                        ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) } }
+                        ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
                         if !m.asks.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)
                                 ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
-                            }
+                            }.starCalm()
                         }
                         if let h = m.openedHelper {
-                            HelperCard(m: m, h: h).transition(.opacity.combined(with: .offset(y: 8)))
-                            FollowUpList(m: m, helper: h.id)
+                            HelperCard(m: m, h: h).starCalm().transition(.opacity.combined(with: .offset(y: 8)))
+                            FollowUpList(m: m, helper: h.id).starCalm()
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
                                 ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
@@ -131,13 +133,13 @@ struct HomeView: View {
                                         .transition(.opacity)
                                     }
                                 }
-                            }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
+                            }.starCalm(feather: 26, floor: 0.2).animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
                         }
                     }.padding(.horizontal, 28).padding(.bottom, 8)
                 }
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
                 // Pinned under the scrolling part, so a long message can never push the box out of view.
-                askBox.padding(.horizontal, 28).padding(.top, 4).padding(.bottom, 20).layoutPriority(1)
+                askBox.starCalm().padding(.horizontal, 28).padding(.top, 4).padding(.bottom, 20).layoutPriority(1)
             }
             if !m.shelf.isEmpty {
                 if shelfCollapsed {
@@ -153,15 +155,17 @@ struct HomeView: View {
                                     Circle().fill(Color(hex: 0xFFE2C2)))
                             }
                         }.foregroundStyle(.secondary).frame(width: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
-                    }.buttonStyle(.plain).help("Show Ready for you").transition(.move(edge: .trailing))
+                    }.buttonStyle(.plain).starCalm(pad: 0, feather: 18).help("Show Ready for you").transition(.move(edge: .trailing))
                 } else {
                     ShelfPanel(m: m) {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = true }
                     }
+                    .starCalm(pad: 0, feather: 18)
                     .transition(.move(edge: .trailing))
                 }
             }
         }
+        .modifier(HomeStars())
         .background(HomeBackdrop())
         .frame(minWidth: m.shelf.isEmpty || shelfCollapsed ? 560 : 830)
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: m.shelf.isEmpty)

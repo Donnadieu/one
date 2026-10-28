@@ -100,12 +100,14 @@ final class Engine: @unchecked Sendable {
         waiting = [:]
         lock.unlock()
         w.values.forEach { $0(["error": ["message": Engine.gone]]) }
+        onPhase?(.gone)  // crashed or killed: One shows it's getting ready and starts it again
     }
 
     /// Stops the engine and its background helper so the next start builds a fresh folder lock.
     /// The helper must go too: a new engine reuses a running one, which keeps the old lock.
     func stopForNewAccess() async {
         let previous = enginePID
+        onPhase?(.starting)  // a restart is under way from this moment, not only once the new start begins
         stop()
         _ = await Task.detached { GatewayGuard.stopForNewAccess(previousEngine: previous) }.value
     }
@@ -117,16 +119,45 @@ final class Engine: @unchecked Sendable {
         lock.lock()
         if let t = starting {
             lock.unlock()
-            return await t.value
+            let r = await t.value
+            return r == Engine.replaced ? await ensureStarted() : r  // Try again replaced it: wait for the new one
         }
         let t = Task { await self.start() }
         starting = t
         lock.unlock()
         let r = await t.value
         lock.lock()
-        starting = nil
+        if starting == t { starting = nil }
+        lock.unlock()
+        return r == Engine.replaced ? await ensureStarted() : r
+    }
+
+    var isStarting: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return starting != nil
+    }
+
+    /// Try again while a start hangs: a fresh start replaces it (the old one gives up at its next step), and
+    /// everyone waiting on the old one waits on this one instead.
+    func startOver() async -> String? {
+        lock.lock()
+        let t = Task { await self.start() }
+        starting = t
+        lock.unlock()
+        let r = await t.value
+        lock.lock()
+        if starting == t { starting = nil }
         lock.unlock()
         return r
+    }
+
+    static let replaced = "replaced by a new start"
+    private var generation = 0
+    private func stale(_ gen: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return gen != generation
     }
 
     /// Is this process already inside a folder lock? (Then sandbox-exec refuses to apply another one.)
@@ -140,7 +171,29 @@ final class Engine: @unchecked Sendable {
         return p.terminationStatus == 71
     }
 
+    /// Where the engine is, for One's "getting ready" state (StartupGate.swift): every start, every crash.
+    enum Phase: Sendable {
+        case starting, started
+        case failed(String)
+        case gone
+    }
+    var onPhase: (@Sendable (Phase) -> Void)?
+
+    /// Every start goes through here (launch, a folder change, a new model, a crash), so One always knows
+    /// when it's getting ready and when it's ready again.
     func start() async -> String? {
+        onPhase?(.starting)
+        lock.lock()
+        generation += 1
+        let gen = generation
+        lock.unlock()
+        let r = await startEngine(gen)
+        if r == Engine.replaced { return r }  // a newer start speaks for itself
+        onPhase?(r.map { .failed($0) } ?? .started)
+        return r
+    }
+
+    private func startEngine(_ gen: Int) async -> String? {
         let previous = enginePID
         stop()
         guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
@@ -188,13 +241,16 @@ final class Engine: @unchecked Sendable {
         buf = Data()
         lock.unlock()
         let ini = await call("initialize", ["protocolVersion": 1, "clientCapabilities": [String: Any]()], timeout: 120)
+        if stale(gen) { return Engine.replaced }
         guard ini["result"] != nil else { return "The assistant didn't start." }
         let dir = (Brain.exists ? Brain.root : Env.support).path
         // Pick up the same conversation after a restart, so it remembers what you were doing.
         if !Env.selfTest, let saved = UserDefaults.standard.string(forKey: "sessionID") {
             onText = nil
             onTool = nil
-            if await loadSession(saved, dir) {
+            let loaded = await loadSession(saved, dir, gen: gen)
+            if stale(gen) { return Engine.replaced }
+            if loaded {
                 lock.lock()
                 sessionID = saved
                 lock.unlock()
@@ -203,7 +259,8 @@ final class Engine: @unchecked Sendable {
             // Really gone: the next message carries the end of what was on screen (Model.send).
             lostConversation = true
         }
-        let new = await newSession(dir)
+        let new = await newSession(dir, gen: gen)
+        if stale(gen) { return Engine.replaced }
         guard let r = new["result"] as? [String: Any], let sid = r["sessionId"] as? String else {
             if Env.selfTest { print("session/new answered:", new) }  // tests: show why
             return "The assistant couldn't open a conversation."
@@ -221,8 +278,9 @@ final class Engine: @unchecked Sendable {
     /// Reopens a saved conversation. Right after a restart the background helper answers
     /// "draining: not_ready" for a few seconds; wait that out instead of starting a new chat
     /// (giving up on the first try made the assistant forget the conversation at every restart).
-    private func loadSession(_ sid: String, _ dir: String) async -> Bool {
+    private func loadSession(_ sid: String, _ dir: String, gen: Int? = nil) async -> Bool {
         for attempt in 0..<15 {
+            if let gen, stale(gen) { return false }
             let r = await call("session/load", ["sessionId": sid, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
             if r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) { return true }
             let e = "\(r["error"] ?? "")".lowercased()
@@ -248,9 +306,10 @@ final class Engine: @unchecked Sendable {
 
     /// Right after a cold start the engine's background helper can answer "draining" for a few
     /// seconds while it finishes its own startup; wait it out instead of failing the first message.
-    private func newSession(_ dir: String) async -> [String: Any] {
+    private func newSession(_ dir: String, gen: Int? = nil) async -> [String: Any] {
         var r: [String: Any] = [:]
         for attempt in 0..<12 {
+            if let gen, stale(gen) { break }
             r = await call("session/new", ["cwd": dir, "mcpServers": [Any]()], timeout: 120)
             let busy = "\(r["error"] ?? "")".lowercased().contains("draining")
             guard r["result"] == nil, busy, attempt < 11 else { break }

@@ -65,8 +65,10 @@ extension Model {
 
     /// Can this message go into a running turn right now?
     func canSteer(_ f: FollowUp) -> Bool {
-        guard !paused, !f.hidden, f.images.isEmpty, editingFollowUp != f.id, Date() >= steerRetryAt else { return false }
-        if let h = f.helper { return helperLive.contains(h) && helpers.first { $0.id == h }?.state == "working" }
+        guard !paused, isReady, !f.hidden, f.images.isEmpty, editingFollowUp != f.id, Date() >= steerRetryAt else { return false }
+        if let h = f.helper {
+            return helperLive.contains(h) && helpers.first { $0.id == h }.map { $0.state == "working" && !asleep($0) } == true
+        }
         return turnLive && turnStarted
     }
 
@@ -136,7 +138,7 @@ extension Model {
 
     /// Nothing is running: the waiting messages go now, in order, as the next turn.
     func nextUpReady() {
-        guard !paused, !thinking else { return }
+        guard !paused, !thinking, isReady else { return }
         let batch = leadingWaiting(helper: nil)
         guard !batch.isEmpty else { return }
         followUps.removeAll { f in batch.contains { $0.id == f.id } }
@@ -159,7 +161,7 @@ extension Model {
     }
 
     func nextUpForHelper(_ id: UUID) {
-        guard !paused, let h = helpers.first(where: { $0.id == id }), h.state != "working", h.sid != nil else { return }
+        guard !paused, isReady, let h = helpers.first(where: { $0.id == id }), h.state != "working", !asleep(h), h.sid != nil else { return }
         let batch = leadingWaiting(helper: id)
         guard !batch.isEmpty else { return }
         followUps.removeAll { f in batch.contains { $0.id == f.id } }

@@ -53,7 +53,9 @@ struct HomeView: View {
                 StillScroll {
                     VStack(spacing: 12) {
                         HelperConstellation(m: m, still: HomeView.still, closeShown: HomeView.stillClose)
-                        if m.thinking && m.openHelper == nil {
+                        if !m.isReady {
+                            GateLine(m: m).starCalm(floor: 0.2).transition(.opacity)  // getting ready (StartupGate.swift)
+                        } else if m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
                                 .starCalm(floor: 0.2).transition(.opacity)
                         }
@@ -86,6 +88,7 @@ struct HomeView: View {
                                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                                 HStack(spacing: 8) {
                                     Button("Let's start") {
+                                        guard m.isReady else { return }
                                         m.interviewOffered = true
                                         Task { await m.send("Let's do the welcome interview. Get to know me.", toNova: true) }
                                     }
@@ -110,7 +113,8 @@ struct HomeView: View {
                             }.starCalm()
                         }
                         if let h = m.openedHelper {
-                            HelperCard(m: m, h: h).starCalm().transition(.opacity.combined(with: .offset(y: 8)))
+                            HelperCard(m: m, h: h).disabled(!m.isReady || m.asleep(h)).opacity(m.isReady ? 1 : 0.55).starCalm()
+                                .transition(.opacity.combined(with: .offset(y: 8)))
                             FollowUpList(m: m, helper: h.id).starCalm()
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
@@ -127,7 +131,7 @@ struct HomeView: View {
                                     .frame(maxWidth: 620).padding(.horizontal, 4)
                                     .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
                                     if !parts.choices.isEmpty && !m.thinking {
-                                        ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
+                                        ChoiceRow(choices: parts.choices, disabled: m.paused || !m.isReady) { c in
                                             Task { await m.choose(c) }
                                         } onOther: {
                                             typing = true
@@ -307,19 +311,25 @@ struct HomeView: View {
                     Image(systemName: "plus").font(.system(size: 16, weight: .regular)).foregroundStyle(WorldLook.cream.opacity(0.6))
                         .frame(width: 36, height: 36).contentShape(Circle())
                 }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().disabled(!m.isReady)
                 .help("Add a file or photo (or drag it in, or paste it)")
                 let hint =
-                    m.about != nil
-                    ? "What do you want to know? Or just press send."
-                    : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
-                if HomeView.still && draft.isEmpty {
+                    !m.isReady
+                    ? GateWords.box
+                    : m.about != nil
+                        ? "What do you want to know? Or just press send."
+                        : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
+                if !m.isReady {
+                    // Getting ready: nothing can be typed until One opens (what was typed before stays, dimmed).
+                    Text(draft.isEmpty ? hint : draft).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(draft.isEmpty ? 0.4 : 0.5))
+                        .lineLimit(1).truncationMode(.head).frame(maxWidth: .infinity, alignment: .leading).frame(height: 36)
+                } else if HomeView.still && draft.isEmpty {
                     Text(hint).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.4)).frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: 36)
                 } else {
                     AskField(text: $draft, focused: $typing, metrics: askMetrics, hint: hint, maxHeight: askMax, onSubmit: go)
                 }
-                if !(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil) {
+                if m.isReady && !(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil) {
                     // Never locked while busy: a message sent now goes into the running turn, or next up.
                     Button(action: go) {
                         Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)).foregroundStyle(WorldLook.bg)
@@ -327,9 +337,11 @@ struct HomeView: View {
                     }
                     .buttonStyle(.plain).help("Send").transition(.scale.combined(with: .opacity))
                 }
-                micButton
+                micButton.disabled(!m.isReady).opacity(m.isReady ? 1 : 0.45)
             }
             .padding(8)
+            .opacity(m.isReady ? 1 : 0.6)
+            .animation(.easeOut(duration: 0.4), value: m.isReady)
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(WorldLook.cream.opacity(0.06)))
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
@@ -366,6 +378,7 @@ struct HomeView: View {
         return a
     }
     func go() {
+        guard m.isReady else { return }  // getting ready: the box can't send (StartupGate.swift)
         let t = draft
         draft = ""
         writing = false

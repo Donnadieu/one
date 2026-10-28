@@ -194,7 +194,7 @@ struct HelperCard: View {
                 }
             }
             if !parts.choices.isEmpty && h.state != "working" && h.state != "stopped" {
-                ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
+                ChoiceRow(choices: parts.choices, disabled: m.paused || !m.isReady) { c in
                     Task { await m.choose(c) }
                 } onOther: {
                 }

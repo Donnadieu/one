@@ -25,9 +25,12 @@ struct FloatOrbView: View {
     @ObservedObject var m = Model.shared
     @ObservedObject var l = Listener.shared
     var body: some View {
-        FloatingOrb(state: l.listening ? .listening : (m.thinking || m.helpers.contains { $0.state == "working" } ? .working : .idle), size: 72)
-            .frame(width: FloatUI.orbBox, height: FloatUI.orbBox)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: l.listening)
+        FloatingOrb(
+            state: l.listening ? .listening : (m.thinking || !m.isReady || m.helpers.contains { $0.state == "working" } ? .working : .idle), size: 72
+        )
+        .opacity(m.isReady ? 1 : 0.6)  // getting ready: it can't be held to talk until One opens
+        .frame(width: FloatUI.orbBox, height: FloatUI.orbBox)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: l.listening)
     }
 }
 
@@ -68,6 +71,8 @@ struct FloatCard: View {
             FloatTranscript(text: l.text.isEmpty ? "I'm listening…" : l.text, level: max(0.3, l.level), t: t)
         } else if let p = l.problem ?? ui.note {
             FloatNote(text: p)
+        } else if !m.isReady {
+            FloatHint(text: m.gate == .gettingReady ? GateWords.line(total: m.gateCounts.total) : GateWords.failed)
         } else if m.thinking {
             FloatHint(text: m.working ?? "Working on it…")
         } else if let r = ui.reply {
@@ -362,7 +367,15 @@ final class OrbHost: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { if self.hintToken == tk { FloatUI.shared.showHint = false } }
     }
 
+    /// Held while One was getting ready: nothing was heard, so letting go sends nothing.
+    private var refused = false
     func beginTalk() {
+        guard Model.shared.isReady else {
+            refused = true
+            note(GateWords.talk)
+            return
+        }
+        refused = false
         let ui = FloatUI.shared
         ui.reply = nil
         ui.note = nil
@@ -393,6 +406,11 @@ final class OrbHost: NSView {
             Model.shared.talkEnd()
             return
         }
+        if refused {
+            refused = false
+            tuckIfOneInFront(after: 4)
+            return
+        }
         Listener.shared.finish { heard in
             guard !heard.isEmpty else {
                 if Listener.shared.problem == nil { self.note("I didn't catch that. Hold the key and talk, then let go.") }
@@ -421,6 +439,10 @@ final class OrbHost: NSView {
     }
 
     func endTalk() {
+        if refused {
+            refused = false
+            return
+        }
         Listener.shared.finish { heard in
             guard !heard.isEmpty else {
                 if Listener.shared.problem == nil { self.note("I didn't catch that. Hold the orb and talk, then let go.") }

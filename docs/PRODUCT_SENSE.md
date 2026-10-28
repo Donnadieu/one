@@ -16,3 +16,4 @@
 - Use Telegram or WhatsApp as One's phone path (phone = its own app, later).
 - Collect data about people. Everything stays on their Mac.
 - Website sign-ins (OAuth reviews) for email/calendar: use the accounts already on the Mac.
+- Let anything that isn't ready be used while One is getting ready (after an update, a quit, a crash, a wake, an engine restart): show "Getting ready…", hold what's sent until it opens, never a time estimate, never a forever wait (StartupGate.swift).

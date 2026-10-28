@@ -139,7 +139,7 @@ struct HelperConstellation: View {
                         }
                         .allowsHitTesting(false)
                     }
-                    Orb(size: 92, active: m.thinking)  // the assistant's own orb: unchanged (Omar)
+                    Orb(size: 92, active: m.thinking || m.gate == .gettingReady)  // the assistant's own orb; it breathes while getting ready
                         .starCalm(radius: 100, feather: 50)  // the galaxy keeps clear of the orb
                         .opacity(m.openHelper == nil ? 1 : 0.5)
                         .contentShape(Circle())
@@ -160,10 +160,11 @@ struct HelperConstellation: View {
     }
 
     func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint) -> some View {
-        let on = hover == h.id
-        let warm = h.state == "needsYes" || h.waiting
+        let sleeping = m.asleep(h)  // being picked back up: dim, "starting again", can't be tapped (StartupGate.swift)
+        let on = hover == h.id && !sleeping
+        let warm = (h.state == "needsYes" || h.waiting) && !sleeping
         let opened = h.state == "done" && !h.waiting
-        let line = HelperRings.status(h)
+        let line = sleeping ? GateWords.helper : HelperRings.status(h)
         let seed = Double(i)
         let drift = calm ? CGSize.zero : CGSize(width: sin(t * 0.23 + seed * 1.9) * 3, height: cos(t * 0.19 + seed * 2.7) * 3)
         let gap: CGFloat = spot.orb >= 40 ? 7 : 5
@@ -171,10 +172,10 @@ struct HelperConstellation: View {
         let dy: CGFloat = p.y + drift.height + (gap + tagH) / 2  // centre the orb (not orb + label) on its spot
         let dx: CGFloat = p.x + drift.width
         let dimmed: Bool = m.openHelper != nil && m.openHelper != h.id
-        let alpha: Double = dimmed ? 0.5 : (on ? 1 : spot.fade)
+        let alpha: Double = dimmed ? 0.5 : (on ? 1 : spot.fade) * (sleeping ? 0.62 : 1)
         let face = HelperFace(
             state: h.viewState, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened,
-            tag: HelperTag(title: h.title, line: line, look: look, warm: warm, opened: opened, full: on))
+            tag: HelperTag(title: h.title, line: line, look: look, warm: warm, opened: opened, full: on), sleeping: sleeping)
         return Button {
             if stopAsk == h.id { return }  // the long press already asked; this is its release
             m.focusHelper(h.id)
@@ -199,6 +200,7 @@ struct HelperConstellation: View {
         }
         .accessibilityAction(named: "Close") { m.closeHelper(h.id) }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
+        .allowsHitTesting(!sleeping)  // not back yet: no tap, no X, no menu, no long press
         .offset(x: dx, y: dy)
         .zIndex(on ? 5 : 1)
         .opacity(alpha)
@@ -217,12 +219,17 @@ struct HelperFace: View {
     let gap: CGFloat
     let opened: Bool
     let tag: HelperTag
+    var sleeping = false
     var body: some View {
         VStack(spacing: gap) {
             ZStack(alignment: .bottomTrailing) {
                 // Reduce Motion: the orange pulse holds still as a ring (a fixed moment of the pulse).
-                HelperOrb(state: state, t: t, size: orb, check: false).frame(width: orb, height: orb)
-                if opened { HelperTick(size: orb >= 40 ? 15 : orb >= 34 ? 13 : 11).offset(x: 3, y: 3) }
+                if sleeping {
+                    SleepingOrb(size: orb, t: t)
+                } else {
+                    HelperOrb(state: state, t: t, size: orb, check: false).frame(width: orb, height: orb)
+                }
+                if opened && !sleeping { HelperTick(size: orb >= 40 ? 15 : orb >= 34 ? 13 : 11).offset(x: 3, y: 3) }
             }
             tag
         }

@@ -186,8 +186,11 @@ struct HelperCard: View {
                 .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
             }
             if let a = h.asked, !a.isEmpty { ChatText(text: a, size: ChatText.callout, plain: true, accent: true) }
-            if h.reply.isEmpty {
-                Text(h.state == "working" || h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
+            if h.state == "working" {
+                HelperProgressView(m: m, h: h)  // the real step, its time, its plan line; Nudge when it's gone quiet
+                if !h.reply.isEmpty { ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading) }
+            } else if h.reply.isEmpty {
+                Text(h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
             } else {
                 ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
                 if h.state == "stopped" {

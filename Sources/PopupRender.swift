@@ -10,12 +10,13 @@ enum PopupRender {
     static let names = [
         "popup-folders", "popup-connections", "popup-name", "popup-talk", "popup-stop", "popup-reader", "popup-writing", "popup-routines",
         "popup-share",
-    ]
+    ] + ProgressRender.names  // helpers' progress on the home screen (ProgressRender.swift)
     static let size = CGSize(width: 1180, height: 760)
     static let titleRow: CGFloat = 52
 
     /// The `popup-*` names in the render list; true when this name was one of them.
     @MainActor static func draw(_ name: String, _ out: String) -> Bool {
+        if ProgressRender.draw(name, out) { return true }
         guard name.hasPrefix("popup-") else { return false }
         let home = image(name == "popup-share" ? AnyView(roomsBehind) : HomeRender.scene(4))
         PopupLook.behind = home

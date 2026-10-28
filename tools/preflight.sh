@@ -119,6 +119,11 @@ mkdir -p "$T/hl"  # the test never reads or writes your saved helpers: they go t
 check "trail saved, picked up once at launch with it; finished, stopped-with-Stop and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $TBIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
 grep "✗" "$T/hl/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Helpers show their real progress"
+mkdir -p "$T/pg"
+check "real step words, its time past 30 s, a slow command, no progress after 6 quiet min (never stopped), plan line, a build waiting its turn" bash -c "ONE_SUPPORT_DIR=$T/pg $TBIN --test-progress | tee $T/pg/out.txt | grep -q '^progress ok'"
+grep "✗" "$T/pg/out.txt" 2>/dev/null | sed 's/^/    /'
+
 if [ $QUICK = 0 ]; then
   echo "Lots of helpers survive restarts (stand-in engine, no cost)"
   LIMIT=480 check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \

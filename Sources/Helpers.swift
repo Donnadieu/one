@@ -34,6 +34,7 @@ struct Helper: Identifiable, Codable {
     var pausedFor: String?  // what the pause was for, in plain words ("a new folder"); nil = the update
     var busyTries: Int?  // its old turn was still finishing when it was picked back up: retries so far (HelperFinish)
     var seen: Bool?  // false: finished and not opened yet (orange until they tap it). nil = from before this existed: seen.
+    var lastStepAt: Date?  // when it last started a step (its trail file says so)
     var routine: UUID?  // sent for a good morning / status report: the assistant gives one combined report when the batch is done
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }

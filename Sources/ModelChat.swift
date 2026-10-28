@@ -175,12 +175,15 @@ extension Model {
             $0.stoppedByYou = nil  // asked again: it's working again
             $0.seen = nil
         }
+        pulseStart(id)
+        defer { pulseEnd(id) }
         let stop = await Engine.shared.promptSession(
             sid, Helpers.forHelper(text) + SessionNotes.helper, images: images,  // the same notes as the main chat, every turn
             onText: { s in
                 Task { @MainActor in
                     self.helperUnderway(id)
                     self.update(id) { $0.reply += s }
+                    self.pulseText(id, s)
                     self.saveTrail(id, force: false)
                 }
             },
@@ -192,8 +195,10 @@ extension Model {
                     self.learnHelperStep(id, s)
                     self.update(id) {
                         $0.line = Plain.step(s)
+                        $0.lastStepAt = Date()
                         HelperTrail.add($0.line, to: &$0)
                     }
+                    self.pulseStep(id, Plain.step(s))
                     self.saveTrail(id)
                 }
             })

@@ -263,6 +263,9 @@ enum HelperStress {
             let working = m.helpers.filter { $0.state == "working" }
             let cut = working.map(job)
             check("long jobs are still at work (\(working.count))", working.count > 30)
+            check(
+                "each shows its real step, still open, from the engine's own step events",
+                working.allSatisfy { m.pulses[$0.id]?.stepOpen == true && m.progressLine($0, now: Date()) == "Working on your Mac…" })
             if let pid = Engine.shared.enginePID { kill(pid, SIGKILL) }
             check("One shows it's getting ready the moment the engine goes", await wait(3) { !m.isReady })
             let back = await wait(30) {
@@ -343,6 +346,7 @@ enum HelperStress {
             check("every helper finished", finished)
             check("each with its own real final reply", others().allSatisfy { $0.reply.contains("DONE \(job($0))") })
             check("never stopped by you", others().allSatisfy { $0.stoppedByYou != true })
+            check("finished ones carry no progress line", others().allSatisfy { m.pulses[$0.id] == nil })
             keepersOK(m, p.keep, "every other helper finished")
             let cut = m.helpers.filter { p.cut.contains(job($0)) }
             check(

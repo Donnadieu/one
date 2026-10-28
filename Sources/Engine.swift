@@ -440,6 +440,8 @@ final class Engine: @unchecked Sendable {
     private var steerAcks: [String: Int] = [:]
     /// Anything at all came back on the main conversation (words, thoughts, steps): its turn is under way.
     var onActivity: (@Sendable () -> Void)?
+    /// Every step event on any conversation (which one, what kind, the step's id and status): helpers' progress.
+    var onPulse: (@Sendable (_ sid: String, _ kind: String, _ call: String?, _ status: String?) -> Void)?
 
     /// Hands a message to the turn running on a session, without stopping it or starting a second one:
     /// the engine's own mid-turn steer, which puts it right after the latest step ("[OUT-OF-BAND USER
@@ -543,6 +545,7 @@ final class Engine: @unchecked Sendable {
             let textCB = toMain ? onText : hh?.text
             let toolCB = toMain ? onTool : hh?.tool
             let kind = u["sessionUpdate"] as? String
+            if let s = usid, !toMain { onPulse?(s, kind ?? "", u["toolCallId"] as? String, u["status"] as? String) }
             if toMain, ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].contains(kind ?? "") { onActivity?() }
             switch kind {
             case "agent_message_chunk":

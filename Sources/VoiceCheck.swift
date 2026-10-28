@@ -65,6 +65,9 @@ enum VoiceCheck {
                 && HelperSound.decide(muted: true, listening: false, sinceLast: 60) == .muted
                 && HelperSound.decide(muted: false, listening: true, sinceLast: 60) == .listening
                 && HelperSound.decide(muted: false, listening: false, sinceLast: 1) == .tooSoon)
+        // The sound waits for a reply being read to end (Speaker.busy): let the replies above finish first.
+        for _ in 0..<100 where sp.busy { await settle(0.1) }
+        check("no reply is being read before the sound checks", !sp.busy)
         let r0 = HelperSound.rung.count
         HelperSound.ring(needsYes: false)
         await settle(1.0)
@@ -73,8 +76,11 @@ enum VoiceCheck {
         HelperSound.ring(needsYes: false)
         HelperSound.ring(needsYes: true)
         HelperSound.ring(needsYes: false)
-        await settle(1.0)
-        check("three helpers at once: one sound, the needs-your-yes one", HelperSound.rung.count == r0 + 1 && HelperSound.rung.last == "chime-yes")
+        for _ in 0..<30 where HelperSound.rung.count == r0 { await settle(0.1) }  // a slow machine may need longer than 1 s
+        await settle(0.5)
+        check(
+            "three helpers at once: one sound, the needs-your-yes one (\(HelperSound.rung.count - r0), busy \(sp.busy))",
+            HelperSound.rung.count == r0 + 1 && HelperSound.rung.last == "chime-yes")
         HelperSound.ring(needsYes: false)
         await settle(1.0)
         check("another one right after stays quiet", HelperSound.rung.count == r0 + 1)

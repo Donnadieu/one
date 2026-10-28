@@ -160,13 +160,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             print(out.joined(separator: "\n"))
             exit(0)
         }
-        // The hidden browser helpers use: started again with its saved sign-ins if it goes down.
-        Task.detached {
-            while true {
-                BrowserKeeper.tend()
-                try? await Task.sleep(for: .seconds(10))
-            }
-        }
+        BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
         // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
         Task.detached {
             while true {
@@ -245,6 +239,7 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if let code = MyChrome.cli(args) { exit(code) }
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
@@ -257,7 +252,6 @@ struct Entry {
             exit(0)
         }
         if args.contains("--browser-check") { runHeadless { exit(await BrowserKeeper.check()) } }
-        if let c = ChromeCheck.command(args) { runHeadless { exit(await c()) } }
         if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
             MainActor.assumeIsolated {
                 Speaker.shared.start()

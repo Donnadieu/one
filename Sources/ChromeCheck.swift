@@ -16,30 +16,30 @@ enum ChromeCheck {
     static func plain(_ why: String) -> String {
         let w = why.lowercased()
         if w.contains("no-chrome-folder") || w.contains("was not found") {
-            return "I couldn't find Chrome's saved sign-ins on this Mac. Open Chrome once, sign in to your sites there, then tap Connect again."
+            return "I couldn't find Chrome's saved sign-ins on this Mac. Open Chrome once, sign in to your sites there, then ask me again."
         }
         if w.contains("chrome-folder-unreadable") || w.contains("operation not permitted") {
             return
-                "I wasn't allowed to read Chrome's folder from here. Tap Connect in Connections › Browser › Chrome; One does the copy itself from there."
+                "I wasn't allowed to read Chrome's folder from here. Ask me to use your Chrome; One does the copy itself."
         }
         if w.contains("lock") {
             return
-                "Chrome was busy saving your sign-ins, so I couldn't copy them this time. Tap Connect again in a moment. You don't need to quit Chrome."
+                "Chrome was busy saving your sign-ins, so I couldn't copy them this time. Ask me to try again in a moment. You don't need to quit Chrome."
         }
         if w.contains("no space") || w.contains("disk full") {
-            return "Your Mac's disk is full, so I couldn't copy Chrome's sign-ins. Free up some space, then tap Connect again."
+            return "Your Mac's disk is full, so I couldn't copy Chrome's sign-ins. Free up some space, then ask me to try again."
         }
         if w.contains("real_profile_pin") {
-            return "I was set to copy a Chrome profile that isn't on this Mac anymore. Tap Connect again to copy the one you use now."
+            return "I was set to copy a Chrome profile that isn't on this Mac anymore. Ask me to try again and I'll copy the one you use now."
         }
-        if w.contains("hidden browser is still open") { return "My hidden browser was busy. Tap Connect again in a moment." }
+        if w.contains("hidden browser is still open") { return "My hidden browser was busy. Ask me to try again in a moment." }
         if w.contains("missing a piece") { return why + " Updating One fixes it." }
         let short = why.split(whereSeparator: \.isNewline).first.map(String.init) ?? why
         return "I couldn't copy Chrome's sign-ins. What went wrong: \(short.prefix(160))"
     }
 
     static let keychainHelp =
-        "Your Mac didn't let Chrome unlock your saved sign-ins. It asks once, in a box about \u{201C}Chrome Safe Storage\u{201D} (it can hide behind other windows), and it got Deny or no answer. Tap Connect again; when your Mac asks, type your Mac password and click Always Allow."
+        "Your Mac didn't let Chrome unlock your saved sign-ins. It asks once, in a box about \u{201C}Chrome Safe Storage\u{201D} (it can hide behind other windows), and it got Deny or no answer. Ask me to try again; when your Mac asks, type your Mac password and click Always Allow."
 
     struct Result {
         var ok: Bool
@@ -49,7 +49,7 @@ enum ChromeCheck {
 
     /// The live view: which of the copied sign-ins the hidden browser can really use.
     static func evaluate(report r: [String: Any]?, live: [[String: Any]]?, connected: Bool, otherBrowser: Bool) -> Result {
-        let how = "Click Connections at the top, then Browser, pick Chrome and tap Connect."
+        let how = "Ask me to use your Chrome and I'll connect it right here."
         guard connected else {
             if otherBrowser {
                 return Result(
@@ -59,7 +59,7 @@ enum ChromeCheck {
             return Result(ok: false, lines: ["Your Chrome isn't connected yet. " + how], code: 2)
         }
         guard let r else {
-            return Result(ok: false, lines: ["Your Chrome is connected, but I have no record of the copy yet. Tap Connect again."], code: 1)
+            return Result(ok: false, lines: ["Your Chrome is connected, but I have no record of the copy yet. Ask me to connect it again."], code: 1)
         }
         if r["ok"] as? Bool != true {
             return Result(ok: false, lines: ["The last copy of your Chrome didn't work. " + plain((r["error"] as? String) ?? "unknown")], code: 1)
@@ -127,13 +127,6 @@ enum ChromeCheck {
         print("Chrome check (One \(v)): " + (r.ok ? "working" : r.code == 2 ? "not connected" : "needs a fix"))
         r.lines.forEach { print($0) }
         return r.code
-    }
-
-    /// `--chrome-check` or `--chrome-connect`, for `Entry.main`.
-    static func command(_ args: [String]) -> (@Sendable () async -> Int32)? {
-        if args.contains("--chrome-check") { return { await run() } }
-        if args.contains("--chrome-connect") { return { await connectFromCommandLine() } }
-        return nil
     }
 
     /// `One --chrome-connect`: the Connect tap without the window (tests; it must run outside the folder lock).

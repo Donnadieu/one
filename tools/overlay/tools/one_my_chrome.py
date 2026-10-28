@@ -1,7 +1,7 @@
 """One: copy the person's own Chrome sign-ins into the hidden browser One keeps for helpers.
 
 Run by One itself, OUTSIDE the folder lock (the lock closes Chrome's own folder):
-    hermes --run-module tools.one_my_chrome <browser> <copy dir> [--src <user data dir>]
+    hermes --run-module tools.one_my_chrome <browser> <copy dir> [--src <user data dir>] [--profile <dir name>]
 It reuses Hermes's real-profile snapshot (hermes_cli.browser_connect.snapshot_real_profile):
 Local State rewritten for one Default profile, the active profile minus caches and extensions,
 and the cookie/login databases copied with SQLite's online backup, so it works while their Chrome
@@ -86,9 +86,15 @@ def main(argv: list[str]) -> int:
     if "--src" in argv:
         i = argv.index("--src")
         src = argv[i + 1] if i + 1 < len(argv) else None
+    pin = None
+    if "--profile" in argv:
+        i = argv.index("--profile")
+        pin = argv[i + 1] if i + 1 < len(argv) else None
     from hermes_cli import browser_connect as bc
 
     bc.real_profile_copy_dir = lambda _b: dst  # One's folder, not Hermes's auto-cleaned one
+    if pin:  # the profile they use, picked by One (never a silent switch to another identity)
+        bc._real_profile_pin = lambda: pin
     src = src or bc.real_profile_data_dir(browser)
     out: dict = {"source": src}
     if not src or not os.path.isdir(src):

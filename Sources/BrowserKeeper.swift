@@ -136,6 +136,18 @@ enum BrowserKeeper {
         }
     }
 
+    /// The hidden browser helpers use: started again with its saved sign-ins if it goes down. Plus One's side of
+    /// `--connect-chrome`: the engine can't read Chrome's folder, so One does the copy for it.
+    static func loop() {
+        Task.detached {
+            while true {
+                tend()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+        MyChrome.serveLoop()
+    }
+
     /// Called every few seconds from its own loop (App.swift).
     static func tend() {
         if Env.selfTest || Env.commandLine { return }

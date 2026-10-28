@@ -13,7 +13,15 @@ enum MyChrome {
     static var copyDir: URL { Env.support.appendingPathComponent("browser/my-chrome") }
     static var resyncFile: URL { Env.support.appendingPathComponent("browser/resync") }
     static var chromeData: String { NSHomeDirectory() + "/Library/Application Support/Google/Chrome" }
-    static let firstPort = 9223
+    /// 9223, the hidden browser's usual port. A test copy (its own bundle id) may pick another, never the person's One.
+    static var firstPort: Int {
+        if Bundle.main.bundleIdentifier != TestWorld.productionID,
+            let p = ProcessInfo.processInfo.environment["ONE_BROWSER_PORT"].flatMap({ Int($0) })
+        {
+            return p
+        }
+        return 9223
+    }
     /// The copy's port: 9223 unless another hidden browser (one the assistant or the person set up
     /// before) already answers there, then the next free one. That browser is left running.
     static var port: Int { BrowserKeeper.plan.flatMap { isCopy($0) ? $0.port : nil } ?? firstPort }
@@ -42,7 +50,7 @@ enum MyChrome {
 
     /// Copy their Chrome's sign-ins into `copyDir` (Hermes's own snapshot code, run outside the lock).
     /// Never while a browser has the copy open: a copy over open databases corrupts them.
-    static func sync() async -> String? {
+    static func sync(profile: String? = nil) async -> String? {
         if BrowserKeeper.alive(port), BrowserKeeper.profileInUse(port) == copyDir.path { return "the hidden browser is still open" }
         guard let src = Bundle.main.url(forResource: "one_my_chrome", withExtension: "py") else {
             return "One is missing a piece (one_my_chrome.py)."
@@ -52,7 +60,10 @@ enum MyChrome {
             try? FileManager.default.removeItem(at: dst)
             try? FileManager.default.copyItem(at: src, to: dst)
         }
-        let (code, out) = await hermesRun(["--run-module", "tools.one_my_chrome", "chrome", copyDir.path], timeout: 180)
+        // The profile they use (picked once, kept in pinFile), so a refresh never swaps whose sign-ins these are.
+        let prof = profile ?? pinned
+        let (code, out) = await hermesRun(
+            ["--run-module", "tools.one_my_chrome", "chrome", copyDir.path] + (prof.map { ["--profile", $0] } ?? []), timeout: 180)
         let line = out.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }.map(String.init) ?? ""
         var j = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] ?? [:]
         j["checked"] = ISO8601DateFormatter().string(from: Date())
@@ -83,12 +94,13 @@ enum MyChrome {
     }
 
     /// Connections › Browser › Chrome › Connect. Returns nil when the hidden browser runs on the copy.
-    static func connect() async -> String? {
+    /// verify: false when the caller (`connectNow`) does its own check and says the result itself.
+    static func connect(profile: String? = nil, verify: Bool = true) async -> String? {
         guard BrowserKeeper.chromeApp != nil else {
-            return "Google Chrome isn't on this Mac. Install it, sign in to your sites there, then tap Connect again."
+            return "Google Chrome isn't on this Mac. Install it, sign in to your sites there, then try again."
         }
         guard FileManager.default.fileExists(atPath: chromeData + "/Local State") else {
-            return "Chrome hasn't been used on this Mac yet. Open it once, sign in to your sites, then tap Connect again."
+            return "Chrome hasn't been used on this Mac yet. Open it once, sign in to your sites, then try again."
         }
         // A hidden browser set up earlier (by the assistant, or One's own) used to block this with
         // "already set up", and the tile then read Connected with no way to switch: EK's dead end.
@@ -97,7 +109,7 @@ enum MyChrome {
         busy = true
         defer { busy = false }
         guard stopCopy() else { return "Something else is using the hidden browser's port \(port). Try again in a minute." }
-        if let e = await sync() { return e }
+        if let e = await sync(profile: profile) { return e }
         lastSync = Date()
         try? FileManager.default.createDirectory(at: copyDir.deletingLastPathComponent(), withIntermediateDirectories: true)
         let port = freePort()
@@ -116,10 +128,10 @@ enum MyChrome {
         for _ in 0..<120 where !BrowserKeeper.alive(port) { try? await Task.sleep(for: .milliseconds(500)) }
         guard BrowserKeeper.alive(port) else {
             return
-                "I copied your sign-ins, but the hidden browser didn't start yet. I'll keep trying by myself; tap Connect again in a minute if it still says this."
+                "I copied your sign-ins, but the hidden browser didn't start yet. I'll keep trying by myself; try again in a minute if it still says this."
         }
         // The Mac must let Chrome unlock its saved sign-ins (Keychain, "Chrome Safe Storage"). Check it really did.
-        return await ChromeCheck.verify()
+        return verify ? await ChromeCheck.verify() : nil
     }
 
     /// Disconnect: stop the copy and delete it (it holds copies of their sign-ins). Their Chrome is untouched.
@@ -156,27 +168,16 @@ enum MyChrome {
         return true
     }
 
-    /// Per-prompt note (main chat and helpers): what's built, so nobody says it isn't.
+    /// Per-prompt note (main chat and every helper turn): what's built and the "use my Chrome" rule.
     static func note(_ p: BrowserKeeper.Plan?) -> String {
-        guard let p else {
-            return """
-
-
-                (One app note, not from the user: their own browser isn't connected yet. Using their Chrome IS built: they click Connections at the top, then Browser, pick Chrome and tap Connect. One copies the sign-ins from their own Chrome into a hidden browser you can use (their Chrome stays open and untouched, no window opens). If they want you to use their Chrome or their signed-in sites, send them there; never say it isn't built. If they say Connect didn't work, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words. Arc, Safari and other browsers aren't built yet.)
-                """
+        let head = "\n\n(One app note, not from the user: "
+        guard let p, isCopy(p) else {
+            let state = p == nil ? "Their own Chrome isn't connected yet. " : ""
+            return head + state + rule + ")"
         }
-        guard isCopy(p) else {
-            return """
-
-
-                (One app note, not from the user: this hidden browser is NOT a copy of their own Chrome; it has its own sign-ins. If they want you to use the sites they're signed in to in Chrome, send them to Connections at the top, then Browser, Chrome, and Connect: One then copies their Chrome's sign-ins. Never say it isn't built.)
-                """
-        }
-        return """
-
-
-            (One app note, not from the user: the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)), connected in Connections › Browser. Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, create an empty file at \(resyncFile.path): One copies their Chrome again within a minute (it restarts that hidden browser, so not while another helper is mid-task in it). It's always hidden; their own Chrome is never touched. If it doesn't work, or they ask whether it works, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words; never say it isn't built.)
-            """
+        return head
+            + "the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)). Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, run `\(Bridge.exe) --connect-chrome` again: it copies their Chrome again (it restarts that hidden browser, so not while another helper is mid-task in it). If they say a site doesn't work there, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words. "
+            + rule + ")"
     }
 
     /// What Connect tells the assistant for the browsers and password managers One doesn't do by itself.

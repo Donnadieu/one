@@ -49,8 +49,8 @@ enum BrowserCheck {
         BrowserKeeper.tend()
         expect(BrowserKeeper.lastStart == nil, "a test copy never starts a browser")
         expect(
-            BrowserKeeper.plan == nil ? BrowserKeeper.note.contains("Connections") : BrowserKeeper.note.contains("--browser-check"),
-            "the assistant is told how to check sign-ins, or how to connect their Chrome")
+            BrowserKeeper.note.contains("--connect-chrome") && (BrowserKeeper.plan == nil || BrowserKeeper.note.contains("--browser-check")),
+            "the assistant is told how to connect their Chrome itself, and how to check sign-ins")
 
         // Their own Chrome (Connections › Browser › Chrome): a hidden copy, never a window, never their Chrome.
         let mine = BrowserKeeper.Plan(port: 9223, profile: MyChrome.copyDir.path, headless: true)
@@ -62,13 +62,18 @@ enum BrowserCheck {
         expect(!MyChrome.tend(q!, alive: true), "a hidden browser that isn't the copy is left alone")
         let none = MyChrome.note(nil)
         expect(
-            none.contains("IS built") && none.contains("Connections") && none.contains("Browser") && none.contains("Chrome")
+            none.contains("--connect-chrome") && none.contains("Connecting your Chrome now.") && none.contains("Never send them to Connections")
                 && none.contains("never say it isn't built"),
-            "with no browser connected, every prompt says connecting their Chrome is built and where")
-        expect(MyChrome.note(mine).contains(MyChrome.resyncFile.path), "once connected, the assistant knows how to refresh the copy")
+            "with no browser connected, every prompt says: connect their Chrome yourself, right now, no menus")
         expect(
-            MyChrome.note(q).contains("NOT a copy") && MyChrome.note(q).contains("Connect"),
-            "another hidden browser: told it isn't their Chrome, and how to switch")
+            none.contains("Your Mac will ask if One can read Chrome's saved logins. Tap Always Allow.") && none.contains("Try again"),
+            "a Keychain Deny is explained once, with a way to try again")
+        expect(
+            MyChrome.note(mine).contains("--connect-chrome") && MyChrome.note(mine).contains("copy of their own Chrome"),
+            "once connected, the assistant knows how to refresh the copy")
+        expect(MyChrome.note(q).contains("--connect-chrome"), "the rule is there even when another hidden browser is set up")
+        expect(!(none + MyChrome.note(mine)).contains("Connections › Browser"), "no prompt sends anyone to the Connections menu for Chrome")
+        ChromeBridgeCheck.run(expect)
         expect(MyChrome.note(mine).contains("--chrome-check"), "once connected, the assistant knows the plain-words self-test")
         expect(MyChrome.ask("Browser", "Arc")?.contains("isn't built yet") == true, "Arc: told plainly it isn't built, with what works")
         let op = MyChrome.ask("Passwords", "1Password") ?? ""
@@ -77,8 +82,8 @@ enum BrowserCheck {
         expect(Env.vars()["OP_CONFIG_DIR"]?.hasPrefix(Env.support.path) == true, "1Password's op gets a settings folder inside the lock")
         let soul = Persona.soul(assistant: "Ava", user: "EK")
         expect(
-            soul.contains("Chrome is built") && soul.contains("Never tell them using their Chrome isn't built"),
-            "SOUL says using their Chrome is built")
+            soul.contains("--connect-chrome") && soul.contains("Connecting your Chrome now.") && !soul.contains("pick Chrome and tap Connect"),
+            "SOUL: connect their Chrome yourself when asked, never the menu")
 
         // `--chrome-check`: plain words for every way the copy can fail (EK's Mac).
         let sid: [String: Any] = ["site": "Google", "domain": ".google.com", "name": "SID"]
@@ -95,12 +100,14 @@ enum BrowserCheck {
             !denied.ok && denied.lines.joined().contains("Always Allow") && denied.lines.joined().contains("Chrome Safe Storage"),
             "chrome check: Keychain Deny is explained, with how to fix it")
         let notConn = ChromeCheck.evaluate(report: nil, live: nil, connected: false, otherBrowser: false)
-        expect(notConn.code == 2 && notConn.lines.joined().contains("Connections"), "chrome check: not connected says where to tap")
+        expect(
+            notConn.code == 2 && notConn.lines.joined().contains("use your Chrome") && !notConn.lines.joined().contains("Connections"),
+            "chrome check: not connected says to just ask, no menu")
         let otherB = ChromeCheck.evaluate(report: nil, live: nil, connected: false, otherBrowser: true)
         expect(otherB.code == 2 && otherB.lines.joined().contains("not your Chrome"), "chrome check: another hidden browser is named as such")
         let failed = ChromeCheck.evaluate(
             report: ["ok": false, "error": "Chrome is running and holds a write lock"], live: nil, connected: true, otherBrowser: true)
-        expect(failed.code == 1 && failed.lines.joined().contains("Tap Connect again"), "chrome check: a failed copy says what to do")
+        expect(failed.code == 1 && failed.lines.joined().contains("try again"), "chrome check: a failed copy says what to do")
         let starting = ChromeCheck.evaluate(report: good, live: nil, connected: true, otherBrowser: true)
         expect(!starting.ok && starting.lines.joined().contains("starting up"), "chrome check: a browser still starting isn't called broken")
         for w in [

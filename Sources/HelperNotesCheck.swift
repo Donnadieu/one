@@ -7,7 +7,7 @@ import Foundation
 /// old SOUL that says Chrome isn't built and sends people to "Settings → Passwords & Logins" (what EK's Monarch helper
 /// said), the SOUL is then updated as an update would, and a FORK of that helper's conversation is asked, as follow-ups
 /// through the same `Model.send` the Send button uses, "can you use my Chrome?" and "where do I save a password?".
-/// Both answers must name Connections › Browser and Connections › Passwords, and neither may point to Settings.
+/// The Chrome answer must connect it right there (no menu); the password one names Connections › Passwords, and neither may point to Settings.
 /// Must run from a copy with its own bundle id (the script does that), so the person's chat is never touched.
 enum HelperNotesCheck {
     /// What an old One told its helpers (frozen into their conversation), worst case.
@@ -42,12 +42,12 @@ enum HelperNotesCheck {
         print("1. every helper turn carries the same notes as the main chat")
         let h = SessionNotes.helper
         check("their screen and no Settings screen", h.contains("There is no Settings") && h.contains("Connections"))
-        check("their own Chrome is built: Connections › Browser", h.contains("then Browser, pick Chrome and tap Connect"))
+        check("their own Chrome: connected right there, no menu", h.contains("--connect-chrome") && h.contains("Connecting your Chrome now."))
         check("passwords: Connections › Passwords", h.contains("click Connections at the top, then Passwords"))
         check("the engine's own screen names are called out", h.contains("Passwords & Logins") && h.contains("Credential Vault"))
         check(
             "the hidden browser / their Chrome note",
-            h.contains("(One app note, not from the user: their own browser") || h.contains("hidden browser on port"))
+            h.contains("USE THEIR CHROME") && h.contains("--connect-chrome"))
         check("which One runs", h.contains("THIS MAC RUNS ONE"))
         check(
             "the main chat gets the same, plus the browser rule", SessionNotes.main.hasPrefix(h) && SessionNotes.main.contains("NO VISIBLE BROWSER"))
@@ -119,7 +119,7 @@ enum HelperNotesCheck {
         print("3. the old helper is asked what EK asked")
         let chrome = await ask("Can you use my Chrome? I'm signed in to Amazon and Monarch there.")
         let lc = chrome.lowercased()
-        check("Chrome: names Connections › Browser", lc.contains("connections") && lc.contains("browser"))
+        check("Chrome: connects it right there (--connect-chrome), no menu", lc.contains("connecting your chrome") && !lc.contains("tap connect"))
         check(
             "Chrome: doesn't say it isn't built",
             !lc.contains("isn't built") && !lc.contains("new capability") && !lc.contains("not built") && !lc.contains("can't use your"))

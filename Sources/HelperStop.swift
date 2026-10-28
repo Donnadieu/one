@@ -144,15 +144,25 @@ struct HelperStopAsk: View {
     let done: (Bool) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Stop \(title)?").font(.headline)
-            Text("What it found so far stays here.").font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                Text("Stop \(title)?").font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 120)  // the X and "Esc to close"
+            }.frame(minHeight: 28)
+            Text("What it found so far stays here.").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.7))
             HStack(spacing: 8) {
+                Spacer()
                 Button("Keep going") { done(false) }.buttonStyle(.bordered)
-                Button("Stop this helper") { done(true) }
-                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-            }
+                Button {
+                    done(true)
+                } label: {
+                    Text("Stop this helper").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 16).frame(height: 30).background(Capsule().fill(WorldLook.cream))
+                }
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+            }.padding(.top, 6)
         }
-        .padding(16).frame(width: 270, alignment: .leading)
+        .foregroundStyle(WorldLook.cream)
+        .padding(20).frame(width: 380, alignment: .leading)
     }
 }
 

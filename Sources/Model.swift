@@ -229,6 +229,8 @@ final class Model: ObservableObject {
     @Published var about: (title: String, url: URL)?
     @Published var viewing: URL?
     @Published var routinesOpen = false  // the Routines panel (RoutinesView.swift)
+    @Published var closeAsk: UUID?  // the X on a working helper's orb: the "Close this helper?" pop-up (HelperClose.swift)
+    @Published var stopAsk: UUID?  // a long press on a working helper's orb: the "Stop this helper?" pop-up (HelperStop.swift)
 
     // Tell me when I learn (ModelLearning.swift)
     var learning = Learning.load()

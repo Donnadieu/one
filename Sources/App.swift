@@ -468,6 +468,7 @@ struct Entry {
                         print("wrote \(out)-\(name).png")
                     }
                 }
+                for name in PopupRender.names { _ = PopupRender.draw(name, out) }
             }
             exit(0)
         }

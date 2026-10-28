@@ -93,16 +93,17 @@ extension Model {
     }
 }
 
-/// The small X on a helper's orb while the pointer is over it: closes it (a working one asks first).
+/// The small X on a helper's orb while the pointer is over it: closes it. A working one asks first, on the shared
+/// pop-up glass (`Model.closeAsk` → `HelperCloseAsk` in `HomePopups`).
 struct HelperCloseDot: View {
     let title: String
     let working: Bool
+    let ask: () -> Void
     let close: () -> Void
-    @State var ask = false
     @State var hover = false
     var body: some View {
         Button {
-            if working { ask = true } else { close() }
+            if working { ask() } else { close() }
         } label: {
             Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(WorldLook.bg)
                 .frame(width: 17, height: 17)
@@ -114,20 +115,33 @@ struct HelperCloseDot: View {
         .onHover { hover = $0 }
         .help("Close \(title)")
         .accessibilityLabel("Close \(title)")
-        .popover(isPresented: $ask) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Close \(title)?").font(.headline)
-                Text("It's still working. Closing it stops it.").font(.callout).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    Button("Keep it") { ask = false }.buttonStyle(.bordered)
-                    Button("Stop and close") {
-                        ask = false
-                        close()
-                    }
-                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+    }
+}
+
+/// "Close <title>?" for a helper that's still working: closing it stops it. Same glass as every pop-up.
+struct HelperCloseAsk: View {
+    let title: String
+    let done: (Bool) -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Text("Close \(title)?").font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 120)  // the X and "Esc to close"
+            }.frame(minHeight: 28)
+            Text("It's still working. Closing it stops it.").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.7))
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Keep it") { done(false) }.buttonStyle(.bordered)
+                Button {
+                    done(true)
+                } label: {
+                    Text("Stop and close").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 16).frame(height: 30).background(Capsule().fill(WorldLook.cream))
                 }
-            }
-            .padding(16).frame(width: 270, alignment: .leading)
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+            }.padding(.top, 6)
         }
+        .foregroundStyle(WorldLook.cream)
+        .padding(20).frame(width: 380, alignment: .leading)
     }
 }

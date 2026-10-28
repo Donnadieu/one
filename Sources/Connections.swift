@@ -342,7 +342,6 @@ struct ConnectionsWorld: View {
         let all = ConnectionsWorld.nodes(st.custom)
         let sel = picked.flatMap { id in all.first { $0.id == id } }
         ZStack {
-            WorldLook.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 VStack(spacing: 8) {
                     Text(sel?.id ?? "Connections").font(.system(size: 12, weight: .medium)).tracking(0.4)

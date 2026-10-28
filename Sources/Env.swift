@@ -59,6 +59,11 @@ enum Env {
         e["HERMES_YOLO_MODE"] = "1"  // regular people can't judge "script execution" prompts
         // The browser helper keeps its files in ~/.config by default, which the folder lock closes.
         e["BH_HOME"] = support.appendingPathComponent("browser").path
+        // 1Password's `op` keeps its settings in ~/.config/op, which the folder lock closes
+        // ("cannot read config … operation not permitted"); give it a folder of its own.
+        let op = support.appendingPathComponent("op")
+        try? FileManager.default.createDirectory(at: op, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        e["OP_CONFIG_DIR"] = op.path
         // Hermes records which phone bot is in use under ~/.local/state, which the folder lock closes,
         // so the bot never connected. Keep that record in One's own home (also apart from any other Hermes).
         e["HERMES_GATEWAY_LOCK_DIR"] = hermesHome.appendingPathComponent("gateway-locks").path

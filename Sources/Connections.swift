@@ -296,7 +296,8 @@ struct ConnectionsWorld: View {
         if let d = try? JSONEncoder().encode(left) { try? d.write(to: customFile) }
     }
     nonisolated static func connected() -> [String] {
-        var c = ["Files", "Browser", "Web"]
+        var c = ["Files", "Web"]
+        if BrowserKeeper.plan != nil { c.append("Browser") }  // a hidden browser is really set up (their Chrome's copy or One's own)
         for x in custom() where !c.contains(x.id) { c.append(x.id) }
         if Bridge.calendarOK && Bridge.calendarAccounts > 0 { c.append("Calendar") }
         if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
@@ -420,6 +421,18 @@ struct ConnectionsWorld: View {
             }
             return
         }
+        if id == "Browser" && with == "Chrome" {
+            note = "Copying your Chrome's sign-ins into a hidden browser. Your Chrome stays open; no window will pop up."
+            Task { @MainActor in
+                note = await MyChrome.connect()
+                if note != nil { return }
+                close()
+                await m.send(
+                    "I just connected my Chrome in Connections › Browser. Check it with `\(Bridge.exe) --browser-check`, then open one site I'm signed in to in Chrome, in the hidden browser, and tell me in one line whether I'm signed in there. Read only: don't click, send or change anything.",
+                    toNova: true)
+            }
+            return
+        }
         if (id == "Email" || id == "Calendar") && !with.hasPrefix("Something") {
             Task { @MainActor in await connectMacAccount(id, with) }
             return
@@ -435,7 +448,8 @@ struct ConnectionsWorld: View {
             5. Test it in front of me: one real read-only check, or for a sending goal one test message I said yes to. Tell me plainly what worked, what didn't, and what that means for my goal.
             6. Only if the test passed, add an entry to \(ConnectionsWorld.customFile.path) (a JSON list; keep existing entries): {"id": "\(id == "Something else" ? "<a short name for it, e.g. Smart home>" : id)", "with": "<what I use>", "skill": "my-connections/<short-name>", "tested": "<today YYYY-MM-DD>"}. That makes it show up in Connections tagged Experimental.
             """
-            : "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
+            : MyChrome.ask(id, with)
+                ?? "Connect my \(id) using \(with). Walk me through it one step at a time, do every part you can yourself, and test it when we're done."
         close()
         Task { @MainActor in await m.send(ask, toNova: true) }
     }
@@ -489,6 +503,11 @@ struct ConnectionsWorld: View {
         }
         switch id {
         case "Passwords": d.removeObject(forKey: "passwordsWith")
+        case "Browser":
+            Task {
+                await MyChrome.disconnect()
+                await reload()
+            }
         case "Email", "Calendar":
             d.set(false, forKey: "googleConnected")
             d.set(false, forKey: "mailConnected")
@@ -509,7 +528,8 @@ struct ConnectionsWorld: View {
                                 option == o || (option == nil && (mine?.with == o || UserDefaults.standard.string(forKey: "passwordsWith") == o))
                                 || (n.id == "Calendar" && o == "Google" && UserDefaults.standard.bool(forKey: "googleConnected"))
                                 || (n.id == "Email" && o == "Gmail" && UserDefaults.standard.bool(forKey: "googleConnected"))
-                                || (n.id == "Browser" && o == "Chrome") || (n.id == "Files" && o == "This Mac") || (n.id == "Web" && o == "Built in")
+                                || (n.id == "Browser" && o == "Chrome" && on[n.id] != nil) || (n.id == "Files" && o == "This Mac")
+                                || (n.id == "Web" && o == "Built in")
                             HStack(spacing: 5) {
                                 if chosen { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
                                 Text(o).font(.system(size: 13, weight: .medium))
@@ -547,7 +567,10 @@ struct ConnectionsWorld: View {
                             Label("Experimental · built by \(m.name)\(mine.tested.map { ", tested \($0)" } ?? "")", systemImage: "flask")
                                 .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Color(hex: 0xE8C98A))
                         } else {
-                            Label("Connected", systemImage: "checkmark").font(.system(size: 14, weight: .medium)).foregroundStyle(
+                            Label(
+                                n.id == "Browser" && MyChrome.connected ? "Connected · your Chrome, \(MyChrome.copiedLine)" : "Connected",
+                                systemImage: "checkmark"
+                            ).font(.system(size: 14, weight: .medium)).foregroundStyle(
                                 Color(hex: 0xBFE3CC))
                         }
                         Button("Disconnect") { disconnect(n.id) }.buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(

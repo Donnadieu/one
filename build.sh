@@ -33,6 +33,7 @@ cp voice/*.mp3 "$APP/Contents/Resources/"
 cp tools/speak.py tools/speak_file.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
 cp tools/overlay/tools/one_human_step.py "$APP/Contents/Resources/"
+cp tools/overlay/tools/one_my_chrome.py "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/one-browser-guard"
 cp tools/overlay/plugins/one-browser-guard/__init__.py tools/overlay/plugins/one-browser-guard/plugin.yaml "$APP/Contents/Resources/one-browser-guard/"
 # Skills that ship with One (skills/<category>/<name>/SKILL.md); One copies them into the engine (BundledSkills).

@@ -42,7 +42,7 @@ This is a personal project, not a company. It is built for me, my friends and an
 13. **Connections.** The same floating world as setup. Connected tiles are tied to the assistant by a thread; tap one to change it or disconnect.
     - **Passwords:** KeePass (1Password and Bitwarden through the engine's vault). Logins are filled without the model ever seeing the password.
     - **Email and Calendar:** the accounts already on your Mac (Gmail, Outlook, iCloud, Yahoo). No account yet? One opens the right Settings page, tells you what to click, and notices by itself when you're done. The assistant drafts; you always press Send.
-    - **Browser:** your own Chrome, already signed in.
+    - **Browser:** your own Chrome, already signed in. Connections › Browser › Chrome › Connect copies its sign-ins into a hidden browser One keeps for the assistant (your Chrome stays open and is never touched, no window pops up; the copy refreshes whenever that browser starts, and Disconnect deletes it). Arc and Safari aren't built yet.
     - **Basecamp:** ask your assistant "connect my Basecamp". It gives you a link and a code; you approve on your phone or computer. It reads your projects, to-dos, cards and messages freely, and asks before posting, commenting or changing anything.
     - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
     - **Goal first:** whenever you ask to connect something, the assistant first asks what you want to happen (for example "text me" or "read my texts"), says it back, then picks a way that actually does that and tells you up front what it can't do.

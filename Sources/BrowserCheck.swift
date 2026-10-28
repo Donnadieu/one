@@ -47,7 +47,34 @@ enum BrowserCheck {
         BrowserKeeper.lastStart = nil
         BrowserKeeper.tend()
         expect(BrowserKeeper.lastStart == nil, "a test copy never starts a browser")
-        expect(BrowserKeeper.note.isEmpty || BrowserKeeper.note.contains("--browser-check"), "the assistant is told how to check sign-ins")
+        expect(
+            BrowserKeeper.plan == nil ? BrowserKeeper.note.contains("Connections") : BrowserKeeper.note.contains("--browser-check"),
+            "the assistant is told how to check sign-ins, or how to connect their Chrome")
+
+        // Their own Chrome (Connections › Browser › Chrome): a hidden copy, never a window, never their Chrome.
+        let mine = BrowserKeeper.Plan(port: 9223, profile: MyChrome.copyDir.path, headless: true)
+        expect(MyChrome.isCopy(mine) && !MyChrome.isCopy(q) && !MyChrome.isCopy(nil), "knows when the hidden browser is their Chrome's copy")
+        expect(!MyChrome.copyDir.path.contains("Google/Chrome"), "the copy lives in One's folder, not in Chrome's")
+        let ma = BrowserKeeper.launchArguments(mine, app: "/Applications/Google Chrome.app")
+        expect(ma.contains("--headless=new") && ma.contains("--disable-sync"), "the copy runs hidden and never syncs back into their Google account")
+        expect(ma.last == "about:blank" && !a.contains("--disable-sync"), "other hidden browsers keep their settings")
+        expect(!MyChrome.tend(q!, alive: true), "a hidden browser that isn't the copy is left alone")
+        let none = MyChrome.note(nil)
+        expect(
+            none.contains("IS built") && none.contains("Connections") && none.contains("Browser") && none.contains("Chrome")
+                && none.contains("never say it isn't built"),
+            "with no browser connected, every prompt says connecting their Chrome is built and where")
+        expect(MyChrome.note(mine).contains(MyChrome.resyncFile.path), "once connected, the assistant knows how to refresh the copy")
+        expect(MyChrome.note(q).isEmpty, "no Chrome-copy note for another hidden browser")
+        expect(MyChrome.ask("Browser", "Arc")?.contains("isn't built yet") == true, "Arc: told plainly it isn't built, with what works")
+        let op = MyChrome.ask("Passwords", "1Password") ?? ""
+        expect(
+            op.contains("Integrate with 1Password CLI") && op.contains("op vault list"), "1Password: the real steps (CLI, desktop integration, test)")
+        expect(Env.vars()["OP_CONFIG_DIR"]?.hasPrefix(Env.support.path) == true, "1Password's op gets a settings folder inside the lock")
+        let soul = Persona.soul(assistant: "Ava", user: "EK")
+        expect(
+            soul.contains("Chrome is built") && soul.contains("Never tell them using their Chrome isn't built"),
+            "SOUL says using their Chrome is built")
 
         BrowserGuardCheck.run(expect)
 

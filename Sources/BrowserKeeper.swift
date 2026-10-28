@@ -63,8 +63,11 @@ enum BrowserKeeper {
         var a = ["-g", "-n", "-a", app, "--args", "--headless=new"]
         a += [
             "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--no-first-run", "--no-default-browser-check",
-            "--window-size=1440,900", "--disable-blink-features=AutomationControlled", "about:blank",
+            "--window-size=1440,900", "--disable-blink-features=AutomationControlled",
         ]
+        // The copy of their own Chrome must never sync helpers' browsing back into their Google account.
+        if MyChrome.isCopy(p) { a += ["--disable-sync", "--no-default-browser-check"] }
+        a.append("about:blank")
         return a
     }
 
@@ -108,7 +111,10 @@ enum BrowserKeeper {
     static func tend() {
         if Env.selfTest || Env.commandLine { return }
         guard let p = plan else { return log("no local browser set up") }
-        if alive(p.port) {
+        let up = alive(p.port)
+        // Their own Chrome's copy: refreshed before every start and when the assistant asks.
+        if MyChrome.tend(p, alive: up) { return }
+        if up {
             log("browser answering on \(p.port)")
             if lastHealth.map({ Date().timeIntervalSince($0) > 1800 }) ?? true {
                 lastHealth = Date()
@@ -186,8 +192,8 @@ enum BrowserKeeper {
         if let s = j["claude.ai"] as? String, s.hasPrefix("signed out") { log("health: claude.ai is \(s)") }
     }
 
-    /// Which profile the browser on this port really uses (another helper may have started its own).
-    static func profileInUse(_ port: Int) -> String? {
+    /// The process listening on this local port, if any.
+    static func pidOn(_ port: Int) -> pid_t? {
         let pr = Process()
         pr.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         pr.arguments = ["-nP", "-t", "-iTCP:\(port)", "-sTCP:LISTEN"]
@@ -197,7 +203,12 @@ enum BrowserKeeper {
         guard (try? pr.run()) != nil else { return nil }
         pr.waitUntilExit()
         let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard let pid = out.split(whereSeparator: \.isNewline).first.flatMap({ pid_t($0) }) else { return nil }
+        return out.split(whereSeparator: \.isNewline).first.flatMap { pid_t($0) }
+    }
+
+    /// Which profile the browser on this port really uses (another helper may have started its own).
+    static func profileInUse(_ port: Int) -> String? {
+        guard let pid = pidOn(port) else { return nil }
         return GatewayGuard.arguments(of: pid).first { $0.hasPrefix("--user-data-dir=") }.map { String($0.dropFirst(16)) }
     }
 
@@ -208,6 +219,7 @@ enum BrowserKeeper {
             return 2
         }
         print("browser: port \(p.port), saved profile \(p.profile)")
+        if MyChrome.isCopy(p) { print("browser: a copy of your own Chrome's sign-ins, \(MyChrome.copiedLine)") }
         let c = await cookies(p.port)
         if c == nil {
             print("browser: not answering. One starts it again within about 20 seconds while it's open.")
@@ -227,11 +239,11 @@ enum BrowserKeeper {
 
     /// Added to every prompt while a local browser is set up.
     static var note: String {
-        guard let p = plan else { return "" }
+        guard let p = plan else { return MyChrome.note(nil) }
         return """
 
 
-            (One app note, not from the user: the hidden browser on port \(p.port) keeps their sign-ins in a saved profile. If it isn't answering, wait 20 seconds and try again: One starts it again by itself with the same profile. Never start your own Chrome on port \(p.port) or a fresh profile for a site that needs a sign-in. Check sign-ins with `\(Bridge.exe) --browser-check`.)
-            """
+            (One app note, not from the user: the hidden browser on port \(p.port) keeps their sign-ins in a saved profile. If it isn't answering, wait 30 seconds and try again: One starts it again by itself with the same profile. Never start your own Chrome on port \(p.port) or a fresh profile for a site that needs a sign-in. Check sign-ins with `\(Bridge.exe) --browser-check`.)
+            """ + MyChrome.note(p)
     }
 }

@@ -64,6 +64,14 @@ enum SelectCheck {
             })
     }
 
+    /// Runs the check and exits when `--test-select` is among the arguments; returns otherwise.
+    nonisolated static func main(_ args: [String]) {
+        guard let k = args.firstIndex(of: "--test-select") else { return }
+        TestWorld.enter()  // a test copy only: one window, events sent into it, the clipboard
+        MainActor.assumeIsolated { run(k + 1 < args.count ? args[k + 1] : "reply") }
+        exit(0)
+    }
+
     static func run(_ which: String) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)

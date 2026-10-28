@@ -182,17 +182,29 @@ struct HomeTitleRow: ViewModifier {
 /// with the soft lift behind the assistant on top.
 struct HomeBackdrop: View {
     @AppStorage(Glass.key) var solid = Glass.standard
+    /// Glass renders draw it once behind the whole fake window, title row included, like the real window.
+    var outer = false
     var body: some View {
         GeometryReader { g in
-            ZStack {
-                if HomeView.still { WorldLook.bg } else { WindowGlass() }
-                Color(hex: 0x1C1C20).opacity(Glass.clamp(solid))
-                RadialGradient(
-                    colors: [Color(hex: 0x24242A, 0.55), .clear], center: UnitPoint(x: 0.38, y: 0.46), startRadius: 0,
-                    endRadius: max(g.size.width, g.size.height) * 0.36)
-            }
+            if HomeView.stillDesk != nil && !outer { Color.clear } else { layers(g) }
         }
         .ignoresSafeArea()
+    }
+    func layers(_ g: GeometryProxy) -> some View {
+        ZStack {
+            if let desk = HomeView.stillDesk {
+                GlassStill(desk: desk, size: g.size)
+            } else if HomeView.still {
+                WorldLook.bg
+            } else {
+                WindowGlass()
+            }
+            Color(hex: 0x1C1C20).opacity(Glass.clamp(solid))
+            // The design's lift: radial-gradient(55% 55% at 38% 46%, rgba(44,44,50,0.4) 0%, transparent 65%).
+            RadialGradient(
+                colors: [Color(hex: 0x2C2C32, 0.4), .clear], center: UnitPoint(x: 0.38, y: 0.46), startRadius: 0,
+                endRadius: max(g.size.width, g.size.height) * 0.3575)
+        }
     }
 }
 
@@ -201,9 +213,57 @@ enum Glass {
     static let key = "windowSolid"
     static let standard = 0.70
     static let range = 0.40...1.0
+    /// The design's backdrop-filter: blur(40px) saturate(1.4).
+    static let blur = 40.0
+    static let saturation = 1.4
     static func clamp(_ v: Double) -> Double { min(range.upperBound, max(range.lowerBound, v)) }
     /// Very see-through: the shelf and the ask box get a darker base so their words stay readable.
     static func thin(_ v: Double) -> Bool { clamp(v) < 0.62 }
+
+    /// AppKit's material paints its own grey over the blurred desktop (a "fill" at 80%, a lighten "tone" floor and a
+    /// wallpaper tint) and saturates 2.4×. Under our 70% tint that left about 6% of the desktop showing, a flat colour
+    /// instead of the design's 30%. Keep only the blur, set to the design's numbers; `HomeBackdrop` does the tint.
+    /// Returns false when the layers aren't the ones expected (a future macOS): then nothing is changed.
+    @discardableResult static func clearMaterial(_ root: CALayer) -> Bool {
+        guard let variant = root.sublayers?.first(where: { ($0.sublayers ?? []).contains { $0.name == "backdrop" } }),
+            let backdrop = variant.sublayers?.first(where: { $0.name == "backdrop" })
+        else { return false }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in variant.sublayers ?? [] where l !== backdrop { l.isHidden = true }
+        if let fs = backdrop.filters {
+            for case let f as NSObject in fs {
+                switch f.value(forKey: "name") as? String {
+                case "gaussianBlur": f.setValue(blur, forKey: "inputRadius")
+                case "colorSaturate": f.setValue(saturation, forKey: "inputAmount")
+                default: break
+                }
+            }
+            backdrop.filters = fs
+        }
+        CATransaction.commit()
+        return true
+    }
+}
+
+/// Renders only: the glass drawn the way the design's CSS does it, over a desktop picture.
+/// `oldMaterial` draws what 0.9.37 to 0.9.40 really showed: AppKit's own grey layers (read from the live material:
+/// blur 30, saturate 2.4, fill #282828 at 80%, lighten floor #242424) under the same tint.
+struct GlassStill: View {
+    nonisolated(unsafe) static var oldMaterial = false
+    let desk: NSImage
+    let size: CGSize
+    var body: some View {
+        let old = Self.oldMaterial
+        ZStack {
+            Image(nsImage: desk).resizable().aspectRatio(contentMode: .fill).frame(width: size.width, height: size.height)
+                .blur(radius: old ? 30 : Glass.blur, opaque: true).saturation(old ? 2.4 : Glass.saturation).clipped()
+            if old {
+                Color(white: 0.1569).opacity(0.8)
+                Color(white: 0.14).blendMode(.lighten)
+            }
+        }
+    }
 }
 
 /// The blurred desktop behind One's window. Makes the window itself clear while home is on screen, and puts it
@@ -221,10 +281,32 @@ struct WindowGlass: NSViewRepresentable {
                 wasColor = w.backgroundColor
                 w.isOpaque = false
                 w.backgroundColor = .clear
+                needsLayout = true
+                for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+                    NotificationCenter.default.addObserver(self, selector: #selector(reclear), name: n, object: w)
+                }
             }
+        }
+        // AppKit rebuilds the material's layers on some changes (appearance, key window, size): clear them again.
+        @objc func reclear() {
+            if let l = layer { Glass.clearMaterial(l) }
+            DispatchQueue.main.async { [weak self] in if let l = self?.layer { Glass.clearMaterial(l) } }
+        }
+        override func layout() {
+            super.layout()
+            if let l = layer { Glass.clearMaterial(l) }
+        }
+        override func updateLayer() {
+            super.updateLayer()
+            if let l = layer { Glass.clearMaterial(l) }
+        }
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            reclear()
         }
         override func viewWillMove(toWindow newWindow: NSWindow?) {
             if newWindow == nil, let w = held {
+                NotificationCenter.default.removeObserver(self)
                 w.isOpaque = wasOpaque
                 w.backgroundColor = wasColor
                 held = nil
@@ -232,7 +314,8 @@ struct WindowGlass: NSViewRepresentable {
             super.viewWillMove(toWindow: newWindow)
         }
     }
-    func makeNSView(context: Context) -> Host {
+    func makeNSView(context: Context) -> Host { Self.host() }
+    static func host() -> Host {
         let v = Host()
         v.material = .underWindowBackground
         v.blendingMode = .behindWindow

@@ -256,6 +256,7 @@ struct Entry {
             exit(0)
         }
         if args.contains("--browser-check") { runHeadless { exit(await BrowserKeeper.check()) } }
+        if let c = ChromeCheck.command(args) { runHeadless { exit(await c()) } }
         if let k = args.firstIndex(of: "--say"), k + 1 < args.count {
             MainActor.assumeIsolated {
                 Speaker.shared.start()

@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
+.PHONY: identity build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -10,7 +10,11 @@ format-check:     ## fail if anything isn't formatted
 lint:             ## One's own rules (tools/lint/one-lint.py) + the baseline may only shrink
 	python3 tools/lint/one-lint.py
 	tools/lint/check-baseline.sh
-check: format-check lint preflight   ## the whole gate
+identity:         ## commits here are only Donnadieu <donnadieu.86@gmail.com>, signed ABAFD67086BDA7E0 (never donnadieu-andela)
+	tools/check-identity.sh
+	git fetch -q origin main 2>/dev/null || true
+	tools/check-identity.sh --range origin/main..HEAD
+check: identity format-check lint preflight   ## the whole gate
 preflight:        ## build + bundle + KeePass + folder lock + updater + renders (~1 min)
 	tools/preflight.sh
 full:             ## preflight plus a fresh install into an empty folder (~3 min)
@@ -36,5 +40,11 @@ handoff:          ## a code step handed to the person, end to end on a local tes
 	tools/handoff-check.sh
 learning:         ## tell me when I learn: new skill line + Undo, fixes silent, the remember question (real engine, ~10 min)
 	tools/learning-check.sh
-hooks:            ## install the git pre-commit hook (fast checks only)
+hooks:            ## install the git hooks (pre-commit fast checks, pre-push identity) and pin this clone to Donnadieu
 	git config core.hooksPath .githooks
+	git config --local user.name Donnadieu
+	git config --local user.email donnadieu.86@gmail.com
+	git config --local user.signingkey ABAFD67086BDA7E0
+	git config --local gpg.format openpgp
+	git config --local commit.gpgsign true
+	git config --local tag.gpgsign true

@@ -14,6 +14,9 @@ jobs:
           X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           sudo xcode-select -s "$X"
           swiftc --version
+      - name: Only Donnadieu's identity (never donnadieu-andela)
+        if: github.event_name == 'pull_request'
+        run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       - name: Formatting
         run: xcrun swift-format lint -r -s -p Sources
       - name: One's own rules

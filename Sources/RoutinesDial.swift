@@ -97,7 +97,7 @@ enum Dial {
                         sub += " · running now"
                     } else if let lm = lastMin, lm >= t {
                         k = (t == lastRanSlot && r.state == .failed) ? .failed : .done
-                        sub += k == .failed ? " · didn't finish" : " · worked"
+                        sub += k == .failed ? " · " + Routines.missWord(r) : " · worked"
                     } else {
                         k = .missed
                         sub += " · didn't run"
@@ -125,7 +125,7 @@ enum Dial {
     static func word(_ r: Routine) -> String {
         switch r.state {
         case .worked, .finished: return "worked"
-        case .failed: return "didn't finish"
+        case .failed: return Routines.missWord(r)
         case .running: return "running now"
         case .never: return "never ran yet"
         case .paused: return "paused"

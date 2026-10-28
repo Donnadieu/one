@@ -46,6 +46,13 @@ final class Updater: ObservableObject {
     static let every: Double = 15 * 60
     /// Longest an update waits for the reply in progress before it goes ahead.
     static let replyWait: Double = 20
+    /// Longest an update waits for a routine at work (a scheduled job mid-run) before it goes ahead.
+    static var routineWait: Double = 2 * 3600
+    /// What the card says while an update waits for routines to finish.
+    static func routineLine(_ names: [String]) -> String {
+        let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
+        return "I'll update as soon as \(n) \(names.count == 1 ? "finishes" : "finish"), so \(names.count == 1 ? "it isn't" : "they aren't") cut off."
+    }
     private var etag: String?
     private var lastList: Data?
     private var lastCheck = Date.distantPast
@@ -152,6 +159,15 @@ final class Updater: ObservableObject {
             state = "I'll update as soon as I finish this reply."
             let end = Date().addingTimeInterval(Updater.replyWait)
             while m.thinking && Date() < end { try? await Task.sleep(for: .milliseconds(500)) }
+        }
+        // A routine at work is never cut off: restarting kills its run midway (a post made but the rest not done, and
+        // the routine shows as failed). Wait for it, up to `routineWait`, then go ahead.
+        var busy = await Task.detached { Routines.inFlight() }.value
+        let until = Date().addingTimeInterval(Updater.routineWait)
+        while !busy.isEmpty && Date() < until {
+            state = Updater.routineLine(busy)
+            try? await Task.sleep(for: .seconds(15))
+            busy = await Task.detached { Routines.inFlight() }.value
         }
         state = "Downloading the new version…"
         // A test copy keeps its download in its own throwaway home, never in the person's update folder.

@@ -81,7 +81,7 @@ extension RoutinesPanel {
                 (r.outside ? "Runs outside One" : "Scheduled job") + (r.state == .paused ? " · paused" : ""),
                 dot: failed ? Dial.orange : r.state == .never || r.state == .paused ? WorldLook.cream.opacity(0.4) : WorldLook.cream)
             Text(r.title).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
-            Text(failed ? "Didn't finish last time." : r.what).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(
+            Text(failed ? Routines.missLine(r) : r.what).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(
                 .top, 4
             ).lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)

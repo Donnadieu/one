@@ -9,34 +9,16 @@ import EventKit
 import CoreAudio
 import UniformTypeIdentifiers
 
-struct TryItem: Hashable {
-    let symbol: String
-    let tag: String
-    let text: String
-}
-
-let tryItems: [TryItem] = [
-    TryItem(symbol: "folder", tag: "Files", text: "Tidy my Downloads into folders that make sense"),
-    TryItem(symbol: "doc.text.magnifyingglass", tag: "Files", text: "Find every receipt from this year and add them up"),
-    TryItem(symbol: "safari", tag: "Browser", text: "Log in to a site for me and check my account"),
-    TryItem(symbol: "airplane", tag: "Watch", text: "Watch a flight price and tell me when it drops"),
-    TryItem(symbol: "sunrise", tag: "Every day", text: "Every morning at 7, send me my day on my phone"),
-    TryItem(symbol: "hammer", tag: "Research", text: "Compare 3 contractors near me and save it to my Desktop"),
-    TryItem(symbol: "envelope", tag: "Email", text: "Read my last 50 emails and tell me who's waiting on me"),
-    TryItem(symbol: "brain", tag: "Memory", text: "Remember what I like, then plan my weekend around it"),
-]
-
 struct HomeView: View {
     @ObservedObject var m: Model
+    /// Renders: no live text field (ImageRenderer can't draw it) and no motion.
+    nonisolated(unsafe) static var still = false
     @State var draft = ""
     @State var folderSheet = false
     @State var talkKeySheet = false
     @State var connectionsSheet = false
     @State var meCard = false
     @AppStorage("shelfCollapsed") var shelfCollapsed = false
-    @AppStorage("tryHidden") var tryHidden = false
-    @AppStorage("firstHome") var firstHome: Double = 0
-    var tryShown: Bool { !tryHidden && (firstHome == 0 || Date().timeIntervalSince1970 - firstHome < 3 * 86400) }
     @AppStorage("voiceMuted") var voiceOff = false
     @ObservedObject var l = Listener.shared
     @State var micDownAt: Date?
@@ -52,17 +34,16 @@ struct HomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             ZStack {
-                Mist()
-                ScrollView {
-                    VStack(spacing: 18) {
-                        Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).padding(.top, 18)
-                            .onAppear { if firstHome == 0 { firstHome = Date().timeIntervalSince1970 } }
-                        NovaWithHelpers(m: m)
+                StillScroll {
+                    VStack(spacing: 12) {
+                        Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+                            .foregroundStyle(WorldLook.cream).padding(.top, 18)
+                        HelperConstellation(m: m, still: HomeView.still)
                         if m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
                                 .transition(.opacity)
                         }
-                        UpdateCard()  // also inside an opened helper, so an update is never missed
+                        if !HomeView.still { UpdateCard() }  // also inside an opened helper, so an update is never missed
                         if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {
                             VStack(alignment: .leading, spacing: 12) {
                                 Label("\(info.createdBy) invited you into a room", systemImage: "person.2.fill").font(.headline)
@@ -118,17 +99,19 @@ struct HomeView: View {
                             HelperCard(m: m, h: h).transition(.opacity.combined(with: .offset(y: 8)))
                             FollowUpList(m: m, helper: h.id)
                         } else if let ask = lastAsk {
-                            VStack(spacing: 12) {
-                                ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true, accent: true)
+                            VStack(spacing: 8) {
+                                ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
                                 FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
                                 if let r = lastReply, !r.text.isEmpty {
                                     let parts = Choices.split(Helpers.strip(r.text))
-                                    ChatText(text: parts.body, size: 16)
-                                        .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                                        .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
-                                        .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                        ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(maxWidth: 620).padding(.horizontal, 4)
+                                    .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
                                     if !parts.choices.isEmpty && !m.thinking {
                                         ChoiceRow(choices: parts.choices, disabled: m.paused) { c in
                                             Task { await m.choose(c) }
@@ -141,47 +124,6 @@ struct HomeView: View {
                             }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
                         }
                         askBox.padding(.top, 4)
-                        if !tryShown {
-                            Button {
-                                tryHidden = false
-                                firstHome = Date().timeIntervalSince1970
-                            } label: {
-                                Label("Ideas to try", systemImage: "lightbulb")
-                            }
-                            .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Text(lastAsk == nil ? "THINGS ONLY I CAN DO FROM YOUR MAC" : "TRY SOMETHING ELSE")
-                                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button {
-                                        withAnimation { tryHidden = true }
-                                    } label: {
-                                        Image(systemName: "xmark").font(.caption.weight(.semibold))
-                                    }
-                                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Hide these. Bring them back with Ideas to try.")
-                                }
-                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                                    ForEach(tryItems, id: \.self) { it in
-                                        Button {
-                                            Task { await m.send(it.text) }
-                                        } label: {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                HStack(spacing: 6) {
-                                                    Image(systemName: it.symbol).font(.system(size: 14, weight: .light))
-                                                    Text(it.tag.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                                                }
-                                                Text(it.text).font(.callout).multilineTextAlignment(.leading).foregroundStyle(.primary)
-                                            }
-                                            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading).padding(12)
-                                            .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial))
-                                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12)))
-                                        }.buttonStyle(.plain).disabled(m.thinking || m.paused)
-                                    }
-                                }
-                            }
-                        }
                     }.padding(.horizontal, 28).padding(.bottom, 20)
                 }
             }
@@ -199,19 +141,16 @@ struct HomeView: View {
                                     Circle().fill(Color(hex: 0xFFE2C2)))
                             }
                         }.foregroundStyle(.secondary).frame(width: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
-                    }.buttonStyle(.plain).background(Mist()).help("Show Ready for you").transition(.move(edge: .trailing))
+                    }.buttonStyle(.plain).help("Show Ready for you").transition(.move(edge: .trailing))
                 } else {
-                    ShelfPanel(m: m).background(Mist()).overlay(alignment: .topTrailing) {
-                        Button {
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = true }
-                        } label: {
-                            Image(systemName: "sidebar.right").font(.system(size: 12))
-                        }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).padding(.top, 14).padding(.trailing, 14).help("Hide Ready for you")
-                    }.transition(.move(edge: .trailing))
+                    ShelfPanel(m: m) {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = true }
+                    }
+                    .transition(.move(edge: .trailing))
                 }
             }
         }
+        .background(HomeBackdrop())
         .frame(minWidth: m.shelf.isEmpty || shelfCollapsed ? 560 : 830)
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: m.shelf.isEmpty)
         .overlay {
@@ -249,74 +188,11 @@ struct HomeView: View {
                     .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
             }
         }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    voiceOff.toggle()
-                    if voiceOff {
-                        Speaker.shared.stop()
-                        Voice.shared.stop()
-                    }
-                } label: {
-                    Label(voiceOff ? "Voice off" : "Voice on", systemImage: voiceOff ? "speaker.slash" : "speaker.wave.2")
-                }.help(voiceOff ? "Let \(m.name) talk" : "Stop \(m.name) from talking")
-            }
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    meCard = true
-                } label: {
-                    Text(m.name).font(.headline)
-                }.buttonStyle(.plain).help("\(m.name)'s brain and voice")
-            }
-            ToolbarItem {
-                Button {
-                    RoomsWindow.show(m)
-                } label: {
-                    Label("Rooms", systemImage: "circle.hexagongrid")
-                }.help("See your rooms")
-            }
-            ToolbarItem {
-                Button {
-                    connectionsSheet = true
-                } label: {
-                    Label("Connections", systemImage: "point.3.connected.trianglepath.dotted")
-                }.help("What \(m.name) can reach")
-            }
-            ToolbarItem {
-                Button {
-                    talkKeySheet = true
-                } label: {
-                    Label("Push to talk", systemImage: "mic")
-                }.help("Choose a push-to-talk key")
-            }
-            ToolbarItem {
-                Button {
-                    folderSheet = true
-                } label: {
-                    Label("Folders", systemImage: "folder")
-                }
-            }
-            ToolbarItem {
-                Button {
-                    m.switchingAI = true
-                } label: {
-                    Label("Switch AI", systemImage: "arrow.triangle.2.circlepath")
-                }
-            }
-            ToolbarItem {
-                Button {
-                    m.toggleStop()
-                } label: {
-                    Label(m.paused ? "Turn on" : "Stop", systemImage: m.paused ? "play.circle" : "stop.circle")
-                }.tint(m.paused ? .green : .red)
-            }
-        }
-        .navigationTitle("")
-        .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
-        .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
-        .sheet(isPresented: $connectionsSheet) { ConnectionsWorld(m: m) { connectionsSheet = false }.frame(width: 720, height: 680) }
-        .popover(isPresented: $meCard, arrowEdge: .bottom) { MeCard(m: m) { meCard = false } }
-        .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
+        .modifier(
+            HomeTitleRow(
+                m: m, voiceOff: $voiceOff, meCard: $meCard, connectionsSheet: $connectionsSheet, talkKeySheet: $talkKeySheet,
+                folderSheet: $folderSheet, dropping: $dropping)
+        )
         .overlay {
             if dropping {
                 RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
@@ -326,18 +202,17 @@ struct HomeView: View {
                     .padding(10).allowsHitTesting(false)
             }
         }
-        .task { await m.ensureEngine() }
-        .task { await ConnectionsWorld.prefetch() }  // so Connections opens already complete, with no wait while it slides in
     }
     /// Hold the mic to talk (let go to send), or click once to start and again to send.
     var micButton: some View {
         let on = m.talkingInApp
         return ZStack {
             if on { Circle().fill(Color(hex: 0xFFE2C2, 0.18)).frame(width: 40 + 14 * l.level, height: 40 + 14 * l.level) }
-            Image(systemName: on ? "mic.fill" : "mic").font(.system(size: 20, weight: on ? .regular : .light))
-                .foregroundStyle(on ? Color(hex: 0xFFE2C2) : Color.primary)
+            Circle().fill(WorldLook.cream.opacity(on ? 0.16 : 0.08)).frame(width: 36, height: 36)
+            Image(systemName: on ? "mic.fill" : "mic").font(.system(size: 15, weight: .regular))
+                .foregroundStyle(on ? Color(hex: 0xFFE2C2) : WorldLook.cream.opacity(0.85))
         }
-        .frame(width: 34, height: 34).contentShape(Circle())
+        .frame(width: 36, height: 36).contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
@@ -384,28 +259,42 @@ struct HomeView: View {
         VStack(spacing: 8) {
             talkLine
             PictureStrip(m: m)
-            HStack(spacing: 12) {
-                Button {
-                    PictureIn.pick()
+            HStack(spacing: 8) {
+                Menu {
+                    Button("File…") { PictureIn.pick() }
+                    Button("Photo…") { PictureIn.pickPhoto() }
+                    Button("Screenshot") { PictureIn.screenshot() }
+                    Button("Folder…") { folderSheet = true }
                 } label: {
-                    Image(systemName: "paperclip").font(.system(size: 20, weight: .light))
+                    Image(systemName: "plus").font(.system(size: 16, weight: .regular)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                        .frame(width: 36, height: 36).contentShape(Circle())
                 }
-                .buttonStyle(.plain).help("Add a picture or file (or drag it in, or paste it)")
-                TextField(
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .help("Add a file or photo (or drag it in, or paste it)")
+                let hint =
                     m.about != nil
-                        ? "What do you want to know? Or just press send."
-                        : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…"),
-                    text: $draft
-                )
-                .textFieldStyle(.plain).font(.title3).focused($typing)
-                .padding(12).padding(.horizontal, 4).background(Capsule().fill(.ultraThinMaterial))
-                .overlay(Capsule().stroke(Color.white.opacity(typing ? 0.28 : 0.1)))
-                .onSubmit(go)
-                micButton
-                Button(action: go) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32, weight: .light)) }
+                    ? "What do you want to know? Or just press send."
+                    : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
+                if HomeView.still {
+                    Text(hint).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.4)).frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField(hint, text: $draft).textFieldStyle(.plain).font(.system(size: 14)).focused($typing).onSubmit(go)
+                }
+                if !(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil) {
                     // Never locked while busy: a message sent now goes into the running turn, or next up.
-                    .buttonStyle(.plain).disabled(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil)
+                    Button(action: go) {
+                        Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                            .frame(width: 36, height: 36).background(Circle().fill(WorldLook.cream))
+                    }
+                    .buttonStyle(.plain).help("Send").transition(.scale.combined(with: .opacity))
+                }
+                micButton
             }
+            .padding(.horizontal, 8).frame(height: 52)
+            .background(Capsule().fill(WorldLook.cream.opacity(0.05)))
+            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
+            .frame(maxWidth: 620)
+            .animation(.easeOut(duration: 0.15), value: draft.isEmpty)
         }
     }
     func go() {

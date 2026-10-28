@@ -435,7 +435,12 @@ extension Model {
         bubbles.removeAll()
     }
 
-    var suggestions: [String] { [tryItems[0].text, tryItems[4].text, tryItems[3].text] }
+    var suggestions: [String] {
+        [
+            "Tidy my Downloads into folders that make sense", "Every morning at 7, send me my day on my phone",
+            "Watch a flight price and tell me when it drops",
+        ]
+    }
 
     var suggestionsOld: [String] {
         var s: [String] = []

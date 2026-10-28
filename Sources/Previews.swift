@@ -406,6 +406,7 @@ struct HelperOrb: View {
     let state: HelperState
     let t: Double
     var size: CGFloat = 46
+    var check = true  // the constellation draws its own check, bottom right
     var body: some View {
         let warm = state == .needsYes
         ZStack {
@@ -425,25 +426,13 @@ struct HelperOrb: View {
                 )
                 .frame(width: size, height: size).blendMode(.plusLighter)
             }
-            if state == .done {
+            if state == .done && check {
                 Circle().fill(WorldLook.cream).frame(width: 16, height: 16)
                     .overlay(Image(systemName: "checkmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(WorldLook.bg))
                     .offset(x: size * 0.36, y: -size * 0.36)
             }
         }
         .frame(width: size * 1.8, height: size * 1.8)
-    }
-}
-
-struct HelperLabel: View {
-    let title: String
-    let line: String
-    var warm = false
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(warm ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.92))
-            Text(line).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(warm ? 0.8 : 0.66))
-        }.multilineTextAlignment(.center).fixedSize()
     }
 }
 

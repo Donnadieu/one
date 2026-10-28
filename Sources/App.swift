@@ -287,6 +287,7 @@ struct Entry {
             let ok = MainActor.assumeIsolated { ShelfCopy.check(args[k + 1], stop: k + 2 < args.count ? args[k + 2] : nil) }
             exit(ok ? 0 : 1)
         }
+        RoutinesRender.cli(args)  // --render-routines <png>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {

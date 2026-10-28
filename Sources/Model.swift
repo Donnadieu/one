@@ -222,6 +222,7 @@ final class Model: ObservableObject {
     @Published var draftSeed: String?
     @Published var about: (title: String, url: URL)?
     @Published var viewing: URL?
+    @Published var routinesOpen = false  // the Routines panel (RoutinesView.swift)
 
     // Tell me when I learn (ModelLearning.swift)
     var learning = Learning.load()

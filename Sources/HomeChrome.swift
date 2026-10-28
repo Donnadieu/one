@@ -62,7 +62,7 @@ struct NamePill: View {
     }
 }
 
-/// Voice, Rooms, Connections, Push to talk, Folders, Switch AI, Stop.
+/// Voice, Rooms, Connections, Routines, Push to talk, Folders, Switch AI, Stop.
 struct TopBarButtons: View {
     let name: String
     let voiceOff: Bool
@@ -70,6 +70,7 @@ struct TopBarButtons: View {
     var voice: () -> Void = {}
     var rooms: () -> Void = {}
     var connections: () -> Void = {}
+    var routines: () -> Void = {}
     var talkKey: () -> Void = {}
     var folders: () -> Void = {}
     var switchAI: () -> Void = {}
@@ -81,6 +82,7 @@ struct TopBarButtons: View {
                 help: voiceOff ? "Let \(name) talk" : "Stop \(name) from talking", action: voice)
             TopBarButton(title: "Rooms", symbol: "square.grid.2x2", help: "See your rooms", action: rooms)
             TopBarButton(title: "Connections", symbol: "point.3.connected.trianglepath.dotted", help: "What \(name) can reach", action: connections)
+            TopBarButton(title: "Routines", symbol: "clock.arrow.circlepath", help: "Everything \(name) runs for you", action: routines)
             TopBarButton(title: "Push to talk", symbol: "mic", help: "Choose a push-to-talk key", action: talkKey)
             TopBarButton(title: "Folders", symbol: "folder", help: "Folders \(name) can open", action: folders)
             TopBarButton(title: "Switch AI", symbol: "arrow.left.arrow.right", help: "Use a different AI", action: switchAI)
@@ -157,7 +159,8 @@ struct HomeTitleRow: ViewModifier {
                                 Voice.shared.stop()
                             }
                         },
-                        rooms: { RoomsWindow.show(m) }, connections: { connectionsSheet = true }, talkKey: { talkKeySheet = true },
+                        rooms: { RoomsWindow.show(m) }, connections: { connectionsSheet = true },
+                        routines: { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen = true } }, talkKey: { talkKeySheet = true },
                         folders: { folderSheet = true }, switchAI: { m.switchingAI = true }, stop: { m.toggleStop() })
                 }.noPill()
             }

@@ -53,6 +53,10 @@
 | HelperConstellation.swift | UI | every helper as an orb on dashed orbits around the assistant, no limit (Claude Design "Helper View Options", A · Constellation): `HelperRings` layout checkpoints 4/8/10/15 and more orbits past 15, dust, hover pill |
 | HomeChrome.swift | UI | home's title row (name pill, icon buttons, outlined Stop), smoked-glass `HomeBackdrop` (`WindowGlass` blur behind the window, tint at `Glass.solid`), the name card's See-through slider, `StillScroll` for renders |
 | HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |
+| Routines.swift | service | Routines panel data, read only: the engine's scheduled jobs (`hermes/cron/jobs.json` + last result), skills (engine + each room's `skills/learned`), jobs a Hermes outside One runs; cron schedules in plain words |
+| RoutinesDial.swift | UI | the 24-hour day dial (Claude Design "Routines View Options", B): marks, bands, labels pushed apart, skills as stars; `One --render-routines <png>` |
+| RoutinesView.swift | UI | the Routines panel (top row › Routines): dial around the assistant's orb, header counts, "Not on today's dial", runs outside One, star hover; closes with X, a click outside, Esc |
+| RoutinesCard.swift | UI | the panel's floating card (Run now / Pause / Turn back on via `hermes cron`, Ask), the "want me to save how I did …?" question by the orb, the fading "I learned something new" notice |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |
 | ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]` (from a test copy): opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |

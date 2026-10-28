@@ -338,6 +338,7 @@ struct Entry {
                                     url: "")
                             ) { _ in }.padding(24).frame(width: 600).background(WorldLook.bg).environment(\.colorScheme, .dark))
                     ),
+                    ("check-card", HumanCheckCard.scene()),
                     ("orb", AnyView(Orb(size: 92, active: false).frame(width: 300, height: 300).background(WorldLook.bg))),
                     (
                         "hint-long",

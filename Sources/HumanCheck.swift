@@ -23,6 +23,7 @@ enum HumanCheck {
         let url: String
         let profile: String
         let port: Int
+        let kind: String
         let started: Date
         var pid: pid_t?
     }
@@ -47,7 +48,7 @@ enum HumanCheck {
         if active?.id == a.id { return true }
         guard active == nil, let p = BrowserKeeper.plan, p.port == a.port, let app = BrowserKeeper.chromeApp else { return false }
         let url = a.url.hasPrefix("http") ? a.url : "https://\(a.site)/"
-        active = Session(id: a.id, site: a.site, url: url, profile: p.profile, port: p.port, started: Date(), pid: nil)
+        active = Session(id: a.id, site: a.site, url: url, profile: p.profile, port: p.port, kind: a.kind, started: Date(), pid: nil)
         requested = nil
         Task.detached {
             let answer = await run(app: app)
@@ -74,11 +75,15 @@ enum HumanCheck {
             s.pid = mainChrome(profile: s.profile)
         }
         active = s
+        let shown = s
+        await MainActor.run { HumanCheckCard.show(id: shown.id, site: shown.site, url: shown.url, kind: shown.kind, pid: shown.pid) }
         var answer = "done"
         var why = "time limit"
         let cookies = s.profile + "/Default/Cookies"
         while Date().timeIntervalSince(s.started) < waitLimit {
             try? await Task.sleep(for: .seconds(2))
+            let pid = s.pid
+            await MainActor.run { HumanCheckCard.place(pid: pid) }
             if let r = requested {
                 answer = r
                 why = r == "away" ? "they're not at the Mac" : "they tapped Done"
@@ -94,6 +99,7 @@ enum HumanCheck {
             }
         }
         log("\(s.site): \(why); closing the window and hiding the browser again")
+        await MainActor.run { HumanCheckCard.close() }
         if let pid = s.pid ?? mainChrome(profile: s.profile) { await quit(pid) }
         // The keeper starts the hidden browser again (same profile, normal user agent) as soon as nothing holds the profile.
         active = nil

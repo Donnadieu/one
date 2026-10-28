@@ -62,6 +62,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HelperSelfCheck.run()) }
             return
         }
+        if HelperNotesCheck.launch() { return }  // --test-helper-notes (tools/helper-notes-check.sh)
         if CommandLine.arguments.contains("--test-human-step") {
             TestWorld.enter()  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
             Task { @MainActor in exit(await HumanStepCheck.run()) }
@@ -159,13 +160,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             print(out.joined(separator: "\n"))
             exit(0)
         }
-        // The hidden browser helpers use: started again with its saved sign-ins if it goes down.
-        Task.detached {
-            while true {
-                BrowserKeeper.tend()
-                try? await Task.sleep(for: .seconds(10))
-            }
-        }
+        BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
         // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
         Task.detached {
             while true {
@@ -244,6 +239,7 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if let code = MyChrome.cli(args) { exit(code) }
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design

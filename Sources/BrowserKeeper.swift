@@ -136,6 +136,18 @@ enum BrowserKeeper {
         }
     }
 
+    /// The hidden browser helpers use: started again with its saved sign-ins if it goes down. Plus One's side of
+    /// `--connect-chrome`: the engine can't read Chrome's folder, so One does the copy for it.
+    static func loop() {
+        Task.detached {
+            while true {
+                tend()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+        MyChrome.serveLoop()
+    }
+
     /// Called every few seconds from its own loop (App.swift).
     static func tend() {
         if Env.selfTest || Env.commandLine { return }
@@ -155,6 +167,11 @@ enum BrowserKeeper {
         }
         // One start a minute at most: a broken profile must not loop.
         if let t = lastStart, Date().timeIntervalSince(t) < 60 { return }
+        start(p)
+    }
+
+    /// Start the hidden browser for this plan: hidden, same profile, same port.
+    static func start(_ p: Plan) {
         guard let app = chromeApp else { return log("Google Chrome isn't installed; nothing to start") }
         // Starting it while another Chrome holds the profile would only open a window in that Chrome.
         if HumanCheck.mainChrome(profile: p.profile) != nil {
@@ -248,7 +265,9 @@ enum BrowserKeeper {
     }
 
     /// `One --browser-check`: read-only, prints the browser's state and the Claude sign-in. Exit 0 = signed in.
+    /// On their Chrome's copy it gives the plain-words `--chrome-check` instead (Claude alone isn't the test there).
     static func check() async -> Int32 {
+        if MyChrome.connected { return await ChromeCheck.run() }
         guard let p = plan else {
             print("browser: none set up (no local browser.cdp_url and no \(settingsFile.path))")
             return 2

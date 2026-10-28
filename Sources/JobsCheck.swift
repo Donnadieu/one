@@ -347,7 +347,7 @@ enum JobsCheck {
             t.add("helper \(title)", "couldn't start")
             return
         }
-        var (stop, reply) = await turn(sid, "helper \(title)", Helpers.brief(assistant: ai, user: user, task: task), t)
+        var (stop, reply) = await turn(sid, "helper \(title)", Helpers.brief(assistant: ai, user: user, task: task) + Bridge.note, t)
         t.add("helper \(title)", reply + " [\(stop)]")
         let ch = Choices.split(reply).choices
         if !ch.isEmpty, let a = pick(ch), deadline.timeIntervalSinceNow > 30 {

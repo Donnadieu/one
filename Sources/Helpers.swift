@@ -111,7 +111,7 @@ enum Helpers {
         The job: \(task)
 
         Do it now. Finish with a short message (2 to 4 lines): what you found or did, in plain words. If you need their yes before going further (money, sending, posting, deleting), stop and ask, ending with a [choices: ...] line. If the job is to keep watching something, do the first check now, say what you found, then set up a routine for the repeat checks (your scheduling tool, e.g. every 6 hours) and say how often it runs. A routine runs with nobody there to ask: its instructions must only check and report, never buy, send or delete; buying waits for their yes.
-        """ + Bridge.note + BrowserKeeper.note + helperNote
+        """ + helperNote  // runHelper adds SessionNotes.helper on every turn
     }
 }
 

@@ -215,7 +215,7 @@ extension Model {
             $0.seen = nil
         }
         let stop = await Engine.shared.promptSession(
-            sid, Helpers.forHelper(text), images: images,
+            sid, Helpers.forHelper(text) + VersionNote.note, images: images,
             onText: { s in
                 Task { @MainActor in
                     self.helperUnderway(id)
@@ -439,6 +439,7 @@ extension Model {
         Engine.shared.onActivity = { Task { @MainActor in self.turnUnderway() } }
         let message =
             c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + BrowserKeeper.note + FolderWatch.note + helperNews()
+            + VersionNote.note
             + (hidden ? "" : Learning.kindNote)
         learnStart(hidden: hidden)
         let gateway = GatewayGuard.recordedPID()

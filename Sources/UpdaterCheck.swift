@@ -43,12 +43,18 @@ enum UpdaterCheck {
         await u.check(current: cur)
         check("a newer version is announced", u.announced == ["1.1.0"])
         check("and offered on the card", u.available?.version == "1.1.0")
+        let vn = VersionNote.text(running: cur, newest: u.newest)
+        check(
+            "every prompt names the running version, the newer release and the tag to read",
+            vn.contains("RUNS ONE 1.0.0") && vn.contains("One 1.1.0") && vn.contains("show v1.0.0:Sources/") && vn.contains("ref=v1.0.0"))
+        check("no newer release: the note says nothing about one", !VersionNote.text(running: "1.1.0", newest: "1.1.0").contains("newer release"))
         await u.check(current: cur)
         await u.check(current: cur)
         check("only once, however often it checks", u.announced == ["1.1.0"])
         u.later()
         await u.check(current: cur)
         check("Later hides the card while One stays open", u.available == nil)
+        check("after Later the assistant still knows a newer release exists", u.newest == "1.1.0")
         check(
             "Later is never saved, so reopening One shows the card again",
             UserDefaults.standard.object(forKey: "updateSkipped") == nil && UserDefaults.standard.object(forKey: "updateSkippedAt") == nil)

@@ -49,6 +49,7 @@
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
 | HomeView.swift | UI | home screen (greeting, helpers, last reply, ask box with + menu), choice buttons, ask cards |
+| AskEditor.swift | UI | the ask box's typing area: wraps and grows to half the window, then scrolls with the cursor in view (`AskEditor`, an NSTextView; Return sends, Shift+Return new line), the expand button's `WritingPanel` (X, click outside, Esc), `LongMessageRender` for `long-*` renders |
 | HelperConstellation.swift | UI | every helper as an orb on dashed orbits around the assistant, no limit (Claude Design "Helper View Options", A · Constellation): `HelperRings` layout checkpoints 4/8/10/15 and more orbits past 15, dust, hover pill |
 | HomeChrome.swift | UI | home's title row (name pill, icon buttons, outlined Stop), smoked-glass `HomeBackdrop` (`WindowGlass` blur behind the window, tint at `Glass.solid`), the name card's See-through slider, `StillScroll` for renders |
 | HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |

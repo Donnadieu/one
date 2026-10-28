@@ -13,7 +13,13 @@ struct HomeView: View {
     @ObservedObject var m: Model
     /// Renders: no live text field (ImageRenderer can't draw it) and no motion.
     nonisolated(unsafe) static var still = false
-    @State var draft = ""
+    /// Renders only: a draft to show in the ask box, and whether the writing panel is open.
+    nonisolated(unsafe) static var stillDraft = ""
+    nonisolated(unsafe) static var stillWriting = false
+    @State var draft = HomeView.stillDraft
+    @State var writing = HomeView.stillWriting
+    @State var windowHeight: CGFloat = 760
+    @StateObject var askMetrics = HomeView.makeMetrics()
     @State var folderSheet = false
     @State var talkKeySheet = false
     @State var connectionsSheet = false
@@ -25,7 +31,7 @@ struct HomeView: View {
     @State var micDownAt: Date?
     @State var micLatched = false
     @State var dropping = false
-    @FocusState var typing: Bool
+    @State var typing = false
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
@@ -34,7 +40,7 @@ struct HomeView: View {
     var lastReply: Bubble? { m.bubbles.last.flatMap { $0.fromMe ? nil : $0 } }
     var body: some View {
         HStack(spacing: 0) {
-            ZStack {
+            VStack(spacing: 0) {
                 StillScroll {
                     VStack(spacing: 12) {
                         Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
@@ -124,9 +130,11 @@ struct HomeView: View {
                                 }
                             }.animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
                         }
-                        askBox.padding(.top, 4)
-                    }.padding(.horizontal, 28).padding(.bottom, 20)
+                    }.padding(.horizontal, 28).padding(.bottom, 8)
                 }
+                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
+                // Pinned under the scrolling part, so a long message can never push the box out of view.
+                askBox.padding(.horizontal, 28).padding(.top, 4).padding(.bottom, 20).layoutPriority(1)
             }
             if !m.shelf.isEmpty {
                 if shelfCollapsed {
@@ -160,6 +168,25 @@ struct HomeView: View {
             }
         }
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
+        .overlay {
+            if writing {
+                WritingPanel(
+                    m: m, draft: $draft,
+                    close: {
+                        writing = false
+                        typing = true
+                    },
+                    send: {
+                        writing = false
+                        go()
+                    }
+                ).transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: writing)
+        .background(
+            GeometryReader { g in Color.clear.onAppear { windowHeight = g.size.height }.onChange(of: g.size.height) { _, h in windowHeight = h } }
+        )
         .environment(
             \.openURL,
             OpenURLAction { u in
@@ -260,7 +287,7 @@ struct HomeView: View {
         VStack(spacing: 8) {
             talkLine
             PictureStrip(m: m)
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
                 Menu {
                     Button("File…") { PictureIn.pick() }
                     Button("Photo…") { PictureIn.pickPhoto() }
@@ -276,10 +303,11 @@ struct HomeView: View {
                     m.about != nil
                     ? "What do you want to know? Or just press send."
                     : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
-                if HomeView.still {
+                if HomeView.still && draft.isEmpty {
                     Text(hint).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(0.4)).frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 36)
                 } else {
-                    TextField(hint, text: $draft).textFieldStyle(.plain).font(.system(size: 14)).focused($typing).onSubmit(go)
+                    AskField(text: $draft, focused: $typing, metrics: askMetrics, hint: hint, maxHeight: askMax, onSubmit: go)
                 }
                 if !(draft.isEmpty && m.pictures.isEmpty && m.files.isEmpty && m.about == nil) {
                     // Never locked while busy: a message sent now goes into the running turn, or next up.
@@ -291,17 +319,46 @@ struct HomeView: View {
                 }
                 micButton
             }
-            .padding(.horizontal, 8).frame(height: 52)
-            .background(Capsule().fill(WorldLook.cream.opacity(0.05)))
-            .background(Capsule().fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
-            .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(WorldLook.cream.opacity(0.05)))
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
+            .overlay(alignment: .topTrailing) {
+                if !draft.isEmpty && askMetrics.contentHeight > AskEditor.oneLine + 3 * 17 {
+                    Button {
+                        writing = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(WorldLook.cream.opacity(0.7)).frame(width: 28, height: 28)
+                            .background(Circle().fill(WorldLook.cream.opacity(0.08)))
+                    }
+                    .buttonStyle(.plain).help("Open a bigger space to write").padding(.top, 10).padding(.trailing, 12)
+                    .transition(.opacity)
+                }
+            }
             .frame(maxWidth: 620)
             .animation(.easeOut(duration: 0.15), value: draft.isEmpty)
+            if askMetrics.contentHeight > AskEditor.oneLine + 1 && !draft.isEmpty {
+                HStack {
+                    Text("Shift + Return for a new line")
+                    Spacer()
+                    if case let n = AskField.words(draft), n > 100 { Text("\(n) words") }
+                }
+                .font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.4)).padding(.horizontal, 20).frame(maxWidth: 620)
+            }
         }
+    }
+    /// The box grows up to about half the window, then scrolls inside.
+    var askMax: CGFloat { max(AskEditor.oneLine, windowHeight * 0.5 - 16) }
+    static func makeMetrics() -> AskMetrics {
+        let a = AskMetrics()
+        if still && !stillDraft.isEmpty { a.contentHeight = AskField.stillHeight(stillDraft, width: 620 - 16 - 36 * 3 - 8 * 3) }
+        return a
     }
     func go() {
         let t = draft
         draft = ""
+        writing = false
         Task { await m.send(t) }
     }
 }

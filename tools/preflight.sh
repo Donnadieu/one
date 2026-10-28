@@ -37,6 +37,7 @@ echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
+check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
 check "shipped skill descriptions are short (60 max)" bash -c "for f in \$(find skills -name SKILL.md); do d=\$(sed -n 's/^description: *//p' \$f | head -1); [ -n \"\$d\" ] && [ \${#d} -le 60 ] || { echo \"\$f\"; exit 1; }; done"
 check "no Google secret or sign-in in the app" bash -c "! ls $APP/Contents/Resources | grep -q google"
@@ -100,7 +101,7 @@ grep "✗" "$T/hs.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Stop talking just this once"
 mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings
-check "hush drops the rest of that reply, never mutes, the next reply speaks" bash -c "ONE_SUPPORT_DIR=$T/vc $TBIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"
+check "hush drops the rest of that reply, never mutes, the next reply speaks; helper sound rules" bash -c "ONE_SUPPORT_DIR=$T/vc $TBIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"
 grep "✗" "$T/vc/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the voice test left your mute setting alone" test "$VM_BEFORE" = "$(defaults read ai.forjado.one voiceMuted 2>/dev/null)"
 

@@ -71,6 +71,9 @@ enum VoiceCheck {
                 && HelperSound.decide(muted: true, listening: false, sinceLast: 60) == .muted
                 && HelperSound.decide(muted: false, listening: true, sinceLast: 60) == .listening
                 && HelperSound.decide(muted: false, listening: false, sinceLast: 1) == .tooSoon)
+        // The sound waits for a reply being read to end (Speaker.busy): let the replies above finish first.
+        for _ in 0..<100 where sp.busy { await settle(0.1) }
+        check("no reply is being read before the sound checks", !sp.busy)
         let r0 = HelperSound.rung.count
         HelperSound.ring(needsYes: false)
         await rang()

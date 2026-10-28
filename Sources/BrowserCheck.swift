@@ -30,7 +30,9 @@ enum BrowserCheck {
         expect(!a.contains("--no-sandbox"), "Chrome keeps its own safety sandbox (it runs outside the folder lock)")
         var vis = q!
         vis.headless = false
-        expect(!BrowserKeeper.launchArguments(vis, app: "x").contains("--headless=new"), "a visible window when asked")
+        expect(BrowserKeeper.launchArguments(vis, app: "x").contains("--headless=new"), "hidden even when a plan asks for a window")
+        let visible = #"{"port": 9223, "headless": false}"#.data(using: .utf8)
+        expect(BrowserKeeper.plan(config: cfg, settings: visible)?.headless == true, "keeper.json can't ask for a visible window")
 
         let future = Date().timeIntervalSince1970 + 86400 * 30
         let signedIn: [[String: Any]] = [["name": "sessionKey", "domain": ".claude.ai", "expires": future]]
@@ -46,6 +48,8 @@ enum BrowserCheck {
         BrowserKeeper.tend()
         expect(BrowserKeeper.lastStart == nil, "a test copy never starts a browser")
         expect(BrowserKeeper.note.isEmpty || BrowserKeeper.note.contains("--browser-check"), "the assistant is told how to check sign-ins")
+
+        BrowserGuardCheck.run(expect)
 
         print(fails.isEmpty ? "browser ok" : "browser FAILED: \(fails.count)")
         return fails.isEmpty ? 0 : 1

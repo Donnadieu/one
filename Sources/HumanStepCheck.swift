@@ -35,8 +35,10 @@ enum HumanStepCheck {
         print("   line: \(a.line)")
         check(
             "says what was asked for",
-            a.line == "I need you for one step: 127.0.0.1 is asking for a code. A Chrome window is open on it. Enter it there, then tap Done.")
-        check("the window is open and in front", w.window?.isVisible == true && w.window?.level == .floating)
+            a.line == "I need you for one step: 127.0.0.1 is asking for a code. Tap Show the window to do it there, then tap Done.")
+        check("no window pops up on its own (their tap is the yes)", w.window?.isVisible != true)
+        w.show()  // what "Show the window" does
+        check("after the tap the window is open and in front", w.window?.isVisible == true && w.window?.level == .floating)
         let fe = Date().addingTimeInterval(15)
         while Date() < fe, w.page.frames == 0 { try? await Task.sleep(for: .milliseconds(200)) }
         check("it shows the page live (pictures arriving)", w.page.frames > 0)

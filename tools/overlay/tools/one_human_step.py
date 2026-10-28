@@ -260,7 +260,7 @@ _APPS = {"amazon.": "the Amazon app", "google.": "the Google app or Gmail", "app
 
 def line_for(site: str, kind: str) -> str:
     return (f"I need you for one step: {site} is asking for {ASKING.get(kind, 'a quick check')}. "
-            "A Chrome window is open on it. Enter it there, then tap Done.")
+            "Tap Show the window to do it there, then tap Done.")
 
 
 def phone_fallback(site: str, kind: str) -> str:

@@ -55,7 +55,7 @@ struct WelcomeView: View {
                     start()
                 }
                 .keyboardShortcut(.defaultAction)
-                .opacity(shown > lines.count ? 1 : 0).blur(radius: shown > lines.count ? 0 : 12)
+                .starCalm(feather: 30).opacity(shown > lines.count ? 1 : 0).blur(radius: shown > lines.count ? 0 : 12)
                 .scaleEffect(shown > lines.count ? 1 : 0.85)
                 .animation(.easeOut(duration: 1.4), value: shown)
                 Button(Voice.shared.muted ? "Turn voice on" : "Mute voice") {
@@ -63,7 +63,7 @@ struct WelcomeView: View {
                     shown = shown + 0
                 }.buttonStyle(.link).font(.caption).opacity(shown > lines.count ? 0.7 : 0)
                 Spacer()
-            }.padding(40)
+            }.padding(40).withStars()
         }
         .task {
             try? await Task.sleep(for: .milliseconds(700))
@@ -89,6 +89,7 @@ struct Emerging: View {
             .scaleEffect(visible ? 1 : 0.94)
             .offset(y: visible ? 0 : 14)
             .animation(.easeOut(duration: 1.5), value: visible)
+            .starCalm(feather: 30, floor: 0.15)
     }
 }
 
@@ -165,6 +166,7 @@ struct Stage: View {
                     .foregroundStyle(b.fromMe ? Color.accentColor : .primary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 480)
+                    .starCalm(feather: 30, floor: 0.15)
                     .opacity(on ? max(0.12, 1 - Double(age) * 0.32) : 0)
                     .blur(radius: on ? Double(age) * 0.8 : 14)
                     .scaleEffect(on ? 1 : 0.94)
@@ -205,13 +207,14 @@ struct OnboardingView: View {
             } else {
                 VStack(spacing: 0) {
                     Stage(bubbles: m.bubbles, busy: m.busy)
-                    answerArea.padding(24).frame(maxWidth: .infinity)
+                    answerArea.starCalm(feather: 26, floor: 0.15).padding(24).frame(maxWidth: .infinity)
                         .opacity(m.speaking ? 0 : 1).blur(radius: m.speaking ? 8 : 0)
                         .allowsHitTesting(!m.speaking)
                         .animation(.easeOut(duration: 0.9), value: m.speaking)
                         .id(m.step).transition(.opacity.combined(with: .offset(y: 10)))
                         .animation(.easeOut(duration: 0.8), value: m.step)
                 }
+                .withStars()
             }
         }
         .background(Mist())

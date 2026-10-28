@@ -25,8 +25,9 @@ enum HomeRender {
             return h
         }
     }
-    @MainActor static func scene(_ n: Int) -> AnyView {
+    @MainActor static func scene(_ n: Int, keep: Bool = false) -> AnyView {
         HomeView.still = true
+        HomeView.outerStars = true
         // `home-glass`: drawn over a desktop picture (ONE_DESK=<png>; ONE_GLASS_OLD=1 for the look before the fix).
         if let d = ProcessInfo.processInfo.environment["ONE_DESK"] { HomeView.stillDesk = NSImage(contentsOfFile: d) }
         GlassStill.oldMaterial = ProcessInfo.processInfo.environment["ONE_GLASS_OLD"] == "1"
@@ -34,9 +35,11 @@ enum HomeRender {
         m.assistantName = "Elias"
         m.userName = "Omar"
         ShelfCopy.shared.note = nil
-        m.helpers = helpers(n)
+        if !keep {
+            m.helpers = helpers(n)
+            m.openHelper = nil
+        }
         HomeView.stillClose = closeFirst ? HelperRings.sorted(m.helpers).first?.id : nil
-        m.openHelper = nil
         m.interviewOffered = true
         m.bubbles = [
             Bubble(fromMe: true, text: "Check on everything that's still open"),
@@ -68,7 +71,8 @@ enum HomeRender {
                 .padding(.leading, 18).padding(.trailing, 16).frame(height: 52)
                 HomeView(m: m).frame(height: (n > 22 ? 1200 : n > 15 ? 1000 : 760) - 52, alignment: .top).clipped()
             }
-            .background(HomeView.stillDesk == nil ? AnyView(WorldLook.bg) : AnyView(HomeBackdrop(outer: true)))
+            .withStars(top: 52)
+            .background(HomeBackdrop(outer: true))
             .clipShape(RoundedRectangle(cornerRadius: HomeView.stillDesk == nil ? 0 : 12, style: .continuous))
             .foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
     }

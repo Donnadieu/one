@@ -19,7 +19,7 @@ extension RoutinesPanel {
                     routineCard(r, now: s.now)
                 }
             }
-            .frame(width: 250).offset(x: 890, y: top).transition(.opacity)
+            .frame(width: 250).starCalm().offset(x: 890, y: top).transition(.opacity)
         }
     }
 
@@ -179,6 +179,7 @@ extension RoutinesPanel {
             .padding(.horizontal, 14).padding(.vertical, 10).frame(width: 440, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1E1E22, 0.97)))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Dial.orange.opacity(0.35)))
+            .starCalm()
             .offset(x: Dial.center.x - 40, y: Dial.center.y + 222)
         }
     }
@@ -207,6 +208,7 @@ extension RoutinesPanel {
             .padding(.leading, 14).padding(.trailing, 6).frame(width: 520, height: 40)
             .background(Capsule().fill(Color(hex: 0x1E1E22, 0.97)))
             .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.12)))
+            .starCalm()
             .offset(x: 316, y: 66)
             .transition(.opacity)
             .task {

@@ -186,7 +186,7 @@ struct HomeBackdrop: View {
     var outer = false
     var body: some View {
         GeometryReader { g in
-            if HomeView.stillDesk != nil && !outer { Color.clear } else { layers(g) }
+            if (HomeView.stillDesk != nil || HomeView.outerStars) && !outer { Color.clear } else { layers(g) }
         }
         .ignoresSafeArea()
     }

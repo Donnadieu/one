@@ -19,6 +19,10 @@ struct Routine: Identifiable, Equatable {
     let state: State
     let reason: String?  // why the last run didn't work, in plain words
     var outside = false  // run by a Hermes outside One
+    /// How a run that didn't work went: stopped (nothing says more), cut off by One restarting mid-run
+    /// (what it did before that is done), or partly done (its own report says which part failed).
+    enum Miss: Equatable { case stopped, cut, partly }
+    var miss: Miss = .stopped
 }
 
 struct SkillStar: Identifiable, Equatable {
@@ -94,10 +98,47 @@ enum Routines {
         }
         let (often, today, every) = when(sched, now: now)
         let err = (j["last_error"] as? String) ?? ((j["last_failure"] as? [String: Any])?["detail"] as? String)
-        return Routine(
+        var r = Routine(
             id: id, title: title, what: lastSaid(dir.appendingPathComponent("output/\(id)")), often: often, today: today, every: every,
             lastRun: last, next: st == .finished ? nil : next, state: st,
             reason: (st == .failed || (st == .running && (j["last_status"] as? String) == "error")) ? plainError(err) : nil)
+        r.miss = miss(err)
+        return r
+    }
+
+    /// Titles of One's own routines at work right now. A restart (an update) would cut them off midway.
+    static func inFlight(now: Date = Date()) -> [String] {
+        jobs(at: cron, now: now).filter { $0.state == .running }.map(\.title)
+    }
+
+    /// True when the engine stopped the run because One quit or restarted (an update, a reinstall).
+    static func cutByRestart(_ e: String?) -> Bool {
+        guard let low = e?.lowercased() else { return false }
+        return low.contains("gateway shutdown") || low.contains("sigterm") || low.contains("fire claim") || low == "interrupted"
+    }
+
+    static func miss(_ e: String?) -> Routine.Miss {
+        if cutByRestart(e) { return .cut }
+        let t = (e ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return t.hasPrefix("partly done") || t.hasPrefix("partially done") ? .partly : .stopped
+    }
+
+    /// The card's line under the title when the last run didn't work.
+    static func missLine(_ r: Routine) -> String {
+        switch r.miss {
+        case .cut: return "Cut short when One restarted. What it did before that is done."
+        case .partly: return "Partly done last time."
+        case .stopped: return "Didn't finish last time."
+        }
+    }
+
+    /// The short word for that run on the dial and the card.
+    static func missWord(_ r: Routine) -> String {
+        switch r.miss {
+        case .cut: return "cut short by a restart"
+        case .partly: return "partly done"
+        case .stopped: return "didn't finish"
+        }
     }
 
     /// The first plain sentence of the job's newest result, or what a quiet job does.
@@ -126,8 +167,7 @@ enum Routines {
     static func plainError(_ e: String?) -> String {
         guard let e, !e.isEmpty else { return "It stopped before it finished." }
         let low = e.lowercased()
-        if low.contains("gateway shutdown") || low.contains("sigterm") { return "Stopped halfway because One's engine restarted." }
-        if low == "interrupted" { return "It was interrupted before it finished." }
+        if cutByRestart(e) { return "Stopped partway because One restarted (an update or a reinstall) while it was working." }
         return clip(e, 220)
     }
 

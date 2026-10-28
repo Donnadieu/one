@@ -93,6 +93,11 @@ mkdir -p "$T/hl"  # the test never reads or writes your saved helpers: they go t
 check "trail saved, picked up once at launch with it; finished, stopped-with-Stop and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $TBIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
 grep "✗" "$T/hl/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Lots of helpers survive restarts (stand-in engine, no cost)"
+check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \
+  bash -c "tools/helpers-check.sh --no-build > '$T/hs.txt' 2>&1"
+grep "✗" "$T/hs.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Stop talking just this once"
 mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings
 check "hush drops the rest of that reply, never mutes, the next reply speaks" bash -c "ONE_SUPPORT_DIR=$T/vc $TBIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"

@@ -121,19 +121,23 @@ extension Model {
     func resumeInterrupted() {
         guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
         let picked = HelperTrail.pick(&helpers) { Helpers.brief(assistant: self.assistantName, user: self.userName, task: $0) }
+        // One line for the whole batch: 46 helpers cut off by one restart used to post 46 lines and say each out loud.
+        // Said once per cut-off, not on every retry while a helper's last step finishes.
+        let told = picked.compactMap { p in
+            helpers.first { $0.id == p.id && ($0.busyTries == nil || $0.busyTries == 1) }.map { $0.restartNews ?? HelperTrail.told($0.title) }
+        }
+        if let line = told.count == 1 ? told.first : (told.isEmpty ? nil : HelperTrail.toldMany(told.count)) {
+            bubbles.removeAll { $0.text == line }
+            bubbles.append(Bubble(fromMe: false, text: line))
+            Floater.shared.note(line)
+            Task {
+                for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
+                _ = await Speaker.shared.sayNow(line)  // silent when muted
+            }
+        }
         for p in picked {
             guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
             HelperTrail.flush(h)
-            let line = h.restartNews ?? HelperTrail.told(h.title)
-            if h.busyTries == nil || h.busyTries == 1 {  // said once, not on every retry while its last step finishes
-                bubbles.removeAll { $0.text == line }
-                bubbles.append(Bubble(fromMe: false, text: line))
-                Floater.shared.note(line)
-                Task {
-                    for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
-                    _ = await Speaker.shared.sayNow(line)  // silent when muted
-                }
-            }
             Task { @MainActor in
                 let sid = await HelperTrail.session(
                     old: h.sid, reopen: { await Engine.shared.reopenSession($0) }, open: { await Engine.shared.openSession() })
@@ -172,18 +176,8 @@ extension Model {
     }
 
     func spawnHelper(title: String, task: String, routine: UUID? = nil) {
-        helpers.removeAll {
-            ($0.state == "done" || $0.state == "stopped") && !$0.finishedAway && !$0.waiting && $0.id != openHelper && $0.resumeQueued != true
-                && $0.stoppedByYou != true  // stopped by you: kept (with what it made and Start again) until Got it, or room is needed
-        }
-        // No limit: every helper starts right away (the engine runs all its conversations at once).
-        // Ones they haven't opened yet are the last to make room.
-        while helpers.count >= 4,
-            let k = helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true && !$0.waiting })
-                ?? helpers.firstIndex(where: { $0.state != "working" && $0.resumeQueued != true })
-        {
-            helpers.remove(at: k)
-        }
+        // No limit, and nothing makes room: every helper starts right away (the engine runs all its conversations
+        // at once) and every finished one stays until they dismiss it (orbs used to vanish before they were opened).
         var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
         h.started = Date()
         h.routine = routine
@@ -192,11 +186,10 @@ extension Model {
         let id = h.id
         Task { @MainActor in
             guard let sid = await Engine.shared.openSession() else {
-                self.update(id) {
-                    $0.state = "stopped"
-                    $0.line = "Couldn't start · ask again in a minute"
-                    $0.reply = "I couldn't start this job. Ask \(self.name) again in a minute."
-                }
+                // Never "done" and never left for them to ask again: it waits for the engine and starts when it's back.
+                self.update(id) { HelperTrail.notFinished(&$0, .cutOff) }
+                self.saveTrail(id)
+                self.resumeWhenReady(after: 1)
                 return
             }
             self.update(id) { $0.sid = sid }
@@ -476,8 +469,11 @@ extension Model {
             full = unstopped
             for s in stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         }
-        let (clean, jobs) = Helpers.extract(full)
-        if !jobs.isEmpty {
+        full = Helpers.undouble(full)  // one reply delivered twice shows (and sends its helpers) once
+        let (clean, all) = Helpers.extract(full)
+        let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
+        Helpers.logSkipped(skipped)
+        if !all.isEmpty {
             full = clean
             let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }

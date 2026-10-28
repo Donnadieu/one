@@ -37,12 +37,20 @@ enum Env {
     static var engineDir: URL { support.appendingPathComponent("engine", isDirectory: true) }
     static var ownHermes: String { engineDir.appendingPathComponent(".hermes/bin/hermes").path }
     static var hermesPath: String? {
+        if let t = testEngine { return t }
         if FileManager.default.isExecutableFile(atPath: ownHermes) { return ownHermes }
         // Developer fallback (ONE_USE_SYSTEM_HERMES=1): use an existing install.
         guard ProcessInfo.processInfo.environment["ONE_USE_SYSTEM_HERMES"] == "1" || selfTest else { return nil }
         let h = NSHomeDirectory()
         return ["\(h)/.local/bin/hermes", "/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+    /// A test's stand-in engine (`tools/fake-engine.py`, `make helpers-check`): only ever in a test, never in the person's One.
+    static var testEngine: String? {
+        guard selfTest, let t = ProcessInfo.processInfo.environment["ONE_TEST_ENGINE"], FileManager.default.isExecutableFile(atPath: t) else {
+            return nil
+        }
+        return t
     }
     static func vars() -> [String: String] {
         var e = ProcessInfo.processInfo.environment

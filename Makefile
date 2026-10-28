@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helperstop helpercut learning
+.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helperstop helpercut helpers-check learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -28,6 +28,8 @@ helperstop:       ## stop a helper (button, by asking), it stays stopped; an upd
 	tools/helper-stop-check.sh
 helpercut:        ## helpers cut off by an engine restart show stopped, pick back up, are done only with their answer (real engine)
 	tools/helper-cut-check.sh
+helpers-check:    ## 100 helpers at once, engine killed, One killed, an update, all mid-run: none lost, doubled or falsely done (stand-in engine, free, ~1 min; in preflight)
+	tools/helpers-check.sh
 handoff:          ## a code step handed to the person, end to end on a local test page (no real account, no cost)
 	tools/handoff-check.sh
 learning:         ## tell me when I learn: new skill line + Undo, fixes silent, the remember question (real engine, ~10 min)

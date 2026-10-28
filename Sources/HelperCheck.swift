@@ -211,6 +211,18 @@ enum HelperCheck {
             "a failure is stopped with the reason, never done",
             !HelperTrail.notFinished(&bad, .failed("x")) && bad.state == "stopped" && bad.reply.contains("couldn't finish"))
 
+        // Doubled replies and repeated helper lines start each job once (make helpers-check runs it end to end).
+        let block = "Sending all three now.\n[helper: A | job a]\n[helper: B | job b]"
+        check("a reply delivered twice shows once", Helpers.undouble(block + "\n" + block) == block && Helpers.undouble(block) == block)
+        check("a short reply that just repeats a word is left alone", Helpers.undouble("ha ha") == "ha ha")
+        let jobs = Helpers.unique([("A", "job a"), ("a", "Job  a"), ("B", "job b")], among: []).keep
+        check("the same helper line twice starts one helper", jobs.count == 2)
+        var busy = Helper(title: "B", task: "job b", sid: nil, state: "working", line: "")
+        busy.started = Date()
+        check("a job already at work isn't started again", Helpers.unique([("B", "job b")], among: [busy]).keep.isEmpty)
+        busy.state = "done"
+        busy.started = Date(timeIntervalSinceNow: -600)
+        check("but the same job asked for later is", Helpers.unique([("B", "job b")], among: [busy]).keep.count == 1)
         try? fm.removeItem(at: HelperTrail.folder)
         print(fails == 0 ? "helpers ok" : "helpers FAILED (\(fails))")
         return fails == 0 ? 0 : 1

@@ -84,6 +84,24 @@ final class Engine: @unchecked Sendable {
         if let p, p.isRunning { p.terminate() }
     }
 
+    static let gone = "engine stopped"
+    private func ended(_ dead: Process) {
+        lock.lock()
+        guard proc === dead else {
+            lock.unlock()
+            return  // stopped on purpose (stop(), a restart): already handled there
+        }
+        proc = nil
+        stdin = nil
+        sessionID = nil
+        loaded = []
+        sessionHandlers = [:]
+        let w = waiting
+        waiting = [:]
+        lock.unlock()
+        w.values.forEach { $0(["error": ["message": Engine.gone]]) }
+    }
+
     /// Stops the engine and its background helper so the next start builds a fresh folder lock.
     /// The helper must go too: a new engine reuses a running one, which keeps the old lock.
     func stopForNewAccess() async {
@@ -133,7 +151,7 @@ final class Engine: @unchecked Sendable {
         let profile = Access.profile()
         FolderWatch.engineStarted(profile: profile)
         p.arguments = ["-p", profile, hp, "acp"]
-        if Env.selfTest && Engine.insideLock {
+        if Env.selfTest && (Env.testEngine != nil || Engine.insideLock) {
             // A test run by the assistant itself is already inside the folder lock, where a second lock
             // can't be applied: the test engine runs under that same lock.
             p.executableURL = URL(fileURLWithPath: hp)
@@ -151,6 +169,12 @@ final class Engine: @unchecked Sendable {
             let d = h.availableData
             if !d.isEmpty { self?.feed(d) }
         }
+        // The engine went away by itself (crashed, killed): every call still waiting fails now instead of
+        // hanging for up to 30 minutes, and the helpers it cut off start it again (Model.helperCutOff).
+        p.terminationHandler = { [weak self] dead in self?.ended(dead) }
+        // A write to an engine that just died must fail quietly: by default it kills One itself (SIGPIPE, exit 141),
+        // which took every helper down with it (found by `make helpers-check`).
+        signal(SIGPIPE, SIG_IGN)
         do { try p.run() } catch { return error.localizedDescription }
         lock.lock()
         proc = p
@@ -406,7 +430,7 @@ final class Engine: @unchecked Sendable {
         let h = stdin
         lock.unlock()
         wlock.lock()
-        h?.write(d + Data("\n".utf8))
+        try? h?.write(contentsOf: d + Data("\n".utf8))  // throws (never raises) if the engine is gone
         wlock.unlock()
     }
 

@@ -113,69 +113,6 @@ enum Helpers {
     }
 }
 
-struct NovaWithHelpers: View {
-    @ObservedObject var m: Model
-    @State var stopAsk: UUID?  // a long press on a working helper's orb: ask "Stop this helper?"
-    static func orbTime(_ t: Double, _ i: Int) -> Double { t + Double(i) * 3.1 }
-    static let slots: [CGPoint] = [CGPoint(x: -168, y: -34), CGPoint(x: 168, y: -34), CGPoint(x: -150, y: 76), CGPoint(x: 150, y: 76)]
-    var body: some View {
-        let shown = Array(m.helpers.prefix(4).enumerated())
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: m.helpers.isEmpty)) { tl in
-            let t = tl.date.timeIntervalSince(WorldLook.start)
-            ZStack {
-                Orb(size: 92, active: m.thinking).opacity(m.openHelper == nil ? 1 : 0.5)
-                    .contentShape(Circle())
-                    .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
-                    .help(m.openHelper == nil ? "" : "Back to \(m.name)")
-                    .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
-                ForEach(shown, id: \.element.id) { i, h in
-                    let p = Self.slots[i]
-                    Button {
-                        if stopAsk == h.id { return }  // the long press already asked; this is its release
-                        m.focusHelper(h.id)
-                    } label: {
-                        VStack(spacing: -10) {
-                            HelperOrb(state: h.viewState, t: Self.orbTime(t, i), size: 42)
-                            HelperLabel(
-                                title: Helpers.short(h.title, 24),
-                                line: Helpers.short(h.waiting && h.state == "done" ? "Done · tap to take a look" : h.line, 32),
-                                warm: h.state == "needsYes" || h.waiting)
-                        }.contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(h.state == "working" ? h.line : "Tap to see this job")
-                    .contextMenu { if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } } }
-                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
-                    .popover(isPresented: Binding(get: { stopAsk == h.id }, set: { if !$0 { stopAsk = nil } })) {
-                        HelperStopAsk(title: h.title) { stop in
-                            if stop { m.stopHelper(h.id) }
-                            stopAsk = nil
-                        }
-                    }
-                    .offset(x: p.x + sin(t * 0.4 + Double(i) * 1.7) * 4, y: p.y + sin(t * 0.55 + Double(i) * 2.3) * 5)
-                    .opacity(m.openHelper == nil || m.openHelper == h.id ? 1 : 0.5)
-                    .transition(
-                        .asymmetric(
-                            insertion: .scale(scale: 0.2).combined(with: .opacity),
-                            removal: .offset(x: -p.x, y: -p.y).combined(with: .scale(scale: 0.1)).combined(with: .opacity)))
-                }
-                if m.helpers.count > Self.slots.count { HelperOverflow(count: m.helpers.count - Self.slots.count).offset(y: 116) }
-            }
-            .frame(maxWidth: .infinity).frame(height: m.helpers.isEmpty ? 150 : 250)
-        }
-        .animation(.spring(response: 0.7, dampingFraction: 0.8), value: m.helpers.map(\.id))
-    }
-}
-
-/// More helpers than orbs around the assistant: say how many more are out there.
-struct HelperOverflow: View {
-    let count: Int
-    var body: some View {
-        Text("+\(count) more helper\(count == 1 ? "" : "s") at work")
-            .font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
-    }
-}
-
 struct AwayCard: View {
     @ObservedObject var m: Model
     let hs: [Helper]
@@ -349,34 +286,42 @@ enum Shelf {
 struct ShelfCardView: View {
     let item: ShelfItem
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.07))
+        let f = item.fresh
+        HStack(alignment: .top, spacing: 11) {
+            RoundedRectangle(cornerRadius: 9, style: .continuous).fill(WorldLook.cream.opacity(f ? 0.08 : 0.06))
                 .frame(width: 34, height: 34)
-                .overlay(Image(systemName: item.icon).font(.system(size: 14)).foregroundStyle(Color(hex: 0xFFE2C2)))
+                .overlay(
+                    Image(systemName: item.icon).font(.system(size: 15)).foregroundStyle(f ? Color(hex: 0xF5D3AE) : WorldLook.cream.opacity(0.55)))
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(2)
-                Text(item.detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text("\(item.from) · \(item.when)").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text(item.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(f ? Color.white : WorldLook.cream.opacity(0.78))
+                Text(item.detail).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(f ? 0.62 : 0.48))
+                Text("\(item.from) · \(item.when)").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.36))
             }
+            .lineLimit(1).truncationMode(.tail).padding(.trailing, f ? 10 : 0)
             Spacer(minLength: 0)
-            if item.fresh { Circle().fill(Color(hex: 0xFFE2C2)).frame(width: 6, height: 6).padding(.top, 4) }
         }
-        .padding(10)
+        .padding(.vertical, 12).padding(.leading, 10).padding(.trailing, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(item.fresh ? 0.07 : 0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, item.fresh ? 0.22 : 0.07)))
-        .shadow(color: Color(hex: 0xFFE2C2, item.fresh ? 0.12 : 0), radius: 10)
+        .overlay(alignment: .topTrailing) {
+            if f {
+                Circle().fill(Color(hex: 0xF7DFA6)).frame(width: 7, height: 7).shadow(color: Color(hex: 0xF7DFA6, 0.55), radius: 3)
+                    .padding(.top, 13).padding(.trailing, 12)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(f ? 0.055 : 0.035)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(WorldLook.cream.opacity(f ? 0.22 : 0.06)))
         .contentShape(Rectangle())
     }
 }
 
 struct ShelfPanel: View {
     @ObservedObject var m: Model
+    var collapse: () -> Void = {}
     var body: some View {
         let fresh = m.shelf.filter(\.fresh).count
-        VStack(alignment: .leading, spacing: 8) {
-            ShelfHeader(fresh: fresh) { m.markShelfRead() }
-            ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+            ShelfHeader(fresh: fresh, markAll: { m.markShelfRead() }, collapse: collapse).padding(.horizontal, 4)
+            StillScroll {
                 VStack(spacing: 8) {
                     ForEach(m.shelf) { it in
                         ShelfCardView(item: it)
@@ -391,21 +336,14 @@ struct ShelfPanel: View {
                     }
                 }
             }
-            Button {
-                NSWorkspace.shared.open(Shelf.folder)
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "folder").font(.system(size: 10))
-                    Text("All saved in Documents › Made by \(Shelf.who)").font(.system(size: 10.5))
-                }
-            }.buttonStyle(.plain).foregroundStyle(.secondary)
+            ShelfFooter()
         }
-        .padding(14).frame(width: 250)
-        .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 34) }
+        .padding(.top, 14).padding(.horizontal, 12).frame(width: 260)
+        .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 50) }
         .onAppear { ShelfCopy.shared.start() }
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.07)))
-        .padding(.vertical, 14).padding(.trailing, 14)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WorldLook.cream.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.06)))
+        .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
         .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelf.map(\.id))
     }
 }

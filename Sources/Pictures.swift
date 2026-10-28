@@ -111,6 +111,16 @@ struct SharedFile: Identifiable {
         o.message = "Pick pictures or files to give your assistant"
         if o.runModal() == .OK { _ = addURLs(o.urls) }
     }
+    static func pickPhoto() {
+        let o = NSOpenPanel()
+        o.allowsMultipleSelection = true
+        o.canChooseDirectories = false
+        o.allowedContentTypes = [.image]
+        o.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+        o.message = "Pick photos to give your assistant"
+        if o.runModal() == .OK { _ = addURLs(o.urls) }
+    }
+    static func screenshot() { ScreenGrab.run() }
     static func drop(_ providers: [NSItemProvider]) -> Bool {
         var any = false
         for pr in providers {
@@ -204,5 +214,20 @@ struct PictureStrip: View {
                 Spacer()
             }.padding(.horizontal, 6)
         }
+    }
+}
+
+/// The ask box's + › Screenshot: Apple's own screen grab (drag over part of the screen, Space for a window).
+@MainActor enum ScreenGrab {
+    /// Drag over part of the screen (or press Space for a window); the picture goes with the next message.
+    static func run() {
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("One screenshot \(Int(Date().timeIntervalSince1970)).png")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-i", f.path]
+        p.terminationHandler = { _ in
+            DispatchQueue.main.async { if FileManager.default.fileExists(atPath: f.path) { _ = PictureIn.addURLs([f]) } }
+        }
+        try? p.run()
     }
 }

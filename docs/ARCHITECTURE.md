@@ -47,7 +47,10 @@
 | SelectCheck.swift | dev only | `One --test-select <case\|all>`: drag-select, ⌘C, ⌘A, right-click copy, link, choice row, scroll wheel, sent into a test window |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
-| HomeView.swift | UI | home screen, ideas to try, choice buttons, ask cards |
+| HomeView.swift | UI | home screen (greeting, helpers, last reply, ask box with + menu), choice buttons, ask cards |
+| HelperConstellation.swift | UI | every helper as an orb on dashed orbits around the assistant, no limit (Claude Design "Helper View Options", A · Constellation): `HelperRings` layout checkpoints 4/8/10/15 and more orbits past 15, dust, hover pill |
+| HomeChrome.swift | UI | home's title row (name pill, icon buttons, outlined Stop), `HomeBackdrop`, `StillScroll` for renders |
+| HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |
 | ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]` (from a test copy): opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |

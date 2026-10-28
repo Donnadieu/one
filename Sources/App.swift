@@ -402,15 +402,12 @@ struct Entry {
                     ("shelf-read-done", ShelfReadRender.panel(read: true)),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
-                    (
-                        "helpers-more",
-                        AnyView(
-                            VStack(spacing: -10) {
-                                HelperOrb(state: .working, t: 21.7, size: 42)
-                                HelperLabel(title: "Hotel in Quebec", line: "Working on it…")
-                                HelperOverflow(count: 2).padding(.top, 22)
-                            }.padding(30).background(WorldLook.bg).environment(\.colorScheme, .dark))
-                    ),
+                    ("home-4", AnyView(EmptyView())),
+                    ("home-8", AnyView(EmptyView())),
+                    ("home-10", AnyView(EmptyView())),
+                    ("home-15", AnyView(EmptyView())),
+                    ("home-22", AnyView(EmptyView())),
+                    ("home-33", AnyView(EmptyView())),
                     ("helper-states", AnyView(HelperStatesScene())),
                     ("helper-stop", AnyView(HelperStopScene())),
                     ("helper-stop-working", AnyView(HelperStopScene(working: true))),
@@ -428,6 +425,12 @@ struct Entry {
                 for (name, v) in views {
                     if name.hasPrefix("rooms-") {
                         RoomsRender.png(v, "\(out)-\(name).png")
+                        print("wrote \(out)-\(name).png")
+                        continue
+                    }
+                    if name.hasPrefix("home-") {
+                        let n = Int(name.dropFirst(5)) ?? 4
+                        HomeRender.png(HomeRender.scene(n), "\(out)-\(name).png", height: n > 22 ? 1200 : n > 15 ? 1000 : 760)
                         print("wrote \(out)-\(name).png")
                         continue
                     }

@@ -278,15 +278,13 @@ struct Entry {
             MainActor.assumeIsolated { OrbVoiceRender.run(clip: args[k + 1], out: args[k + 2]) }
             exit(0)
         }
-        if let k = args.firstIndex(of: "--render-rooms-fly"), k + 1 < args.count {
-            MainActor.assumeIsolated { RoomsRender.fly(args[k + 1], room: k + 2 < args.count ? args[k + 2] : "Co-Founder") }
-            exit(0)
-        }
+        RoomsRender.flyCLI(args)  // --render-rooms-fly <png> [room]
         if args.contains("--test-shelf-copy"), let k = args.firstIndex(of: "--test-shelf-copy"), k + 1 < args.count {
             TestWorld.enter()  // only the clipboard is touched
             let ok = MainActor.assumeIsolated { ShelfCopy.check(args[k + 1], stop: k + 2 < args.count ? args[k + 2] : nil) }
             exit(ok ? 0 : 1)
         }
+        RoutinesRender.cli(args)  // --render-routines <png>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {

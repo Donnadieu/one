@@ -5,6 +5,11 @@ import SwiftUI
 
 @MainActor
 enum RoomsRender {
+    nonisolated static func flyCLI(_ args: [String]) {
+        guard let k = args.firstIndex(of: "--render-rooms-fly"), k + 1 < args.count else { return }
+        MainActor.assumeIsolated { fly(args[k + 1], room: k + 2 < args.count ? args[k + 2] : "Co-Founder") }
+        exit(0)
+    }
     static let size = CGSize(width: 1280, height: 820)
 
     /// A still frame: all rooms, inside a room, or a note open.

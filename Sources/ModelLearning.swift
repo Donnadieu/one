@@ -252,8 +252,9 @@ extension Model {
         await send(c)
     }
 
-    func learnPick(_ c: String) async -> Bool {
-        let hid = openHelper
+    /// `helper`: answer an offer from a given chat (the Routines panel); default is the chat on screen.
+    func learnPick(_ c: String, helper: UUID?? = nil) async -> Bool {
+        let hid = helper ?? openHelper
         guard
             let k = learning.offers.lastIndex(where: { o in
                 o.helper == hid && ((o.kind == "undo" && c == Learning.undo) || (o.kind == "ask" && (c == Learning.yes || c == Learning.no)))

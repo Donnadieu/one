@@ -167,6 +167,7 @@ struct HomeView: View {
                 ShelfOpened(m: m, item: it).transition(.opacity)
             }
         }
+        .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
             if writing {

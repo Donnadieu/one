@@ -423,6 +423,8 @@ struct Entry {
                             WorldCanvas(t: 60, lit: nil, picking: true, linked: ["Email": 50, "Files": 52, "Calendar": 59.6], speaking: false)
                                 .background(WorldLook.bg))
                     ),
+                    ("long-start", AnyView(EmptyView())), ("long-middle", AnyView(EmptyView())), ("long-end", AnyView(EmptyView())),
+                    ("long-panel", AnyView(EmptyView())),
                 ]
                 for (name, v) in views {
                     if name.hasPrefix("rooms-") {
@@ -430,6 +432,7 @@ struct Entry {
                         print("wrote \(out)-\(name).png")
                         continue
                     }
+                    if LongMessageRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
                         let n = Int(name.dropFirst(5)) ?? 4
                         HomeRender.png(HomeRender.scene(n), "\(out)-\(name).png", height: n > 22 ? 1200 : n > 15 ? 1000 : 760)

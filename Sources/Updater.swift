@@ -47,6 +47,8 @@ final class Updater: ObservableObject {
     private var etag: String?
     private var lastList: Data?
     private var lastCheck = Date.distantPast
+    /// "Later" lasts only until One is opened again: it lives in memory, never in settings.
+    private(set) var laterThisRun: String?
     private(set) var wait = Updater.every  // grows after errors and rate limits, back to 15 minutes after a good check
     /// Versions already announced (newest last); tests read this.
     var announced: [String] { Updater.store.stringArray(forKey: "updateAnnounced") ?? [] }
@@ -99,9 +101,7 @@ final class Updater: ObservableObject {
         lastList = data
         wait = Updater.every
         guard let best = Updater.pick(list, current: cur ?? current) else { return }
-        let d2 = UserDefaults.standard
-        let laterAgo = Date().timeIntervalSince1970 - d2.double(forKey: "updateSkippedAt")
-        if d2.string(forKey: "updateSkipped") != best.0 || (available == nil && laterAgo > 6 * 3600) {
+        if laterThisRun != best.0 {
             available = (best.0, best.1, best.2)
         }
         announce(best.0, notes: best.1)
@@ -119,7 +119,12 @@ final class Updater: ObservableObject {
         UpdateAlerts.post(title: "A new version of One is ready", body: first)
         Model.shared.updateReady()
     }
+    /// The notification was clicked: undo this run's "Later" so the card comes back.
+    func forgetLater() { laterThisRun = nil }
     func loop() {
+        // Older versions kept "Later" for 6 hours across restarts; clear what they left behind.
+        UserDefaults.standard.removeObject(forKey: "updateSkipped")
+        UserDefaults.standard.removeObject(forKey: "updateSkippedAt")
         UpdateAlerts.setUp()
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in
@@ -202,8 +207,7 @@ final class Updater: ObservableObject {
         NSApp.terminate(nil)
     }
     func later() {
-        if let a = available { UserDefaults.standard.set(a.version, forKey: "updateSkipped") }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "updateSkippedAt")
+        if let a = available { laterThisRun = a.version }
         available = nil
     }
 }

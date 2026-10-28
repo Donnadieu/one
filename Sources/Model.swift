@@ -114,7 +114,7 @@ final class Model: ObservableObject {
         openHelper = nil
         Floater.shared.openMain()
         if Updater.shared.available == nil {
-            UserDefaults.standard.removeObject(forKey: "updateSkipped")
+            Updater.shared.forgetLater()
             Task { await Updater.shared.check() }
         }
     }

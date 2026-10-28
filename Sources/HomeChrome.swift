@@ -174,17 +174,121 @@ struct HomeTitleRow: ViewModifier {
     }
 }
 
-/// Home's background: One's dark with a very soft lift behind the assistant (design: #1B1B1F at 38% / 46%).
+/// Home's background: smoked glass (Omar picked it in Claude Design "Home Transparency"). The desktop shows
+/// through a dark tint (#1C1C20) at `Glass.solid` (70% unless moved with the See-through slider in the name card),
+/// with the soft lift behind the assistant on top.
 struct HomeBackdrop: View {
+    @AppStorage(Glass.key) var solid = Glass.standard
     var body: some View {
         GeometryReader { g in
             ZStack {
-                WorldLook.bg
+                if HomeView.still { WorldLook.bg } else { WindowGlass() }
+                Color(hex: 0x1C1C20).opacity(Glass.clamp(solid))
                 RadialGradient(
-                    colors: [Color(hex: 0x1B1B1F), WorldLook.bg], center: UnitPoint(x: 0.38, y: 0.46), startRadius: 0,
-                    endRadius: max(g.size.width, g.size.height) * 0.55 * 0.65)
+                    colors: [Color(hex: 0x24242A, 0.55), .clear], center: UnitPoint(x: 0.38, y: 0.46), startRadius: 0,
+                    endRadius: max(g.size.width, g.size.height) * 0.36)
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+/// How solid the window is: 1 = no desktop showing, lower = more see-through.
+enum Glass {
+    static let key = "windowSolid"
+    static let standard = 0.70
+    static let range = 0.40...1.0
+    static func clamp(_ v: Double) -> Double { min(range.upperBound, max(range.lowerBound, v)) }
+    /// Very see-through: the shelf and the ask box get a darker base so their words stay readable.
+    static func thin(_ v: Double) -> Bool { clamp(v) < 0.62 }
+}
+
+/// The blurred desktop behind One's window. Makes the window itself clear while home is on screen, and puts it
+/// back the way it was when home goes away (setup screens stay solid).
+struct WindowGlass: NSViewRepresentable {
+    final class Host: NSVisualEffectView {
+        weak var held: NSWindow?
+        var wasOpaque = true
+        var wasColor: NSColor?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let w = window {
+                held = w
+                wasOpaque = w.isOpaque
+                wasColor = w.backgroundColor
+                w.isOpaque = false
+                w.backgroundColor = .clear
+            }
+        }
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil, let w = held {
+                w.isOpaque = wasOpaque
+                w.backgroundColor = wasColor
+                held = nil
+            }
+            super.viewWillMove(toWindow: newWindow)
+        }
+    }
+    func makeNSView(context: Context) -> Host {
+        let v = Host()
+        v.material = .underWindowBackground
+        v.blendingMode = .behindWindow
+        v.state = .active
+        v.appearance = NSAppearance(named: .darkAqua)
+        return v
+    }
+    func updateNSView(_ v: Host, context: Context) {}
+}
+
+/// The name card's "See-through" row: how much of the desktop shows through home (Solid 100% to Glass 40%).
+struct SeeThroughRow: View {
+    @AppStorage(Glass.key) var solid = Glass.standard
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("SEE-THROUGH").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(WorldLook.cream.opacity(0.5))
+                Spacer()
+                Text("\(Int((Glass.clamp(solid) * 100).rounded()))%").font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                    .foregroundStyle(WorldLook.cream.opacity(0.75))
+            }
+            GlassSlider(solid: $solid)
+            HStack {
+                Text("Solid")
+                Spacer()
+                Text("Glass")
+            }
+            .font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45))
+        }
+    }
+}
+
+/// A slim cream slider: left = solid, right = glass. Moving it changes the window on the spot.
+struct GlassSlider: View {
+    @Binding var solid: Double
+    var body: some View {
+        GeometryReader { g in
+            let lo = Glass.range.lowerBound
+            let hi = Glass.range.upperBound
+            let f = (hi - Glass.clamp(solid)) / (hi - lo)  // 0 at Solid, 1 at Glass
+            let w = g.size.width - 16
+            ZStack(alignment: .leading) {
+                Capsule().fill(WorldLook.cream.opacity(0.14)).frame(height: 3).padding(.horizontal, 8)
+                Capsule().fill(WorldLook.cream.opacity(0.7)).frame(width: max(0, w * f), height: 3).padding(.leading, 8)
+                Circle().fill(WorldLook.cream).frame(width: 16, height: 16).shadow(color: .black.opacity(0.4), radius: 3, y: 1)
+                    .offset(x: w * f)
+            }
+            .frame(height: 20).contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0).onChanged { v in
+                    let k = min(1, max(0, (v.location.x - 8) / w))
+                    solid = ((hi - k * (hi - lo)) * 100).rounded() / 100
+                })
+        }
+        .frame(height: 20)
+        .accessibilityElement().accessibilityLabel("See-through")
+        .accessibilityValue("\(Int((Glass.clamp(solid) * 100).rounded())) percent solid")
+        .accessibilityAdjustableAction { d in
+            solid = Glass.clamp(solid + (d == .increment ? -0.05 : 0.05))
+        }
     }
 }

@@ -20,6 +20,7 @@ struct HomeView: View {
     @State var meCard = false
     @AppStorage("shelfCollapsed") var shelfCollapsed = false
     @AppStorage("voiceMuted") var voiceOff = false
+    @AppStorage(Glass.key) var solid = Glass.standard
     @ObservedObject var l = Listener.shared
     @State var micDownAt: Date?
     @State var micLatched = false
@@ -292,6 +293,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, 8).frame(height: 52)
             .background(Capsule().fill(WorldLook.cream.opacity(0.05)))
+            .background(Capsule().fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
             .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
             .frame(maxWidth: 620)
             .animation(.easeOut(duration: 0.15), value: draft.isEmpty)

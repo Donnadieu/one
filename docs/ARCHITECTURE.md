@@ -49,7 +49,7 @@
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
 | HomeView.swift | UI | home screen (greeting, helpers, last reply, ask box with + menu), choice buttons, ask cards |
 | HelperConstellation.swift | UI | every helper as an orb on dashed orbits around the assistant, no limit (Claude Design "Helper View Options", A · Constellation): `HelperRings` layout checkpoints 4/8/10/15 and more orbits past 15, dust, hover pill |
-| HomeChrome.swift | UI | home's title row (name pill, icon buttons, outlined Stop), `HomeBackdrop`, `StillScroll` for renders |
+| HomeChrome.swift | UI | home's title row (name pill, icon buttons, outlined Stop), smoked-glass `HomeBackdrop` (`WindowGlass` blur behind the window, tint at `Glass.solid`), the name card's See-through slider, `StillScroll` for renders |
 | HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |

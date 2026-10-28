@@ -246,6 +246,7 @@ struct Entry {
             MainActor.assumeIsolated { SelectCheck.run(k + 1 < args.count ? args[k + 1] : "reply") }
             exit(0)
         }
+        FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         if let k = args.firstIndex(of: "--test-connections-open") {
             TestWorld.enter()  // a test copy only: one window, the Connections sheet opened in it
             MainActor.assumeIsolated {

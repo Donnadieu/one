@@ -481,7 +481,11 @@ struct FolderSheet: View {
     let common = ["Desktop", "Documents", "Downloads"].map { NSHomeDirectory() + "/" + $0 }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Which folders can I see?").font(.title2.bold())
+            Text("Which folders can I see?").font(.title2.bold()).onGeometryChange(for: CGRect.self) {
+                $0.frame(in: .global)
+            } action: {
+                FolderSheet.seen["title"] = $0
+            }
             Text("Everything else stays locked. You can change this any time.").foregroundStyle(.secondary)
             HStack {
                 ForEach(common, id: \.self) { f in
@@ -489,23 +493,51 @@ struct FolderSheet: View {
                 }
             }
             Button("Choose another folder…", action: pick)
-            ForEach(folders.filter { !common.contains($0) }, id: \.self) { f in
-                HStack {
-                    Image(systemName: "folder").font(.system(size: 13, weight: .light))
-                    Text((f as NSString).abbreviatingWithTildeInPath)
-                    Spacer()
-                    Button("Remove") { toggle(f) }.buttonStyle(.link)
+            if !extra.isEmpty {
+                // Only the list scrolls: the title, the buttons and Done always stay in view.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Self.gap) {
+                        ForEach(extra, id: \.self) { f in
+                            HStack {
+                                Image(systemName: "folder").font(.system(size: 13, weight: .light))
+                                Text((f as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                Button("Remove") { toggle(f) }.buttonStyle(.link)
+                            }.frame(height: Self.row)
+                        }
+                    }
                 }
+                .scrollIndicators(extra.count * Int(Self.row + Self.gap) > Int(Self.listMax) ? .visible : .never)
+                .frame(height: listHeight)
             }
-            Spacer()
             HStack {
                 Spacer()
                 Button("Done") {
                     m.setFolders(folders)
                     done()
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            }
-        }.padding(24).frame(width: 480, height: 360)
+                    .onGeometryChange(for: CGRect.self) {
+                        $0.frame(in: .global)
+                    } action: {
+                        FolderSheet.seen["done"] = $0
+                    }
+            }.padding(.top, 8)
+        }.padding(24).frame(width: 480).fixedSize(horizontal: false, vertical: true)
+    }
+    /// Where the title and Done last landed (window coordinates), read by `--test-folders-fit`.
+    static var seen: [String: CGRect] = [:]
+    static let row: CGFloat = 16
+    static let gap: CGFloat = 14
+    /// The tallest the folder list gets before it scrolls: what's left of the screen after the rest of the
+    /// window (title, buttons, Done, margins) and some room above and below, never more than 15 rows.
+    static var listMax: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(row * 3 + gap * 2, min(screen - 340, row * 15 + gap * 14))
+    }
+    var extra: [String] { folders.filter { !common.contains($0) } }
+    var listHeight: CGFloat {
+        let n = CGFloat(extra.count)
+        return min(n * Self.row + max(0, n - 1) * Self.gap, Self.listMax)
     }
     func toggle(_ p: String) { if let i = folders.firstIndex(of: p) { folders.remove(at: i) } else { folders.append(p) } }
     func pick() {

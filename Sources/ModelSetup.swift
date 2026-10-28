@@ -78,7 +78,8 @@ extension Model {
         }
         if onboarded {
             Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
-            Task { _ = await Engine.shared.start() }
+            // No restart here: Done with an unchanged list used to restart the engine at once and cut off every
+            // helper at work. `FolderWatch` restarts by itself when the list really changed, once nothing is busy.
         }
     }
 

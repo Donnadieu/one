@@ -116,6 +116,15 @@ final class StepPage: ObservableObject {
         send("Page.startScreencast", ["format": "jpeg", "quality": 80, "everyNthFrame": 1])
     }
 
+    /// The socket only (no picture stream): used by checks.
+    func connectQuiet() {
+        guard socket == nil, let u = URL(string: "ws://127.0.0.1:\(port)/devtools/page/\(target)") else { return }
+        let s = URLSession(configuration: .ephemeral).webSocketTask(with: u)
+        socket = s
+        s.resume()
+        listen(s)
+    }
+
     func disconnect() {
         guard let s = socket else { return }
         send("Page.stopScreencast")

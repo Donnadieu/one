@@ -48,7 +48,11 @@ enum BrowserKeeper {
         return p
     }
 
+    /// `One --test-human-window` only: a throwaway browser (own port, copied profile), never the shared one.
+    nonisolated(unsafe) static var planOverride: Plan?
+
     static var plan: Plan? {
+        if let o = planOverride { return o }
         let cfg = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
         return plan(config: cfg, settings: try? Data(contentsOf: settingsFile))
     }
@@ -150,7 +154,7 @@ enum BrowserKeeper {
 
     /// Called every few seconds from its own loop (App.swift).
     static func tend() {
-        if Env.selfTest || Env.commandLine { return }
+        if (Env.selfTest || Env.commandLine) && planOverride == nil { return }
         guard let p = plan else { return log("no local browser set up") }
         // A robot check is open in a plain Chrome window on this profile: leave it alone until it's done.
         if HumanCheck.active != nil { return log("a human check window is open on the saved profile; the hidden browser waits") }

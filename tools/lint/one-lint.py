@@ -123,6 +123,18 @@ def r_popup_glass(path, lines):
         if re.search(r'Color\.black\.opacity\(', code) and any("onTapGesture" in x for x in lines[i - 1:i + 2]):
             yield i, "hand-made dim backdrop"
 
+# Oct 28, 0.9.51-0.9.53: the card's "Yes, show it" called the live view's show() directly, so the real Chrome
+# window (HumanCheck) never opened and Omar got a window with no address bar he couldn't click in.
+def r_live_view_show(path, lines):
+    if path.endswith("HumanStepCheck.swift"): return   # the live view's own check
+    inside = False
+    for i, l in enumerate(lines, 1):
+        code = l.split("//", 1)[0]
+        if re.search(r'func showHumanStep\(', code): inside = True
+        elif re.search(r'^\s*(func|var|static func|struct|enum|final class|class)\b', code) and inside and "showHumanStep" not in code: inside = False
+        if re.search(r'HumanStep\.windows\[[^\]]*\]\??\.show\(\)', code) and not inside:
+            yield i, "shows the live view directly"
+
 RULES = {
     "file-length":   (r_file_length,   "Big files are hard to read and to edit safely.",
                       "Move whole declarations into a new file in Sources/ for that area (see docs/ARCHITECTURE.md)."),
@@ -144,6 +156,8 @@ RULES = {
                       "Open a visible draft instead (Bridge --mail draft)."),
     "no-secrets":    (r_secret_in_source,"The repo is public.",
                       "Load it at build time from outside the repo, or from the user's Keychain at run time."),
+    "human-window":  (r_live_view_show,"After their yes a person gets a real Chrome window with an address bar, not the live view.",
+                      "Call Model.shared.showHumanStep(a); it opens the real window and falls back to the live view itself."),
     "popup-glass":   (r_popup_glass,   "Every pop-up wears the same glass and closes with its X, a click outside and Esc.",
                       "Use PopupStage(close:) { size in … } or .onePopup(shown, close:) { size in … } (Sources/PopupGlass.swift); no .sheet/.popover/.alert or own dim."),
 }

@@ -150,7 +150,8 @@ enum BrowserCheck {
         expect(!h.contains("-g"), "the check window comes to the front (their tap on Show the window is the yes)")
         let ask = HumanStepAsk(id: "x", site: "claude.ai", kind: "check", line: "", port: 9223, target: "t", url: "https://claude.ai/")
         let code = HumanStepAsk(id: "y", site: "claude.ai", kind: "code", line: "", port: 9223, target: "t", url: "https://claude.ai/")
-        expect(HumanCheck.wanted(ask) && !HumanCheck.wanted(code), "only robot checks get the plain window; codes keep the live view")
+        expect(HumanCheck.wanted(ask) && HumanCheck.wanted(code), "every step only a person can do gets the real Chrome window, never the live view")
+        expect(HumanCheck.watchesCookie("check") && !HumanCheck.watchesCookie("code"), "only a robot check ends by itself on its cookie")
         expect(
             HumanCheckCard.siteName(site: "claude.ai", url: "https://claude.ai/design/p/1") == "Claude Design"
                 && HumanCheckCard.siteName(site: "amazon.com", url: "https://amazon.com/") == "amazon.com",

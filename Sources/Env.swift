@@ -54,6 +54,8 @@ enum Env {
         e["TERM"] = "dumb"
         // One's folder lock already wraps everything; Chrome can't start a second sandbox inside it.
         e["AGENT_BROWSER_ARGS"] = "--no-sandbox,--disable-dev-shm-usage"
+        // Never a browser window on their screen: the engine's browser tools stay hidden (see BrowserGuard).
+        e["AGENT_BROWSER_HEADED"] = "false"
         e["HERMES_YOLO_MODE"] = "1"  // regular people can't judge "script execution" prompts
         // The browser helper keeps its files in ~/.config by default, which the folder lock closes.
         e["BH_HOME"] = support.appendingPathComponent("browser").path
@@ -130,6 +132,7 @@ enum Access {
             (deny file-read-data file-write* (subpath "\(h)"))
             (allow file-read-data \((ro + rw).map(q).joined(separator: " ")))
             (allow file-write* \(rw.map(q).joined(separator: " ")))
+            (deny file-write* \(BrowserGuard.lockedPaths.map(q).joined(separator: " ")))
             """
     }
 }

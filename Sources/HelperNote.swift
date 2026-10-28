@@ -9,6 +9,7 @@ extension Helpers {
         let user = UserDefaults.standard.string(forKey: "userName") ?? ""
         return
             "\n\n(One app note, not from the user: You are a helper working on one job. Do the work yourself with your own tools. Never write [helper: …] lines; they do nothing here. If the job truly needs a separate parallel job, say so in one plain line and \(user.isEmpty ? "their" : user + "'s") assistant will send it.)"
+            + BrowserGuard.note
     }
     static func forHelper(_ text: String) -> String {
         text.contains("(One app note, not from the user: You are a helper working on one job.") ? text : text + helperNote

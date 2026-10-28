@@ -1,0 +1,6 @@
+name: one-browser-guard
+version: "1.0.0"
+description: "One: no visible browser window unless the person said yes to that exact window. Blocks terminal/execute_code commands that would open, show or drive a visible browser (open -a, osascript, a browser started without --headless, webbrowser.open, headless=False), logs each block, and lets one window through after a yes in One's chat."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - pre_tool_call

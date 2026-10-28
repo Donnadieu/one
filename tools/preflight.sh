@@ -120,6 +120,14 @@ check "a folder you never approved is blocked" bash -c "! sandbox-exec -f '$T/on
 rm -rf "$PROBE"
 check "SSH keys are not writable" bash -c "! sandbox-exec -f '$T/one.sb' /usr/bin/touch '$HOME/.ssh/one-preflight' 2>/dev/null"
 check "KeePassXC settings readable" bash -c "grep -q 'Application Support/KeePassXC' '$T/one.sb'"
+mkdir -p "$SUP/guard/allow"
+check "the engine can't write a yes for a browser window (only One can)" bash -c "! sandbox-exec -f '$T/one.sb' /usr/bin/touch '$SUP/guard/allow/preflight-probe.json' 2>/dev/null"
+check "the engine can't change the browser guard" bash -c "grep -F '(deny file-write*' '$T/one.sb' | grep -q 'plugins/one-browser-guard'"
+rm -f "$SUP/guard/allow/preflight-probe.json"
+
+echo "No browser window without their yes"
+check "visible launches blocked (open -a, AppleScript, no --headless), logged, one window per yes" /usr/bin/python3 tools/browser-guard-check.py
+[ $CI = 0 ] && check "the real engine loads the guard and blocks a visible browser" tools/browser-guard-engine-check.sh
 
 echo "Updater"
 mkdir -p "$T/upd"; tools/test-copy.sh preflight-old "$T/upd" >/dev/null

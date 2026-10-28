@@ -31,6 +31,7 @@ extension Model {
                 ))
         }
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
+        await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
@@ -400,6 +401,7 @@ extension Model {
     func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard let c = compose(text) else { return }
+            BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.
             if paused || h.state == "working" { return followUp(c, helper: hid, hidden: false) }
             await ensureEngine()
@@ -409,6 +411,7 @@ extension Model {
         }
         guard let c = compose(text) else { return }
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
+        if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy (or stopped): the message goes into the running turn as it runs, or waits next up. Never a second turn, never a stop.
         if paused || thinking { return followUp(c, helper: nil, hidden: hidden) }
         thinking = true  // taken now, before any wait, so two sends can never both start a turn

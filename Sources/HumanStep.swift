@@ -52,7 +52,7 @@ enum HumanStep {
 
     /// The line in the chat, word for word (the engine sends the same one).
     static func line(site: String, kind: String) -> String {
-        "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). A Chrome window is open on it. Enter it there, then tap Done."
+        "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). Tap Show the window to do it there, then tap Done."
     }
 
     /// "done" or "away". The engine reads it and carries on.
@@ -81,7 +81,7 @@ extension Model {
             humanSteps.append(a)
             let w = StepWindow(a) { [weak self] answer in self?.answerHumanStep(a.id, answer) }
             HumanStep.windows[a.id] = w
-            w.show()
+            // Never put a window in front on its own: their tap on "Show the window" is the yes (BrowserGuard rule).
             if !Voice.shared.muted { Task { _ = await Speaker.shared.sayNow(a.line) } }
         }
         for a in humanSteps where !now.contains(where: { $0.id == a.id }) { closeHumanStep(a.id) }
@@ -110,8 +110,7 @@ struct HumanStepCard: View {
                 Button("Done") { answer("done") }.buttonStyle(.borderedProminent)
                 Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
                 Spacer()
-                Button("Show the window") { HumanStep.windows[a.id]?.show() }.buttonStyle(.plain).font(.callout)
-                    .foregroundStyle(.secondary)
+                Button("Show the window") { HumanStep.windows[a.id]?.show() }.buttonStyle(.bordered)
             }
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)

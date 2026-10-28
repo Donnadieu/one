@@ -41,7 +41,9 @@ enum BrowserKeeper {
             let port = (j["port"] as? Int) ?? p?.port
             guard let port else { return nil }
             let prof = (j["profile"] as? String).map { NSString(string: $0).expandingTildeInPath } ?? defaultProfile
-            p = Plan(port: port, profile: prof, headless: (j["headless"] as? Bool) ?? true)
+            // Always hidden: a visible window needs the person's yes to that exact window (BrowserGuard), never a settings file.
+            if (j["headless"] as? Bool) == false { log("keeper.json asked for a visible browser window; One keeps it hidden") }
+            p = Plan(port: port, profile: prof, headless: true)
         }
         return p
     }
@@ -57,8 +59,8 @@ enum BrowserKeeper {
     }
 
     static func launchArguments(_ p: Plan, app: String) -> [String] {
-        var a = ["-g", "-n", "-a", app, "--args"]
-        if p.headless { a.append("--headless=new") }
+        // Hidden no matter what the plan says: no browser window on their screen without their yes.
+        var a = ["-g", "-n", "-a", app, "--args", "--headless=new"]
         a += [
             "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--no-first-run", "--no-default-browser-check",
             "--window-size=1440,900", "--disable-blink-features=AutomationControlled", "about:blank",

@@ -48,7 +48,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--test-helper-stop") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-stop-check.sh)
-            Task { @MainActor in exit(await HelperStopCheck.run()) }
+            Task { @MainActor in exit(CommandLine.arguments.contains("--cut") ? await HelperCutCheck.run() : await HelperStopCheck.run()) }
             return
         }
         if CommandLine.arguments.contains("--test-update-helpers") {

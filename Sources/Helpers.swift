@@ -32,6 +32,7 @@ struct Helper: Identifiable, Codable {
     var stoppedByYou: Bool?  // stopped on purpose (the Stop button): never picked back up after a restart
     var updatePaused: Bool?  // paused so an update could install: picks back up after the restart, never counted as a cut-off
     var pausedFor: String?  // what the pause was for, in plain words ("a new folder"); nil = the update
+    var busyTries: Int?  // its old turn was still finishing when it was picked back up: retries so far (HelperFinish)
     var seen: Bool?  // false: finished and not opened yet (orange until they tap it). nil = from before this existed: seen.
     var routine: UUID?  // sent for a good morning / status report: the assistant gives one combined report when the batch is done
     /// Finished, but they haven't opened it yet.

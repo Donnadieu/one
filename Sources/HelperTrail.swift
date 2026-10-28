@@ -124,7 +124,8 @@ enum HelperTrail {
             let reason = hs[k].pausedFor
             hs[k].updatePaused = nil
             hs[k].pausedFor = nil
-            if !update { hs[k].resumes = (hs[k].resumes ?? 0) + 1 }
+            // A retry while its old turn was still finishing isn't another cut-off.
+            if !update, hs[k].busyTries == nil { hs[k].resumes = (hs[k].resumes ?? 0) + 1 }
             hs[k].state = "working"
             hs[k].line = "Picking up where it left off…"
             hs[k].restartNews = update ? toldUpdate(hs[k].title, for: reason) : told(hs[k].title)

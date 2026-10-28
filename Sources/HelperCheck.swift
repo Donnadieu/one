@@ -178,6 +178,39 @@ enum HelperCheck {
             "several finished in one reply share one line",
             Helpers.doneNote([a, b], user: "Omar").contains("By the way, Flights and Hotels are done. Tap them"))
 
+        // Only a real, complete answer is "done" (Oct 28: an engine restart flipped seven half-done helpers to done).
+        let half = "\n\nNow the engine plugin."
+        check("a finished answer is done", HelperEnd.of(stop: "end_turn", reply: "Here are the 3 designs.") == .finished)
+        check("the engine restarting under it is a cut-off", HelperEnd.of(stop: "error: stopped", reply: half) == .cutOff)
+        check(
+            "a dropped connection is a cut-off",
+            HelperEnd.of(stop: "error: Gateway disconnected; turn outcome is unknown. Resume the session", reply: half) == .cutOff)
+        check("cancelled without Stop is a cut-off", HelperEnd.of(stop: "cancelled", reply: half) == .cutOff)
+        check("running out of room is a cut-off", HelperEnd.of(stop: "max_tokens", reply: half) == .cutOff)
+        check("ending without a word is a cut-off", HelperEnd.of(stop: "end_turn", reply: "  \n") == .cutOff)
+        check(
+            "the gateway's own shutdown words are a cut-off",
+            HelperEnd.of(stop: "end_turn", reply: "Gateway shutting down: this turn was interrupted") == .cutOff)
+        check("its old turn still running means wait", HelperEnd.of(stop: "error: session_busy", reply: "") == .busy)
+        check("a real error is a failure", HelperEnd.of(stop: "error: admitted_turn_failed", reply: half) == .failed("admitted_turn_failed"))
+        var cut = Helper(title: "No browser popups", task: "Ship it.", sid: "s-9", state: "working", line: "")
+        cut.reply = half
+        check(
+            "cut off: queued to pick back up, not done", HelperTrail.notFinished(&cut, .cutOff) && cut.state == "stopped" && cut.resumeQueued == true)
+        check("it says so plainly", cut.line == HelperTrail.cutLine && !cut.waiting && cut.viewState == .stopped)
+        var hs2 = [cut]
+        check("and it's picked back up", HelperTrail.pick(&hs2, brief: brief).count == 1)
+        check("which counts as one resume", hs2[0].resumes == 1 && hs2[0].state == "working")
+        check("its old turn still running: waits, queued again", HelperTrail.notFinished(&hs2[0], .busy) && hs2[0].line == HelperTrail.busyLine)
+        _ = HelperTrail.pick(&hs2, brief: brief)
+        check("and the retry doesn't count as another cut-off", hs2[0].resumes == 1)
+        hs2[0].resumes = HelperTrail.maxResumes
+        check("cut off too many times: stopped, not queued", !HelperTrail.notFinished(&hs2[0], .cutOff) && hs2[0].line == HelperTrail.gaveUp(2))
+        var bad = Helper(title: "Bad", task: "", sid: nil, state: "working", line: "")
+        check(
+            "a failure is stopped with the reason, never done",
+            !HelperTrail.notFinished(&bad, .failed("x")) && bad.state == "stopped" && bad.reply.contains("couldn't finish"))
+
         try? fm.removeItem(at: HelperTrail.folder)
         print(fails == 0 ? "helpers ok" : "helpers FAILED (\(fails))")
         return fails == 0 ? 0 : 1

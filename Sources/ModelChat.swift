@@ -124,11 +124,14 @@ extension Model {
             guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
             HelperTrail.flush(h)
             let line = h.restartNews ?? HelperTrail.told(h.title)
-            bubbles.append(Bubble(fromMe: false, text: line))
-            Floater.shared.note(line)
-            Task {
-                for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
-                _ = await Speaker.shared.sayNow(line)  // silent when muted
+            if h.busyTries == nil || h.busyTries == 1 {  // said once, not on every retry while its last step finishes
+                bubbles.removeAll { $0.text == line }
+                bubbles.append(Bubble(fromMe: false, text: line))
+                Floater.shared.note(line)
+                Task {
+                    for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
+                    _ = await Speaker.shared.sayNow(line)  // silent when muted
+                }
             }
             Task { @MainActor in
                 let sid = await HelperTrail.session(
@@ -189,8 +192,8 @@ extension Model {
         Task { @MainActor in
             guard let sid = await Engine.shared.openSession() else {
                 self.update(id) {
-                    $0.state = "done"
-                    $0.line = "Couldn't start"
+                    $0.state = "stopped"
+                    $0.line = "Couldn't start · ask again in a minute"
                     $0.reply = "I couldn't start this job. Ask \(self.name) again in a minute."
                 }
                 return
@@ -252,6 +255,8 @@ extension Model {
             if let b = helpers.first(where: { $0.id == id })?.routine { Task { await deliverRoutine(b) } }
             return
         }
+        // Cut off (a restart, a dropped connection), cancelled or failed: stopped and picked back up, never "done".
+        if helperDidNotFinish(id, stop: stop) { return }
         update(id) { h in
             // Only the main assistant sends helpers: a helper's own [helper: …] line is dropped, logged, never started.
             let had = !h.reply.isEmpty

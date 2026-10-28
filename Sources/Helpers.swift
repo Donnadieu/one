@@ -316,6 +316,7 @@ struct ShelfCardView: View {
 
 struct ShelfPanel: View {
     @ObservedObject var m: Model
+    @AppStorage(Glass.key) var solid = Glass.standard
     var collapse: () -> Void = {}
     var body: some View {
         let fresh = m.shelf.filter(\.fresh).count
@@ -342,6 +343,7 @@ struct ShelfPanel: View {
         .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 50) }
         .onAppear { ShelfCopy.shared.start() }
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WorldLook.cream.opacity(0.03)))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.06)))
         .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
         .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelf.map(\.id))

@@ -123,6 +123,7 @@ struct MeCard: View {
                     }
                 }
             }.opacity(muted ? 0.45 : 1)
+            SeeThroughRow()
             HStack {
                 Spacer()
                 Button("Done") { close() }.buttonStyle(.plain).font(.system(size: 13.5, weight: .medium)).foregroundStyle(

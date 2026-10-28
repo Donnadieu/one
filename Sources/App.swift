@@ -453,7 +453,7 @@ struct Entry {
                                     : name.hasPrefix("cw-")
                                         ? 680
                                         : name == "me-card"
-                                            ? 400
+                                            ? 520
                                             : name == "connections-mail"
                                                 ? 680
                                                 : (name.hasPrefix("shelf") || name == "map" || name == "helper-states"

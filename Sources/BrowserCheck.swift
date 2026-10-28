@@ -66,7 +66,10 @@ enum BrowserCheck {
                 && none.contains("never say it isn't built"),
             "with no browser connected, every prompt says connecting their Chrome is built and where")
         expect(MyChrome.note(mine).contains(MyChrome.resyncFile.path), "once connected, the assistant knows how to refresh the copy")
-        expect(MyChrome.note(q).isEmpty, "no Chrome-copy note for another hidden browser")
+        expect(
+            MyChrome.note(q).contains("NOT a copy") && MyChrome.note(q).contains("Connect"),
+            "another hidden browser: told it isn't their Chrome, and how to switch")
+        expect(MyChrome.note(mine).contains("--chrome-check"), "once connected, the assistant knows the plain-words self-test")
         expect(MyChrome.ask("Browser", "Arc")?.contains("isn't built yet") == true, "Arc: told plainly it isn't built, with what works")
         let op = MyChrome.ask("Passwords", "1Password") ?? ""
         expect(
@@ -76,6 +79,40 @@ enum BrowserCheck {
         expect(
             soul.contains("Chrome is built") && soul.contains("Never tell them using their Chrome isn't built"),
             "SOUL says using their Chrome is built")
+
+        // `--chrome-check`: plain words for every way the copy can fail (EK's Mac).
+        let sid: [String: Any] = ["site": "Google", "domain": ".google.com", "name": "SID"]
+        let gh: [String: Any] = ["site": "GitHub", "domain": "github.com", "name": "user_session"]
+        let good: [String: Any] = ["ok": true, "cookies": 600, "signs": [sid, gh], "checked": "2026-10-28T15:00:00Z"]
+        let liveOK: [[String: Any]] =
+            [["name": "SID", "domain": ".google.com", "value": "x"]] + Array(repeating: ["name": "a", "domain": ".a.com", "value": "y"], count: 400)
+        let ok = ChromeCheck.evaluate(report: good, live: liveOK, connected: true, otherBrowser: true)
+        expect(
+            ok.ok && ok.lines.joined().contains("Signed in, in my hidden browser: Google") && ok.lines.joined().contains("GitHub"),
+            "chrome check: lists sites signed in, and copied ones not working yet")
+        let denied = ChromeCheck.evaluate(report: good, live: [], connected: true, otherBrowser: true)
+        expect(
+            !denied.ok && denied.lines.joined().contains("Always Allow") && denied.lines.joined().contains("Chrome Safe Storage"),
+            "chrome check: Keychain Deny is explained, with how to fix it")
+        let notConn = ChromeCheck.evaluate(report: nil, live: nil, connected: false, otherBrowser: false)
+        expect(notConn.code == 2 && notConn.lines.joined().contains("Connections"), "chrome check: not connected says where to tap")
+        let otherB = ChromeCheck.evaluate(report: nil, live: nil, connected: false, otherBrowser: true)
+        expect(otherB.code == 2 && otherB.lines.joined().contains("not your Chrome"), "chrome check: another hidden browser is named as such")
+        let failed = ChromeCheck.evaluate(
+            report: ["ok": false, "error": "Chrome is running and holds a write lock"], live: nil, connected: true, otherBrowser: true)
+        expect(failed.code == 1 && failed.lines.joined().contains("Tap Connect again"), "chrome check: a failed copy says what to do")
+        let starting = ChromeCheck.evaluate(report: good, live: nil, connected: true, otherBrowser: true)
+        expect(!starting.ok && starting.lines.joined().contains("starting up"), "chrome check: a browser still starting isn't called broken")
+        for w in [
+            "no-chrome-folder", "chrome-folder-unreadable",
+            "SQLite backup made no progress within five seconds — a running browser holds a write lock on it", "weird",
+        ] {
+            let s = ChromeCheck.plain(w)
+            expect(!s.contains("SQLite") && !s.contains("-folder") && s.count < 260, "plain words for \"\(w.prefix(30))\"")
+        }
+        expect(
+            !MyChrome.note(nil).isEmpty && MyChrome.note(nil).contains("--chrome-check"),
+            "no browser yet: the assistant knows the self-test for a failed Connect")
 
         BrowserGuardCheck.run(expect)
         humanCheck(expect)

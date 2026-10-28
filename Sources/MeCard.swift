@@ -131,7 +131,6 @@ struct MeCard: View {
             }
         }
         .padding(22).frame(width: 420)
-        .background(WorldLook.bg)
         .preferredColorScheme(.dark)
     }
     func choose(_ v: String) {

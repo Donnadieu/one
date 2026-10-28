@@ -19,20 +19,13 @@ struct RoutinesPanel: View {
 
     var body: some View {
         let s = fixed ?? snap
-        GeometryReader { g in
-            let k = min((g.size.width - 32) / Dial.size.width, (g.size.height - 32) / Dial.size.height)
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { close() }
-                stage(s)
-                    .frame(width: Dial.size.width, height: Dial.size.height)
-                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: 0x17171A, 0.98)))
-                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.09)))
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .scaleEffect(k)
-                    .frame(width: Dial.size.width * k, height: Dial.size.height * k)
-                    .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
-            }
-            .frame(width: g.size.width, height: g.size.height)
+        PopupStage(close: close) { g in
+            let k = min((g.width - 32) / Dial.size.width, (g.height - 32) / Dial.size.height)
+            stage(s)
+                .frame(width: Dial.size.width, height: Dial.size.height)
+                .clipShape(RoundedRectangle(cornerRadius: PopupLook.corner / k, style: .continuous))
+                .scaleEffect(k)
+                .frame(width: Dial.size.width * k, height: Dial.size.height * k)
         }
         .foregroundStyle(WorldLook.cream)
         .environment(\.colorScheme, .dark)
@@ -78,11 +71,6 @@ struct RoutinesPanel: View {
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
             card(s, L)
-            Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 30, height: 30)
-                    .background(Circle().fill(WorldLook.cream.opacity(0.08)))
-            }
-            .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("Close").position(x: Dial.size.width - 30, y: 30)
         }
         .frame(width: Dial.size.width, height: Dial.size.height, alignment: .topLeading)
     }

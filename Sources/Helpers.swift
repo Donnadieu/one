@@ -366,48 +366,37 @@ struct FileViewer: View {
             lines.remove(at: f)
         }
         let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return GeometryReader { g in
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { m.viewing = nil }
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.text").foregroundStyle(Color(hex: 0xFFE2C2))
-                        Text(title).font(.system(size: 17, weight: .semibold))
-                        Spacer()
-                        Button {
-                            m.viewing = nil
-                        } label: {
-                            Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                        }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
-                    }.padding(.horizontal, 22).padding(.vertical, 16)
-                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                    ReaderText(text: text.isEmpty ? "Nothing written here yet." : text)
-                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                    HStack(spacing: 8) {
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        } label: {
-                            Label("Show in Finder", systemImage: "folder")
-                        }.buttonStyle(.bordered)
-                        Button {
-                            m.viewing = nil
-                            m.openHelper = nil
-                            m.about = (title, url)
-                            m.draftSeed = ""
-                        } label: {
-                            Label("Ask \(m.name) about it", systemImage: "bubble.left")
-                        }.buttonStyle(.bordered)
-                        Spacer()
-                    }.padding(.horizontal, 22).padding(.vertical, 14)
-                }
-                .frame(width: min(720, g.size.width - 60), height: max(320, g.size.height - 70))
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: 0x1E1E22, 0.99)))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
-                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+        return PopupStage(close: close) { g in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text").foregroundStyle(Color(hex: 0xFFE2C2))
+                    Text(title).font(.system(size: 17, weight: .semibold))
+                    Spacer(minLength: 150)  // the X and "Esc to close"
+                }.padding(.horizontal, 22).padding(.vertical, 16)
+                Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                ReaderText(text: text.isEmpty ? "Nothing written here yet." : text)
+                Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                HStack(spacing: 8) {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }.buttonStyle(.bordered)
+                    Button {
+                        m.viewing = nil
+                        m.openHelper = nil
+                        m.about = (title, url)
+                        m.draftSeed = ""
+                    } label: {
+                        Label("Ask \(m.name) about it", systemImage: "bubble.left")
+                    }.buttonStyle(.bordered)
+                    Spacer()
+                }.padding(.horizontal, 22).padding(.vertical, 14)
             }
+            .frame(width: min(720, g.width - 60), height: max(320, g.height - 70))
         }
     }
+    func close() { m.viewing = nil }
     static let readable: Set<String> = ["md", "markdown", "txt", "text", "csv", "json", "yaml", "yml", "log"]
 }
 
@@ -441,64 +430,53 @@ struct QuickLookView: NSViewRepresentable {
 struct ShelfOpened: View {
     @ObservedObject var m: Model
     let item: ShelfItem
+    func close() { m.openedShelf = nil }
     var body: some View {
         let body = (try? String(contentsOf: item.url, encoding: .utf8)) ?? "This file was moved or deleted."
         let shown = body.components(separatedBy: "\n").drop { $0.hasPrefix("# ") || $0.isEmpty }.joined(separator: "\n")
-        GeometryReader { g in
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { m.openedShelf = nil }
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 10) {
-                        Image(systemName: item.icon).foregroundStyle(Color(hex: 0xFFE2C2))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.title).font(.system(size: 17, weight: .semibold))
-                            Text("\(item.from) · \(item.when)").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button {
-                            m.openedShelf = nil
-                        } label: {
-                            Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                        }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
+        PopupStage(close: close) { g in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: item.icon).foregroundStyle(Color(hex: 0xFFE2C2))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.title).font(.system(size: 17, weight: .semibold))
+                        Text("\(item.from) · \(item.when)").font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 22).padding(.vertical, 16)
-                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                    if !FileViewer.readable.contains(item.url.pathExtension.lowercased()) {
-                        Group {
-                            if item.url.pathExtension.lowercased() == "pdf" { PDFReader(url: item.url) } else { QuickLookView(url: item.url) }
-                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ReaderText(text: shown)
-                    }
-                    Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                    HStack(spacing: 8) {
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([item.url])
-                        } label: {
-                            Label("Show in Finder", systemImage: "folder")
-                        }
-                        .buttonStyle(.bordered)
-                        ShelfCopyAllButton(url: item.url)
-                        Button {
-                            m.openedShelf = nil
-                            m.openHelper = nil
-                            m.about = (item.title, item.url)
-                            m.draftSeed = ""
-                        } label: {
-                            Label("Ask \(m.name) about it", systemImage: "bubble.left")
-                        }
-                        .buttonStyle(.bordered)
-                        Spacer()
-                        Text("Drag the card or press ⌘C to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 22).padding(.vertical, 14)
+                    Spacer(minLength: 150)  // the X and "Esc to close"
                 }
-                .frame(width: min(720, g.size.width - 60), height: max(320, g.size.height - 70))
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: 0x1E1E22, 0.99)))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.14)))
-                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+                .padding(.horizontal, 22).padding(.vertical, 16)
+                Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                if !FileViewer.readable.contains(item.url.pathExtension.lowercased()) {
+                    Group {
+                        if item.url.pathExtension.lowercased() == "pdf" { PDFReader(url: item.url) } else { QuickLookView(url: item.url) }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ReaderText(text: shown)
+                }
+                Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
+                HStack(spacing: 8) {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([item.url])
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                    ShelfCopyAllButton(url: item.url)
+                    Button {
+                        m.openedShelf = nil
+                        m.openHelper = nil
+                        m.about = (item.title, item.url)
+                        m.draftSeed = ""
+                    } label: {
+                        Label("Ask \(m.name) about it", systemImage: "bubble.left")
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                    Text("Drag the card or press ⌘C to share it.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 22).padding(.vertical, 14)
             }
+            .frame(width: min(720, g.width - 60), height: max(320, g.height - 70))
         }
     }
 }

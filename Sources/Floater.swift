@@ -181,10 +181,10 @@ final class OrbHost: NSView {
             return e
         }
         // Esc while One is talking stops the voice for this reply only. Only in One's own window with no
-        // sheet, reader or shelf card open, so their Esc (and the rooms map's, its own window) is untouched.
+        // pop-up, reader or shelf card open, so their Esc (and the rooms map's, its own window) is untouched.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             guard e.keyCode == 53, e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-                let w = NSApp.keyWindow, w === self.mainWindow, w.attachedSheet == nil,
+                let w = NSApp.keyWindow, w === self.mainWindow, w.attachedSheet == nil, PopupLook.open == 0,
                 Model.shared.viewing == nil, Model.shared.openedShelf == nil, Model.shared.voicePlaying
             else { return e }
             Model.shared.hushVoice()

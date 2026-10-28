@@ -144,7 +144,11 @@ enum HelperDust {
 struct HelperConstellation: View {
     @ObservedObject var m: Model
     var still = false  // renders: no motion
-    @State var stopAsk: UUID?  // a long press on a working helper's orb: ask "Stop this helper?"
+    /// A long press on a working helper's orb asks "Stop this helper?" in a pop-up over the window (`HomePopups`).
+    var stopAsk: UUID? {
+        get { m.stopAsk }
+        nonmutating set { m.stopAsk = newValue }
+    }
     @State var hover: UUID?
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
@@ -222,12 +226,6 @@ struct HelperConstellation: View {
         .onHover { inside in hover = inside ? h.id : (hover == h.id ? nil : hover) }
         .contextMenu { if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } } }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
-        .popover(isPresented: Binding(get: { stopAsk == h.id }, set: { if !$0 { stopAsk = nil } })) {
-            HelperStopAsk(title: h.title) { stop in
-                if stop { m.stopHelper(h.id) }
-                stopAsk = nil
-            }
-        }
         .offset(x: dx, y: dy)
         .zIndex(on ? 5 : 1)
         .opacity(alpha)

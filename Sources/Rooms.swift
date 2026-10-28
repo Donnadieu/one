@@ -52,12 +52,16 @@ struct RoomsView: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
             Button("") { graph.focus == nil && graph.selected == nil ? close() : graph.back() }
-                .keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
+                .keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0).disabled(sharing)  // Esc is the pop-up's then
         }
         .animation(.timingCurve(0.32, 0.72, 0.4, 1, duration: 0.52), value: graph.selected)
         .frame(minWidth: 900, minHeight: 580)
         .environment(\.colorScheme, .dark)
-        .sheet(isPresented: $sharing, onDismiss: { reload() }, content: { ShareRoomSheet(m: m) { sharing = false } })
+        .onePopup(sharing, close: doneSharing) { _ in ShareRoomSheet(m: m, close: doneSharing) }
+    }
+    func doneSharing() {
+        sharing = false
+        reload()
     }
     func reload() {
         let f = graph.focus.map { graph.rooms[$0].name }
@@ -163,7 +167,11 @@ struct ShareRoomSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let made {
-                Label("The room is ready", systemImage: "checkmark.circle.fill").font(.title3.weight(.semibold)).foregroundStyle(Color(hex: 0x9FC9B0))
+                HStack {
+                    Label("The room is ready", systemImage: "checkmark.circle.fill").font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x9FC9B0))
+                    Spacer(minLength: 150)  // the X and "Esc to close"
+                }.frame(height: 28)
                 Text(
                     "Now invite them. Pick Messages or Mail, and make sure **Collaborate** is chosen, not \"Send copy\". They need One on their Mac too. When they accept, the room shows up in their One and both of you can add to it."
                 )
@@ -182,34 +190,66 @@ struct ShareRoomSheet: View {
                 Text("If Collaborate doesn't appear: in Finder, right-click the folder › Share › Share Folder.").font(.caption).foregroundStyle(
                     .secondary)
             } else {
-                Text("Share a room").font(.title3.weight(.semibold))
+                HStack {
+                    Text("Share a room").font(.system(size: 17, weight: .semibold))
+                    Spacer(minLength: 150)  // the X and "Esc to close"
+                }.frame(height: 28)
                 Text(
                     "You and someone you trust both add to the same room, each with your own assistant. It stays in sync through iCloud, so there's nothing to sign up for. You each add new notes, nobody overwrites the other, and \(m.name) merges anything that clashes."
                 )
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Picker("", selection: $choice) {
-                    ForEach(alreadyShared, id: \.path) { u in Text(RoomMap.roomTitle(u) + " (already shared: invite someone)").tag(u.path) }
-                    Text("A new room").tag("new")
-                    ForEach(shareable, id: \.path) { u in Text("My " + RoomMap.roomTitle(u).lowercased() + " (moves into iCloud)").tag(u.path) }
-                }.pickerStyle(.radioGroup).labelsHidden()
+                VStack(spacing: 0) {
+                    ForEach(alreadyShared, id: \.path) { u in option(u.path, RoomMap.roomTitle(u) + " (already shared: invite someone)") }
+                    option("new", "A new room")
+                    ForEach(shareable, id: \.path) { u in option(u.path, "My " + RoomMap.roomTitle(u).lowercased() + " (moves into iCloud)") }
+                }.popupCard()
                 if choice == "new" {
-                    TextField("What should the room be called? For example: Our business", text: $name).textFieldStyle(.roundedBorder)
+                    Group {
+                        if HomeView.still {
+                            Text(name.isEmpty ? "What should the room be called? For example: Our business" : name).foregroundStyle(
+                                WorldLook.cream.opacity(0.45)
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            TextField("What should the room be called? For example: Our business", text: $name).textFieldStyle(.plain)
+                        }
+                    }
+                    .font(.system(size: 13.5)).padding(.horizontal, 14).frame(height: 38).popupCard(10)
                 }
                 Text("Your personal and private rooms can't be shared. Nothing from your other rooms goes in without your OK.").font(.caption)
                     .foregroundStyle(.secondary)
                 if let error { Text(error).foregroundStyle(.red).font(.callout) }
                 HStack {
                     Spacer()
-                    Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-                    Button(alreadyShared.contains { $0.path == choice } ? "Invite someone" : "Make it shared") { go() }.keyboardShortcut(
-                        .defaultAction
-                    )
-                    .disabled(choice == "new" && name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Cancel") { close() }.buttonStyle(.bordered)
+                    let off = choice == "new" && name.trimmingCharacters(in: .whitespaces).isEmpty
+                    Button(action: go) {
+                        Text(alreadyShared.contains { $0.path == choice } ? "Invite someone" : "Make it shared").font(
+                            .system(size: 13.5, weight: .semibold)
+                        )
+                        .foregroundStyle(WorldLook.bg).padding(.horizontal, 18).frame(height: 32).background(Capsule().fill(WorldLook.cream))
+                    }
+                    .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(off).opacity(off ? 0.4 : 1)
                 }
             }
         }
         .padding(22).frame(width: 520)
+        .foregroundStyle(WorldLook.cream)
         .onAppear { if let u = alreadyShared.first, made == nil { choice = u.path } }
+    }
+    /// One choice: a round mark, filled when picked.
+    func option(_ tag: String, _ label: String) -> some View {
+        Button {
+            choice = tag
+        } label: {
+            HStack(spacing: 10) {
+                Circle().strokeBorder(WorldLook.cream.opacity(choice == tag ? 0.9 : 0.35), lineWidth: 1.5).frame(width: 15, height: 15)
+                    .overlay(Circle().fill(WorldLook.cream).frame(width: 7, height: 7).opacity(choice == tag ? 1 : 0))
+                Text(label).font(.system(size: 13.5)).foregroundStyle(WorldLook.cream.opacity(choice == tag ? 0.95 : 0.75))
+                Spacer()
+            }
+            .padding(.horizontal, 14).frame(height: 36).contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
     func go() {
         if let u = alreadyShared.first(where: { $0.path == choice }) {
@@ -319,9 +359,7 @@ struct NotePanel: View {
             .overlay(alignment: .top) { Rectangle().fill(Self.cream.opacity(0.06)).frame(height: 1) }
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(hex: 0x19191C, 0.96)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Self.cream.opacity(0.08)))
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
+        .popupGlass(close: nil)  // the same glass as every pop-up; its own X sits in its header
         .onHover { hovering = $0 }
         .onChange(of: index) { _, _ in copied = false }
     }

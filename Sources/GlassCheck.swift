@@ -9,7 +9,14 @@ import AppKit
     nonisolated static func main(_ args: [String]) {
         guard args.contains("--test-glass") else { return }
         TestWorld.enter()  // a test copy only: one small window, nothing saved
-        let ok = MainActor.assumeIsolated { run() }
+        let ok = MainActor.assumeIsolated {
+            // Home's glass (blurs the desktop), then the pop-up glass (blurs One's own window under the pop-up).
+            print("home:")
+            let home = run(WindowGlass.host(), clearWindow: true)
+            print("pop-up:")
+            let pop = run(InWindowGlass.host(), clearWindow: false)
+            return home && pop
+        }
         print(ok ? "glass ok" : "glass FAILED")
         exit(ok ? 0 : 1)
     }
@@ -30,11 +37,10 @@ import AppKit
         return (shown, blur, sat)
     }
 
-    static func run() -> Bool {
+    static func run(_ host: NSVisualEffectView, clearWindow: Bool) -> Bool {
         NSApplication.shared.setActivationPolicy(.accessory)
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 300), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        let host = WindowGlass.host()
         host.frame = w.contentView?.bounds ?? .zero
         host.autoresizingMask = [.width, .height]
         w.contentView?.addSubview(host)
@@ -45,7 +51,7 @@ import AppKit
             host.layoutSubtreeIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             let s = state(host)
-            let good = s.shown == ["backdrop"] && s.blur == Glass.blur && s.sat == Glass.saturation && !w.isOpaque
+            let good = s.shown == ["backdrop"] && s.blur == Glass.blur && s.sat == Glass.saturation && (!clearWindow || !w.isOpaque)
             print(
                 "\(good ? "ok  " : "FAIL") \(step): visible \(s.shown), blur \(s.blur ?? -1), saturation \(s.sat ?? -1), window clear \(!w.isOpaque)")
             ok = ok && good

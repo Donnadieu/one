@@ -3,10 +3,10 @@ import SwiftUI
 
 // MARK: - Check: the Folders window fits (`One --test-folders-fit [png dir]`)
 
-/// Opens a window like Home and opens "Which folders can I see?" as the same sheet the Folders button
+/// Opens a window like Home and opens "Which folders can I see?" as the same pop-up the Folders button
 /// opens, once with 0, 6 and 20 extra folders (made-up paths, nothing is saved: Done is never pressed).
-/// Each time it checks that the sheet is no taller than the screen and that the whole content (title on
-/// top, Done at the bottom) fits inside it, and optionally saves a picture of the open sheet.
+/// Each time it checks that the whole pop-up (title on top, Done at the bottom) fits inside the window,
+/// and optionally saves a picture of it.
 /// Touches no settings, brain or engine.
 @MainActor
 enum FolderSheetCheck {
@@ -31,7 +31,14 @@ enum FolderSheetCheck {
         @State var count: Pick?
         var body: some View {
             WorldLook.bg.frame(width: 900, height: 700)
-                .sheet(item: $count) { p in FolderSheet(m: Model.shared, done: { count = nil }, folders: FolderSheetCheck.folders(p.n)) }
+                .onePopup(
+                    count != nil, close: { count = nil },
+                    panel: { g in
+                        if let p = count {
+                            FolderSheet(m: Model.shared, done: { count = nil }, folders: FolderSheetCheck.folders(p.n), room: g.height)
+                        }
+                    }
+                )
                 .onReceive(NotificationCenter.default.publisher(for: Notification.Name("oneFoldersOpen"))) {
                     count = ($0.object as? Int).map(Pick.init)
                 }
@@ -63,16 +70,16 @@ enum FolderSheetCheck {
                 FolderSheet.seen = [:]
                 NotificationCenter.default.post(name: Notification.Name("oneFoldersOpen"), object: n)
                 try? await Task.sleep(for: .seconds(1.2))
-                guard let sheet = win.attachedSheet, let v = sheet.contentView else {
-                    print("FAIL \(n) folders: the sheet didn't open")
+                guard let v = win.contentView, FolderSheet.seen["title"] != nil else {
+                    print("FAIL \(n) folders: the pop-up didn't open")
                     ok = false
                     continue
                 }
-                // Where the title's top and Done's bottom landed inside the sheet, against the sheet's own height.
+                // Where the title's top and Done's bottom landed inside the window, against the window's own height.
                 let have = v.bounds.height
                 let top = FolderSheet.seen["title"]?.minY ?? -1
                 let bottom = FolderSheet.seen["done"]?.maxY ?? .infinity
-                let fits = top >= 0 && bottom <= have && sheet.frame.height <= screen
+                let fits = top >= 0 && bottom <= have && win.frame.height <= screen
                 ok = ok && fits
                 print(
                     String(
@@ -91,9 +98,8 @@ enum FolderSheetCheck {
         app.run()
     }
 
-    /// A sheet's text is drawn by macOS on top of its frosted backdrop, which a view snapshot can't capture
-    /// (it comes out blank). So the picture draws the same view, at the size the sheet got, in a plain dark
-    /// window of the same size; the pass/fail above comes from the real sheet.
+    /// The window's blur can't be captured by a view snapshot, so the picture draws the same view in a plain
+    /// dark window; the pass/fail above comes from the real pop-up.
     static func picture(_ n: Int, size: CGSize, to url: URL) {
         let view = FolderSheet(m: Model.shared, done: {}, folders: folders(n))
             .frame(width: size.width, height: size.height, alignment: .top)

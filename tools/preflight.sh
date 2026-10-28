@@ -124,6 +124,7 @@ if [ $QUICK = 0 ]; then
   LIMIT=480 check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \
     bash -c "tools/helpers-check.sh --no-build > '$T/hs.txt' 2>&1"
   grep "✗" "$T/hs.txt" 2>/dev/null | sed 's/^/    /'
+  grep -q "helpers-check ok" "$T/hs.txt" 2>/dev/null || grep -q "✗" "$T/hs.txt" 2>/dev/null || tail -12 "$T/hs.txt" 2>/dev/null | sed 's/^/    /'  # cut off with no ✗: show where
 else
   echo "Lots of helpers survive restarts: skipped (--quick; runs on main, nightly, on release tags and locally)"
 fi

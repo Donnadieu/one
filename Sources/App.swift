@@ -398,6 +398,8 @@ struct Entry {
                     ("shelf-open", AnyView(ShelfScene(open: true))),
                     ("shelf-copy-menu", ShelfCopyRender.menu()),
                     ("shelf-copy-reader", ShelfCopyRender.reader()),
+                    ("shelf-read-new", ShelfReadRender.panel(read: false)),
+                    ("shelf-read-done", ShelfReadRender.panel(read: true)),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
                     (

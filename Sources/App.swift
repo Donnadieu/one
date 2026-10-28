@@ -408,7 +408,7 @@ struct Entry {
                     ("home-10", AnyView(EmptyView())),
                     ("home-15", AnyView(EmptyView())),
                     ("home-22", AnyView(EmptyView())),
-                    ("home-33", AnyView(EmptyView())),
+                    ("home-33", AnyView(EmptyView())), ("home-close", AnyView(EmptyView())),  // home-close: the first orb's X
                     ("helper-states", AnyView(HelperStatesScene())),
                     ("helper-stop", AnyView(HelperStopScene())),
                     ("helper-stop-working", AnyView(HelperStopScene(working: true))),
@@ -434,6 +434,7 @@ struct Entry {
                     if LongMessageRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
                         let n = Int(name.dropFirst(5)) ?? 10
+                        HomeRender.closeFirst = name == "home-close"
                         HomeRender.png(HomeRender.scene(n), "\(out)-\(name).png", height: n > 22 ? 1200 : n > 15 ? 1000 : 760)
                         print("wrote \(out)-\(name).png")
                         continue

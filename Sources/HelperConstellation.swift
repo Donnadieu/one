@@ -146,6 +146,7 @@ struct HelperConstellation: View {
     var still = false  // renders: no motion
     @State var stopAsk: UUID?  // a long press on a working helper's orb: ask "Stop this helper?"
     @State var hover: UUID?
+    var closeShown: UUID? = nil  // renders: the X shown on this one as if pointed at
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
         let hs = HelperRings.sorted(m.helpers)
@@ -219,8 +220,19 @@ struct HelperConstellation: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(h.title), \(line)")
+        .overlay(alignment: .top) {
+            // Pointing at an orb shows its X: the only way it leaves the screen (it never goes on its own).
+            if on || closeShown == h.id {
+                HelperCloseDot(title: h.title, working: h.state == "working" || h.resumeQueued == true) { m.closeHelper(h.id) }
+                    .offset(x: spot.orb / 2 + 1, y: -1)
+            }
+        }
         .onHover { inside in hover = inside ? h.id : (hover == h.id ? nil : hover) }
-        .contextMenu { if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } } }
+        .contextMenu {
+            if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } }
+            Button(h.state == "working" ? "Stop and close" : "Close") { m.closeHelper(h.id) }
+        }
+        .accessibilityAction(named: "Close") { m.closeHelper(h.id) }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
         .popover(isPresented: Binding(get: { stopAsk == h.id }, set: { if !$0 { stopAsk = nil } })) {
             HelperStopAsk(title: h.title) { stop in

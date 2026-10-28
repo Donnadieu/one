@@ -112,8 +112,9 @@ extension Model {
         return thinking
     }
     static func savedHelpers() -> [Helper] {
-        guard let d = UserDefaults.standard.data(forKey: "helpers"), let hs = try? JSONDecoder().decode([Helper].self, from: d) else { return [] }
-        return HelperTrail.restore(hs)  // the ones a restart cut off get picked back up once the engine is ready
+        guard let d = UserDefaults.standard.data(forKey: "helpers") else { return [] }
+        // One unreadable entry never costs the rest.
+        return HelperTrail.restore(HelperClose.decode(d))  // the ones a restart cut off get picked back up once the engine is ready
     }
 
     /// Picks up helpers a restart cut off, all at once. Runs once the engine is ready and
@@ -165,14 +166,9 @@ extension Model {
         if helpers.first(where: { $0.id == id })?.seen == false { update(id) { $0.seen = true } }
         doneQueue.removeAll { $0 == id }
     }
-    func dismissHelper(_ id: UUID) {
-        if openHelper == id { openHelper = nil }
-        withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
-    }
+    /// "Got it" on the While you were gone card: the card goes, every orb stays (only closing one removes it).
     func clearAway() {
-        let gone = helpers.filter { $0.finishedAway && $0.state == "done" }.map(\.id)
-        for k in helpers.indices { helpers[k].finishedAway = false }
-        withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { gone.contains($0.id) } }
+        for k in helpers.indices where helpers[k].finishedAway { helpers[k].finishedAway = false }
     }
 
     func spawnHelper(title: String, task: String, routine: UUID? = nil) {
@@ -475,6 +471,12 @@ extension Model {
             // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
             full = unstopped
             for s in stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
+        }
+        let (unclosed, closes) = HelperStop.extract(full, tag: "close-helper")
+        if !closes.isEmpty {
+            // "[close-helper: …]": asked to take an orb off the screen. The only way besides its X.
+            full = unclosed
+            for s in closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         }
         full = Helpers.undouble(full)  // one reply delivered twice shows (and sends its helpers) once
         let (clean, all) = Helpers.extract(full)

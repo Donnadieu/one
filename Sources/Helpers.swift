@@ -73,7 +73,7 @@ enum Helpers {
     static func strip(_ text: String) -> String {
         Learning.hideTags(HelperStop.hide(text)).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
-            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper")
+            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper")
         }.joined(
             separator: "\n")
     }

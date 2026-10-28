@@ -12,7 +12,9 @@ import Foundation
 ///   after-update  One opens again after the update: every helper finishes.
 /// Proven: every helper stays listed and has a spot on screen, none starts twice or runs twice at once, none is
 /// ever shown done without its real final reply, every cut-off one is picked back up and finishes, every result
-/// has its file in the Made by folder, and a finished one stays until it's dismissed.
+/// has its file in the Made by folder. Four "keepers" (finished and not opened, finished and opened and read,
+/// needs your yes, stopped by you) are checked after every break: a new helper, 75 more, the engine killed, One
+/// killed, an update. Their orbs never go away on their own; each leaves only when it's closed (its X, or asking).
 /// Runs only from a test copy (own settings), with ONE_SUPPORT_DIR and ONE_TEST_ENGINE set by the script.
 enum HelperStress {
     nonisolated(unsafe) static var fails = 0
@@ -124,6 +126,54 @@ enum HelperStress {
     struct Plan: Codable {
         var ids: [UUID]
         var cut: [String]  // jobs still at work when the engine was killed
+        var keep: [String: UUID] = [:]  // the keepers, by job
+    }
+
+    /// The four keepers: finished and not opened, finished and opened, needs your yes, stopped by you.
+    static let keepers = ["KD", "KO", "KY", "KS"]
+    static func isKeeper(_ h: Helper) -> Bool { keepers.contains(job(h)) }
+
+    /// Each keeper is still on screen, in the state it was left in.
+    @MainActor
+    static func keepersOK(_ m: Model, _ k: [String: UUID], _ when: String) {
+        func h(_ j: String) -> Helper? { k[j].flatMap { id in m.helpers.first { $0.id == id } } }
+        check("\(when): finished, not opened: still there and orange", h("KD").map { $0.state == "done" && $0.waiting } == true)
+        check("\(when): finished, opened and read: still there", h("KO").map { $0.state == "done" && !$0.waiting } == true)
+        check("\(when): needs your yes: still there and asking", h("KY").map { $0.state == "needsYes" && $0.waiting } == true)
+        check("\(when): stopped by you: still there and stopped", h("KS").map { $0.state == "stopped" && $0.stoppedByYou == true } == true)
+        let shown = Set(HelperRings.sorted(m.helpers).map(\.id))
+        let lay = HelperRings.layout(count: m.helpers.count)
+        check("\(when): all four on screen, with every other helper", Set(k.values).isSubset(of: shown) && lay.spots.count == m.helpers.count)
+    }
+
+    /// Before the 75: the four keepers go out, finish (or are stopped), and are opened, read and stopped like a person would.
+    @MainActor
+    static func makeKeepers(_ m: Model) async -> [String: UUID] {
+        print("1b. four keepers: finished, opened and read, needs your yes, stopped by you")
+        m.spawnHelper(title: "Kept done", task: "STRESSJOB KD secs=1")
+        m.spawnHelper(title: "Kept opened", task: "STRESSJOB KO secs=1")
+        m.spawnHelper(title: "Kept asking", task: "STRESSJOB KY secs=1 ask=1")
+        m.spawnHelper(title: "Kept stopped", task: "STRESSJOB KS secs=90")
+        var k: [String: UUID] = [:]
+        for h in m.helpers where isKeeper(h) { k[job(h)] = h.id }
+        _ = await wait(20) { ["KD", "KO", "KY"].allSatisfy { j in m.helpers.first { $0.id == k[j] }?.state != "working" } }
+        _ = await wait(20) { events().contains { $0.ev == "start" && $0.job == "KS" } }
+        if let s = k["KS"] { m.stopHelper(s) }
+        _ = await wait(10) { events().contains { $0.ev == "cancelled" && $0.job == "KS" } }
+        if let o = k["KO"] {
+            m.focusHelper(o)  // opened
+            try? await Task.sleep(for: .milliseconds(300))
+            m.focusHelper(o)  // and closed again (back to the assistant)
+            if let s = m.helpers.first(where: { $0.id == o })?.shelfID {
+                m.openShelf(s)  // its file read on the shelf
+                m.openedShelf = nil
+            }
+        }
+        for k2 in m.helpers.indices where isKeeper(m.helpers[k2]) { m.helpers[k2].finishedAway = true }
+        m.clearAway()  // "Got it" on the While you were gone card
+        try? await Task.sleep(for: .seconds(1))
+        keepersOK(m, k, "opened, read on the shelf, and Got it")
+        return k
     }
 
     /// `--test-helpers-stress <phase>`: true if this launch is the stress check (it then runs and exits).
@@ -155,13 +205,16 @@ enum HelperStress {
             let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
             check("the doubled reply shows once", said.components(separatedBy: "Sending \(chatCount) helpers now.").count == 2)
             check("and no helper line shows", !said.contains("[helper"))
-            print("2. \(directCount) more at once (\(chatCount + directCount) in all)")
+            let keep = await makeKeepers(m)
+            let total = chatCount + directCount + keepers.count
+            print("2. \(directCount) more at once (\(total) in all)")
             for n in 1...directCount { m.spawnHelper(title: String(format: "B%02d", n), task: "STRESSJOB B\(n) secs=\(n % 2 == 0 ? 3 : Int(long))") }
-            check("all \(chatCount + directCount) are listed", m.helpers.count == chatCount + directCount)
-            let started = await wait(20) { Set(events().filter { $0.ev == "start" }.compactMap(\.job)).count == chatCount + directCount }
+            check("all \(total) are listed", m.helpers.count == total)
+            keepersOK(m, keep, "a new helper sent (75 of them)")
+            let started = await wait(20) { Set(events().filter { $0.ev == "start" }.compactMap(\.job)).count == total }
             print("   [\(at())] \(Set(events().filter { $0.ev == "start" }.compactMap(\.job)).count) at work")
-            check("all \(chatCount + directCount) are at work at the same time, none waits for a slot", started)
-            let shortDone = await wait(30) { m.helpers.filter { secs($0) < 10 }.allSatisfy { $0.state == "done" } }
+            check("all \(total) are at work at the same time, none waits for a slot", started)
+            let shortDone = await wait(30) { m.helpers.filter { secs($0) < 10 && !isKeeper($0) }.allSatisfy { $0.state == "done" } }
             print("   [\(at())] \(m.helpers.filter { $0.state == "done" }.count) done")
             check("the short jobs finished with their real reply", shortDone)
             print("3. the engine is killed mid-run")
@@ -181,7 +234,8 @@ enum HelperStress {
             check("none of them was shown done", m.helpers.filter { cut.contains(job($0)) }.allSatisfy { $0.state != "done" })
             let restartLines = m.bubbles.filter { $0.text.contains("picked") && $0.text.contains("back up") }.count
             check("one line in the chat about it, not one per helper (\(restartLines))", restartLines <= 1)
-            let p = Plan(ids: m.helpers.map(\.id), cut: cut)
+            keepersOK(m, keep, "the engine killed and back")
+            let p = Plan(ids: m.helpers.map(\.id), cut: cut, keep: keep)
             try? JSONEncoder().encode(p).write(to: plan)
             try? await Task.sleep(for: .seconds(2))  // the long jobs are mid-run again
             print("   [\(at())] still at work: \(m.helpers.filter { $0.state == "working" }.count)")
@@ -199,12 +253,14 @@ enum HelperStress {
                 return 1
             }
             check("every helper is still listed (\(m.helpers.count) of \(p.ids.count))", Set(m.helpers.map(\.id)) == Set(p.ids))
-            let wasDone = m.helpers.filter { $0.state == "done" }
-            check("the finished ones are still done, results kept (\(wasDone.count))", wasDone.count >= p.ids.count - p.cut.count)
+            keepersOK(m, p.keep, "One killed (kill -9) and opened again")
+            let others = m.helpers.filter { !isKeeper($0) }
+            let wasDone = others.filter { $0.state == "done" }
+            check("the finished ones are still done, results kept (\(wasDone.count))", wasDone.count >= p.ids.count - keepers.count - p.cut.count)
             check("and still orange until opened", wasDone.allSatisfy(\.waiting))
             let queued = m.helpers.filter { $0.resumeQueued == true }
             check(
-                "the ones at work are waiting to pick back up (\(queued.count))", queued.count == m.helpers.count - wasDone.count && !queued.isEmpty)
+                "the ones at work are waiting to pick back up (\(queued.count))", queued.count == others.count - wasDone.count && !queued.isEmpty)
             let before = events().count
             let saidBefore = m.bubbles.count
             m.resumeInterrupted()
@@ -223,6 +279,7 @@ enum HelperStress {
             Engine.shared.stop()  // what the update's swap script does
             try? await Task.sleep(for: .seconds(1))
             check("none was shown done by the engine going away", m.helpers.filter { $0.updatePaused == true }.allSatisfy { $0.state != "done" })
+            keepersOK(m, p.keep, "an update pausing everything")
             print(fails == 0 ? "UPDATE-QUIT" : "helpers-stress FAILED (\(fails))")
             return fails == 0 ? 0 : 1
 
@@ -233,19 +290,22 @@ enum HelperStress {
                 return 1
             }
             check("every helper is still listed (\(m.helpers.count) of \(p.ids.count))", Set(m.helpers.map(\.id)) == Set(p.ids))
-            check("the paused ones wait to pick back up", m.helpers.filter { $0.state != "done" }.allSatisfy { $0.resumeQueued == true })
+            keepersOK(m, p.keep, "the update installed and One opened again")
+            let others = { m.helpers.filter { !isKeeper($0) } }
+            check("the paused ones wait to pick back up", others().filter { $0.state != "done" }.allSatisfy { $0.resumeQueued == true })
             m.resumeInterrupted()
-            let finished = await wait(long + 30) { m.helpers.allSatisfy { $0.state == "done" } }
+            let finished = await wait(long + 30) { others().allSatisfy { $0.state == "done" } }
             print("   [\(at())] done: \(m.helpers.filter { $0.state == "done" }.count) of \(m.helpers.count)")
             check("every helper finished", finished)
-            check("each with its own real final reply", m.helpers.allSatisfy { $0.reply.contains("DONE \(job($0))") })
-            check("never stopped by you", m.helpers.allSatisfy { $0.stoppedByYou != true })
+            check("each with its own real final reply", others().allSatisfy { $0.reply.contains("DONE \(job($0))") })
+            check("never stopped by you", others().allSatisfy { $0.stoppedByYou != true })
+            keepersOK(m, p.keep, "every other helper finished")
             let cut = m.helpers.filter { p.cut.contains(job($0)) }
             check(
                 "every cut-off one was picked back up and finished (\(cut.count))", cut.count == p.cut.count && cut.allSatisfy { $0.state == "done" })
             let files = ((try? fm.contentsOfDirectory(at: Shelf.folder, includingPropertiesForKeys: nil)) ?? [])
                 .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
-            let missing = m.helpers.filter { h in !files.contains { $0.contains("DONE \(job(h))\n") } }
+            let missing = m.helpers.filter { $0.state == "done" }.filter { h in !files.contains { $0.contains("DONE \(job(h))\n") } }
             check("every result has its file in the Made by folder (\(files.count) files, \(missing.count) missing)", missing.isEmpty)
             let extra = m.helpers.filter { h in files.filter { $0.contains("DONE \(job(h))\n") }.count > 1 }
             check("and only one each (\(extra.count) with more)", extra.isEmpty)
@@ -263,7 +323,7 @@ enum HelperStress {
                 "every one of the \(m.helpers.count) has its own spot on screen", lay.spots.count == m.helpers.count && spots.count == m.helpers.count
             )
             check("all sorted onto the screen, none dropped", HelperRings.sorted(m.helpers).count == m.helpers.count)
-            print("7. a finished helper stays until it's dismissed")
+            print("7. a finished helper stays until it's closed")
             let all = Set(m.helpers.map(\.id))
             if let k = m.helpers.indices.first { m.helpers[k].seen = true }  // opened: no longer orange, still kept
             m.spawnHelper(title: "One more", task: "STRESSJOB X1 secs=1")
@@ -275,9 +335,29 @@ enum HelperStress {
             try? await Task.sleep(for: .seconds(2))
             check("still all there a moment later", all.isSubset(of: Set(m.helpers.map(\.id))))
             if let gone = m.helpers.first?.id {
-                m.dismissHelper(gone)
+                m.closeHelper(gone)
                 try? await Task.sleep(for: .seconds(1))
-                check("dismissed: that one is gone and only that one", !m.helpers.contains { $0.id == gone } && m.helpers.count == all.count)
+                check("closed: that one is gone and only that one", !m.helpers.contains { $0.id == gone } && m.helpers.count == all.count)
+            }
+            print("8. each keeper leaves only when it's closed")
+            m.markShelfRead()  // "Mark all read": read, never gone
+            check("Mark all read keeps every orb", Set(p.keep.values).isSubset(of: Set(m.helpers.map(\.id))))
+            for j in keepers {
+                guard let id = p.keep[j] else { continue }
+                let before = Set(m.helpers.map(\.id))
+                if j == "KY" {
+                    // Closed by asking: the assistant's [close-helper: …] line.
+                    let title = m.helpers.first { $0.id == id }?.title ?? ""
+                    _ = await wait(15) { !m.thinking && m.followUps.isEmpty }
+                    await m.send("STRESSCLOSE \(title)")
+                    _ = await wait(15) { !m.thinking }
+                    let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
+                    check("closed by asking: no close line shows (\(said.prefix(40)))", !said.contains("[close-helper") && !said.isEmpty)
+                } else {
+                    m.closeHelper(id)  // its X
+                }
+                try? await Task.sleep(for: .milliseconds(800))
+                check("\(j) closed: gone, and only it", Set(m.helpers.map(\.id)) == before.subtracting([id]))
             }
             Engine.shared.stop()
             print(fails == 0 ? "helpers-stress ok" : "helpers-stress FAILED (\(fails))")

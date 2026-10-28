@@ -2,6 +2,7 @@
 # Fast guard before every commit: formatting + One's own rules. The full gate is `make check`.
 set -e
 cd "$(git rev-parse --show-toplevel)"
+tools/check-identity.sh
 if git diff --cached --name-only | grep -q '^Sources/.*\.swift$'; then
   xcrun swift-format lint -r -s -p Sources || { echo "FIX: run 'make format', then add the files again."; exit 1; }
 fi

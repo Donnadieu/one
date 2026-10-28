@@ -141,6 +141,15 @@ enum HelperCheck {
         check("it's picked back up", resumed.count == 1 && back[0].state == "working")
         check("and the update didn't count toward the restart limit", back[0].resumes == HelperTrail.maxResumes && back[0].updatePaused == nil)
         check("the person is told it was paused for the update", back[0].restartNews == HelperTrail.toldUpdate("Long job"))
+        // A newly allowed folder restarts the engine even while helpers work: they're paused the same way.
+        var fol = Helper(title: "Ledger run", task: "Post.", sid: "s-10", state: "working", line: "")
+        fol.resumes = HelperTrail.maxResumes
+        HelperStop.pauseForFolder(&fol)
+        check("a folder restart pauses a working helper", fol.state == "stopped" && fol.resumeQueued == true && fol.line == FolderWatch.pausedLine)
+        var fback = [fol]
+        let fres = HelperTrail.pick(&fback, brief: brief)
+        check("it's picked back up, not counted as a cut-off", fres.count == 1 && fback[0].resumes == HelperTrail.maxResumes)
+        check("the person is told why it paused", fback[0].restartNews == "Ledger run was paused for a new folder. I picked it back up.")
         var mid = Helper(title: "Stopped one", task: "", sid: nil, state: "working", line: "")
         HelperTrail.stopByYou(&mid)
         HelperStop.pauseForUpdate(&mid)

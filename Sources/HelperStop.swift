@@ -74,13 +74,21 @@ enum HelperStop {
     /// An update is about to restart One: a working helper is paused, not stopped. It picks back up after the
     /// restart like any helper a restart cut off, and the pause never counts toward the restart limit.
     @MainActor static func pauseForUpdate(_ h: inout Helper) {
+        pause(&h, line: pausedLine, trail: "Paused for an update", reason: nil)
+    }
+    /// One restarts its engine to open a newly allowed folder: same as an update pause, its own words.
+    @MainActor static func pauseForFolder(_ h: inout Helper) {
+        pause(&h, line: FolderWatch.pausedLine, trail: "Paused so One could open a new folder", reason: "a new folder")
+    }
+    @MainActor private static func pause(_ h: inout Helper, line: String, trail: String, reason: String?) {
         guard h.state == "working" else { return }
         h.state = "stopped"
         h.resumeQueued = true
         h.updatePaused = true
+        h.pausedFor = reason
         h.stoppedByYou = nil
-        h.line = pausedLine
-        HelperTrail.add("Paused for an update", to: &h)
+        h.line = line
+        HelperTrail.add(trail, to: &h)
     }
 
     /// The word next to a helper's title in its card.
@@ -124,6 +132,15 @@ extension Model {
             HelperStop.pauseForUpdate(&helpers[k])
             HelperTrail.flush(helpers[k])
         }
+    }
+
+    /// Just before One restarts its engine to open a new folder: every working helper is paused and picks back up after.
+    func pauseHelpersForFolder() {
+        for k in helpers.indices where helpers[k].state == "working" {
+            HelperStop.pauseForFolder(&helpers[k])
+            HelperTrail.flush(helpers[k])
+        }
+        saveHelpers()
     }
 }
 

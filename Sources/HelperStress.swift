@@ -14,7 +14,7 @@ import Foundation
 /// ever shown done without its real final reply, every cut-off one is picked back up and finishes, every result
 /// has its file in the Made by folder. Four "keepers" (finished and not opened, finished and opened and read,
 /// needs your yes, stopped by you) are checked after every break: a new helper, 75 more, the engine killed, One
-/// killed, an update. Their orbs never go away on their own; each leaves only when it's closed (its X, or asking).
+/// killed, an update. Their orbs never go away on their own; each leaves only when they're done with it (Got it in its thread, or asking), and a busy one only once it's stopped.
 /// Runs only from a test copy (own settings), with ONE_SUPPORT_DIR and ONE_TEST_ENGINE set by the script.
 enum HelperStress {
     nonisolated(unsafe) static var fails = 0
@@ -367,10 +367,13 @@ enum HelperStress {
                 "every one of the \(m.helpers.count) has its own spot on screen", lay.spots.count == m.helpers.count && spots.count == m.helpers.count
             )
             check("all sorted onto the screen, none dropped", HelperRings.sorted(m.helpers).count == m.helpers.count)
-            print("7. a finished helper stays until it's closed")
+            print("7. a finished helper stays until they're done with it")
             let all = Set(m.helpers.map(\.id))
             if let k = m.helpers.indices.first { m.helpers[k].seen = true }  // opened: no longer orange, still kept
             m.spawnHelper(title: "One more", task: "STRESSJOB X1 secs=1")
+            if let busy = m.helpers.last?.id {
+                check("a working one can't be taken off the screen", !m.closeHelper(busy) && m.helpers.contains { $0.id == busy })
+            }
             check(
                 "sending one more keeps every finished one, opened or not",
                 all.isSubset(of: Set(m.helpers.map(\.id))) && m.helpers.count == all.count + 1)
@@ -379,29 +382,40 @@ enum HelperStress {
             try? await Task.sleep(for: .seconds(2))
             check("still all there a moment later", all.isSubset(of: Set(m.helpers.map(\.id))))
             if let gone = m.helpers.first?.id {
-                m.closeHelper(gone)
+                m.closeHelper(gone)  // Got it in its thread
                 try? await Task.sleep(for: .seconds(1))
-                check("closed: that one is gone and only that one", !m.helpers.contains { $0.id == gone } && m.helpers.count == all.count)
+                check("Got it: that one is gone and only that one", !m.helpers.contains { $0.id == gone } && m.helpers.count == all.count)
             }
-            print("8. each keeper leaves only when it's closed")
+            print("8. each keeper leaves only when they're done with it")
             m.markShelfRead()  // "Mark all read": read, never gone
             check("Mark all read keeps every orb", Set(p.keep.values).isSubset(of: Set(m.helpers.map(\.id))))
             for j in keepers {
                 guard let id = p.keep[j] else { continue }
                 let before = Set(m.helpers.map(\.id))
                 if j == "KY" {
-                    // Closed by asking: the assistant's [close-helper: …] line.
+                    // Waiting for their yes: asking (the older [close-helper: …] line) keeps it, and says why.
                     let title = m.helpers.first { $0.id == id }?.title ?? ""
                     _ = await wait(15) { !m.thinking && m.followUps.isEmpty }
+                    check("Got it can't take one waiting for a yes", !m.closeHelper(id))
                     await m.send("STRESSCLOSE \(title)")
                     _ = await wait(15) { !m.thinking }
-                    let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
-                    check("closed by asking: no close line shows (\(said.prefix(40)))", !said.contains("[close-helper") && !said.isEmpty)
+                    var said = m.bubbles.last { !$0.fromMe }?.text ?? ""
+                    check(
+                        "asked while it waits for a yes: it stays, and says so (\(said.suffix(60)))",
+                        m.helpers.contains { $0.id == id } && said.contains("waiting for your yes") && !said.contains("[close-helper"))
+                    // Stopped first, then cleared by asking: the [done-helper: …] line.
+                    m.stopHelper(id)
+                    check("stopped while waiting for a yes", m.helpers.first { $0.id == id }?.state == "stopped")
+                    _ = await wait(15) { !m.thinking && m.followUps.isEmpty }
+                    await m.send("STRESSDONE \(title)")
+                    _ = await wait(15) { !m.thinking }
+                    said = m.bubbles.last { !$0.fromMe }?.text ?? ""
+                    check("cleared by asking: no done line shows (\(said.prefix(40)))", !said.contains("[done-helper") && !said.isEmpty)
                 } else {
-                    m.closeHelper(id)  // its X
+                    check("\(j) Got it", m.closeHelper(id))  // Got it in its thread
                 }
                 try? await Task.sleep(for: .milliseconds(800))
-                check("\(j) closed: gone, and only it", Set(m.helpers.map(\.id)) == before.subtracting([id]))
+                check("\(j) off the screen: gone, and only it", Set(m.helpers.map(\.id)) == before.subtracting([id]))
             }
             await neverStuck(m)
             Engine.shared.stop()

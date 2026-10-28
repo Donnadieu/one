@@ -20,8 +20,8 @@ struct HomeView: View {
     /// Renders only: a draft to show in the ask box, and whether the writing panel is open.
     nonisolated(unsafe) static var stillDraft = ""
     nonisolated(unsafe) static var stillWriting = false
-    /// Renders only: the helper whose X shows, as if pointed at.
-    nonisolated(unsafe) static var stillClose: UUID?
+    /// Renders only: the helper shown as if pointed at.
+    nonisolated(unsafe) static var stillPointed: UUID?
     @State var draft = HomeView.stillDraft
     @State var writing = HomeView.stillWriting
     @State var windowHeight: CGFloat = 760
@@ -52,7 +52,7 @@ struct HomeView: View {
                     .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
                 StillScroll {
                     VStack(spacing: 12) {
-                        HelperConstellation(m: m, still: HomeView.still, closeShown: HomeView.stillClose)
+                        HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                         if !m.isReady {
                             GateLine(m: m).starCalm(floor: 0.2).transition(.opacity)  // getting ready (StartupGate.swift)
                         } else if m.thinking && m.openHelper == nil {

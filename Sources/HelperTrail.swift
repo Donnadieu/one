@@ -68,7 +68,7 @@ enum HelperTrail {
     /// Returns true if it was working (so its conversation should be cancelled too).
     @discardableResult
     static func stopByYou(_ h: inout Helper) -> Bool {
-        guard h.state == "working" || h.resumeQueued == true else { return false }
+        guard h.state == "working" || h.state == "needsYes" || h.resumeQueued == true else { return false }
         let wasWorking = h.state == "working"
         h.state = "stopped"
         h.resumeQueued = false

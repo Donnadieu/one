@@ -9,7 +9,7 @@ import SwiftUI
 enum PopupRender {
     static let names = [
         "popup-folders", "popup-connections", "popup-name", "popup-talk", "popup-stop", "popup-reader", "popup-writing", "popup-routines",
-        "popup-share", "popup-close",
+        "popup-share",
     ]
     static let size = CGSize(width: 1180, height: 760)
     static let titleRow: CGFloat = 52
@@ -51,8 +51,6 @@ enum PopupRender {
             PopupStage(close: none) { _ in TalkKeySheet {} }
         case "popup-stop":
             PopupStage(close: none) { _ in HelperStopAsk(title: "Canvas price options") { _ in } }
-        case "popup-close":
-            PopupStage(close: none) { _ in HelperCloseAsk(title: "Canvas price options") { _ in } }
         case "popup-reader":
             ShelfOpened(m: m, item: readerItem())
         case "popup-writing":

@@ -15,8 +15,12 @@ extension Helpers {
         var said = jobs.isEmpty && !reply.components(separatedBy: "\n").contains(where: isLine) ? reply : clean
         let (unstopped, stops) = HelperStop.extract(said)
         if !stops.isEmpty { said = unstopped }
-        let (unclosed, closes) = HelperStop.extract(said, tag: "close-helper")
-        if !closes.isEmpty { said = unclosed }
+        var closes: [String] = []
+        for tag in HelperClose.tags {  // [done-helper: …], or the older [close-helper: …]
+            let (unclosed, names) = HelperStop.extract(said, tag: tag)
+            if !names.isEmpty { said = unclosed }
+            closes += names
+        }
         return (said, jobs, stops, closes)
     }
 

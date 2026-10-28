@@ -1,25 +1,39 @@
 import SwiftUI
 
-// MARK: - A helper's orb stays until they close it (Omar, Oct 28: "a helper orb must NEVER go away on its own").
+// MARK: - A helper's orb stays until they're done with it (Omar, Oct 28: "a helper orb must NEVER go away on its own",
+// and later the same day, after losing one to a stray click on its X: "never removed straight from the orb").
 // Not when it finishes, not when it's opened or read, not when a new helper starts, not after a restart, an update or
-// a crash, and no cap on how many. The only ways off the screen: the X on its orb (or Close on its card), or asking
-// the assistant to close it ([close-helper: …]). Proven by `make helpers-check` (HelperStress.swift).
+// a crash, and no cap on how many. Nothing on the orb itself takes it away (no X, no right-click item, no swipe, no
+// key). The only two ways off the screen: "Got it" inside its thread, or asking the assistant ([done-helper: …], or
+// the older [close-helper: …]). A helper still at work or waiting for their yes stays until it's stopped first.
+// Proven by `make helpers-check` (HelperStress.swift). Omar dislikes the word "close": none of this says it to him.
 
 enum HelperClose {
     /// Told to the assistant on every prompt and in SOUL (with the stop rule).
     static let rule =
-        "To close a helper's orb (take it off the screen), when they say \"close the <name> helper\", \"close that one\" or \"close all\", add a line exactly like [close-helper: <its exact title>] or [close-helper: all] and confirm in one short line, like \"Closed Flight to Quebec.\" \"all\" closes every helper that isn't still working. An orb never goes away on its own: it stays until they close it."
+        "To take a helper's orb off the screen, when they say \"I'm done with <name>\", \"got it\" (about a helper), \"clear <name>\", \"remove <name>\" or \"clear them all\", add a line exactly like [done-helper: <its exact title>] or [done-helper: all] and confirm in one short line, like \"Done, Flight to Quebec is off your screen.\" \"all\" clears every helper that's finished or stopped. A helper still working or waiting for their yes stays on the screen until it's stopped: if they ask to clear one of those, say so and ask if you should stop it first; only after they say yes, add [stop-helper: <its exact title>] and then [done-helper: <its exact title>]. An orb never goes away on its own: it stays until they tap Got it inside it or ask you."
+    /// The lines the assistant can write to take an orb off the screen: the new one, and the old one still read.
+    static let tags = ["done-helper", "close-helper"]
 
-    /// Which helpers a close line means: the exact title (any case, the most recently sent on ties), or "all" =
-    /// every one that isn't still at work (a working one is closed only by its own name, which stops it first).
+    /// Still busy: at work, waiting to pick back up, or waiting for their yes. Never taken off the screen.
+    static func busy(_ h: Helper) -> Bool { h.state == "working" || h.state == "needsYes" || h.resumeQueued == true }
+
+    /// Which helpers a done line means: the exact title (any case, the most recently sent on ties), or "all" =
+    /// every one that's finished or stopped (a busy one is never taken, even by name, until it's stopped).
     static func match(_ name: String, in hs: [Helper]) -> [UUID] {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'“”‘’"))).lowercased()
-        if n == "all" { return hs.filter { $0.state != "working" && $0.resumeQueued != true }.map(\.id) }
+        if n == "all" { return hs.filter { !busy($0) }.map(\.id) }
         let same = hs.enumerated().filter { $0.element.title.lowercased() == n }
         let pick = same.max { a, b in (a.element.started ?? .distantPast, a.offset) < (b.element.started ?? .distantPast, b.offset) }
         return pick.map { [$0.element.id] } ?? []
     }
     static func notFound(_ name: String) -> String { "I couldn't find a helper called \"\(name)\"." }
+    /// Asked to clear one that's still busy: it stays, and this says why.
+    static func stillBusy(_ h: Helper) -> String {
+        h.state == "needsYes"
+            ? "\(h.title) is waiting for your yes, so it stays on your screen. Answer it, or ask me to stop it first."
+            : "\(h.title) is still working, so it stays on your screen. Ask me to stop it first if you want it gone."
+    }
 
     /// The saved helpers, read back. One unreadable entry never costs the rest: each is read on its own, and
     /// anything that can't be read is set aside under `helpersUnreadable` instead of being written over.
@@ -48,23 +62,27 @@ enum HelperClose {
 }
 
 extension Model {
-    /// They closed this helper (its X, its card's Close, or by asking). The one and only way an orb leaves the screen.
-    /// A helper still at work is stopped first, so nothing keeps running unseen.
-    func closeHelper(_ id: UUID) {
-        guard let h = helpers.first(where: { $0.id == id }) else { return }
-        if h.state == "working" || h.resumeQueued == true { stopHelper(id) }
+    /// They're done with this helper ("Got it" in its thread, or by asking). The one and only way an orb leaves the
+    /// screen. A helper still at work or waiting for their yes is never taken: it has to be stopped first.
+    @discardableResult func closeHelper(_ id: UUID) -> Bool {
+        guard let h = helpers.first(where: { $0.id == id }), !HelperClose.busy(h) else { return false }
         if openHelper == id { openHelper = nil }
         doneQueue.removeAll { $0 == id }
-        Helpers.log("helper \"\(h.title)\" closed by you (\(h.state))")
+        Helpers.log("helper \"\(h.title)\" taken off the screen by you (\(h.state))")
         withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
+        return true
     }
 
-    /// The assistant wrote "[close-helper: …]": close the match. Returns a plain line if nothing matched.
+    /// The assistant wrote "[done-helper: …]" (or the older "[close-helper: …]"): take the match off the screen.
+    /// Returns a plain line if nothing matched, or if the match is still busy.
     func closeHelpers(named name: String) -> String? {
         let ids = HelperClose.match(name, in: helpers)
         if ids.isEmpty { return name.lowercased().trimmingCharacters(in: .whitespaces) == "all" ? nil : HelperClose.notFound(name) }
-        ids.forEach { closeHelper($0) }
-        return nil
+        var said: [String] = []
+        for id in ids where !closeHelper(id) {
+            if let h = helpers.first(where: { $0.id == id }) { said.append(HelperClose.stillBusy(h)) }
+        }
+        return said.isEmpty ? nil : said.joined(separator: "\n")
     }
 
     /// "Start again" on a stopped helper: the same orb goes back to work on its original job, from the start.
@@ -90,58 +108,5 @@ extension Model {
             self.update(id) { $0.sid = sid }
             await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: h.task), images: [])
         }
-    }
-}
-
-/// The small X on a helper's orb while the pointer is over it: closes it. A working one asks first, on the shared
-/// pop-up glass (`Model.closeAsk` → `HelperCloseAsk` in `HomePopups`).
-struct HelperCloseDot: View {
-    let title: String
-    let working: Bool
-    let ask: () -> Void
-    let close: () -> Void
-    @State var hover = false
-    var body: some View {
-        Button {
-            if working { ask() } else { close() }
-        } label: {
-            Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(WorldLook.bg)
-                .frame(width: 17, height: 17)
-                .background(Circle().fill(WorldLook.cream.opacity(hover ? 1 : 0.85)))
-                .overlay(Circle().strokeBorder(WorldLook.bg, lineWidth: 2).padding(-2))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .help("Close \(title)")
-        .accessibilityLabel("Close \(title)")
-    }
-}
-
-/// "Close <title>?" for a helper that's still working: closing it stops it. Same glass as every pop-up.
-struct HelperCloseAsk: View {
-    let title: String
-    let done: (Bool) -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                Text("Close \(title)?").font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 120)  // the X and "Esc to close"
-            }.frame(minHeight: 28)
-            Text("It's still working. Closing it stops it.").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.7))
-            HStack(spacing: 8) {
-                Spacer()
-                Button("Keep it") { done(false) }.buttonStyle(.bordered)
-                Button {
-                    done(true)
-                } label: {
-                    Text("Stop and close").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
-                        .padding(.horizontal, 16).frame(height: 30).background(Capsule().fill(WorldLook.cream))
-                }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
-            }.padding(.top, 6)
-        }
-        .foregroundStyle(WorldLook.cream)
-        .padding(20).frame(width: 380, alignment: .leading)
     }
 }

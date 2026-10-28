@@ -72,7 +72,7 @@ enum Helpers {
         let rest = lines(text).keep.joined(separator: "\n")
         return Learning.hideTags(HelperStop.hide(rest)).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
-            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper")
+            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper") && !l.hasPrefix("[done-helper")
         }.joined(
             separator: "\n")
     }

@@ -80,7 +80,9 @@ enum HelperTrail {
     }
 
     static func told(_ title: String) -> String { "\(title) was interrupted by a restart. I picked it back up." }
-    static func toldUpdate(_ title: String) -> String { "\(title) was paused for the update. I picked it back up." }
+    static func toldUpdate(_ title: String, for reason: String? = nil) -> String {
+        "\(title) was paused for \(reason ?? "the update"). I picked it back up."
+    }
     static func gaveUp(_ n: Int) -> String { "Stopped: cut off by a restart \(n + 1) times · tap to see what it did" }
 
     /// At launch: helpers that were working (or waiting to be picked back up) when One stopped are
@@ -98,7 +100,7 @@ enum HelperTrail {
             if hs[k].updatePaused == true {
                 // Paused so an update could install: always picked back up, and it doesn't count as a cut-off.
                 hs[k].resumeQueued = true
-                hs[k].line = HelperStop.pausedLine
+                hs[k].line = hs[k].pausedFor == nil ? HelperStop.pausedLine : FolderWatch.pausedLine
             } else if (hs[k].resumes ?? 0) < maxResumes {
                 hs[k].resumeQueued = true
                 hs[k].line = "Cut off by a restart · picking it back up"
@@ -119,11 +121,13 @@ enum HelperTrail {
             let prompt = resumePrompt(hs[k], brief: brief(hs[k].task))
             hs[k].resumeQueued = false
             let update = hs[k].updatePaused == true
+            let reason = hs[k].pausedFor
             hs[k].updatePaused = nil
+            hs[k].pausedFor = nil
             if !update { hs[k].resumes = (hs[k].resumes ?? 0) + 1 }
             hs[k].state = "working"
             hs[k].line = "Picking up where it left off…"
-            hs[k].restartNews = update ? toldUpdate(hs[k].title) : told(hs[k].title)
+            hs[k].restartNews = update ? toldUpdate(hs[k].title, for: reason) : told(hs[k].title)
             out.append((hs[k].id, prompt))
         }
         return out

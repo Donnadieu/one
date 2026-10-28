@@ -93,6 +93,20 @@ enum Access {
         return lines(UserDefaults.standard.string(forKey: "connectorReads")).map { ($0 as NSString).expandingTildeInPath }
     }
     static func set(_ f: [String]) { UserDefaults.standard.set(f.joined(separator: "\n"), forKey: "folders") }
+    /// The Folders window applies only the person's own changes (what they added or removed since it
+    /// opened) onto the list as it is NOW. Writing back its whole copy would drop a folder the assistant,
+    /// a helper or a routine added (`defaults write`) while the window was open.
+    static func merge(opened: [String], chosen: [String], current: [String]) -> [String] {
+        let removed = Set(opened).subtracting(chosen)
+        var out = current.filter { !removed.contains($0) }
+        for f in chosen where !out.contains(f) { out.append(f) }
+        return out
+    }
+    /// The list as another process (`defaults write`) may have just left it.
+    static var freshFolders: [String] {
+        if override == nil { CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) }
+        return folders
+    }
     /// Everything in the home folder is closed except the engine itself, the brain and the folders the user approved.
     static func profile() -> String {
         let h = NSHomeDirectory()

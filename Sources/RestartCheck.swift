@@ -20,14 +20,16 @@ enum RestartCheck {
         Access.override = [a]
         Access.readsOverride = []
 
-        var restarts: [(resume: Bool, profile: String)] = []
+        var restarts: [(resume: Bool, profile: String, paused: Bool)] = []
         var running = true
+        var clock = Date()
         // Stands in for Model.restartForFolders: what a real restart does to the watch is start the
-        // engine again, which records the freshly built lock.
-        func tick(busy: Bool) async {
-            FolderWatch.tend(busy: busy, running: running) { resume in
+        // engine again, which records the freshly built lock. Each tick is 3 s of One's main loop.
+        func tick(busy: Bool, helpers: Bool = false) async {
+            clock += 3
+            FolderWatch.tend(talking: busy, helpersWorking: helpers, running: running, now: clock) { resume, pause in
                 let p = Access.profile()
-                restarts.append((resume, p))
+                restarts.append((resume, p, pause))
                 try? await Task.sleep(for: .milliseconds(200))
                 FolderWatch.engineStarted(profile: p)
             }
@@ -62,6 +64,41 @@ enum RestartCheck {
         check("a connection's new path restarts once", restarts.count == 2)
         check("its lock can read that path", restarts.last?.profile.contains(k) == true)
         check("a quiet change doesn't send a carry-on note", restarts.last?.resume == false)
+
+        // A helper (or a routine's helper) adds a folder it needs and keeps working: the restart must
+        // not wait for it, or the helper holds up its own fix (Oct 28: the Ledger morning run).
+        let c = scratch + "/allowed-c"
+        Access.override = [a, b, c]
+        check("only the new folder is named", FolderWatch.added == [c])
+        for _ in 0..<3 { await tick(busy: false, helpers: true) }
+        check("helpers get a short grace first", restarts.count == 2)
+        for _ in 0..<3 { await tick(busy: false, helpers: true) }
+        check("then it restarts while helpers still work", restarts.count == 3)
+        check("and pauses them so they pick back up", restarts.last?.paused == true)
+        check("the new lock has that folder", restarts.last?.profile.contains(c) == true)
+        check(
+            "the restart line names the folder in plain words",
+            FolderWatch.restartingLine([NSHomeDirectory() + "/.hermes/ai-content-chrome"], helpers: true)
+                == "Restarting to open ~/.hermes/ai-content-chrome. Your helpers will pick up where they left off.")
+        check(
+            "and says helpers pick back up",
+            FolderWatch.restartingLine([c], helpers: true).hasSuffix("Your helpers will pick up where they left off."))
+        check("within a minute", FolderWatch.helperGrace < 60 && FolderWatch.maxWait < 60)
+
+        // A reply that never ends doesn't hold it forever either.
+        let d = scratch + "/allowed-d"
+        Access.override = [a, b, c, d]
+        for _ in 0..<10 { await tick(busy: true) }
+        check("a long reply gets time to finish", restarts.count == 3)
+        for _ in 0..<7 { await tick(busy: true) }
+        check("but the restart still comes within a minute", restarts.count == 4)
+        check("and the assistant is told to carry on", restarts.last?.resume == true)
+
+        // The Folders window must never drop a folder added meanwhile by a chat or a routine.
+        let merged = Access.merge(opened: [a, b], chosen: [a], current: [a, b, c])
+        check("the Folders window keeps a folder added while it was open", merged.contains(c))
+        check("and still removes the one they took out", !merged.contains(b))
+        check("and adds the one they picked", Access.merge(opened: [a], chosen: [a, d], current: [a, c]) == [a, c, d])
 
         // A shell write with a literal \n still counts as two folders.
         check("a literal \\n between folders is read as two", Access.lines("\(a)\\n\(b)") == [a, b])

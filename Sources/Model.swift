@@ -84,18 +84,24 @@ final class Model: ObservableObject {
     }
 
     /// The folder list changed since the engine started (a new folder was allowed, maybe by the
-    /// assistant itself): once nothing is mid-reply, restart the engine under the new lock and carry on.
+    /// assistant or a helper itself): restart the engine under the new lock within a minute and carry on.
+    /// Working helpers don't hold it up for long (FolderWatch.due): they're paused and pick back up.
     func tendFolders() {
         guard onboarded, !Env.commandLine else { return }
-        let busy = thinking || helpers.contains { $0.state == "working" }
-        FolderWatch.tend(busy: busy, running: Engine.shared.running) { resume in await self.restartForFolders(resume: resume) }
+        FolderWatch.tend(talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running) {
+            resume, pause in await self.restartForFolders(resume: resume, pauseHelpers: pause)
+        }
     }
 
-    func restartForFolders(resume: Bool) async {
+    func restartForFolders(resume: Bool, pauseHelpers: Bool) async {
+        let line = FolderWatch.restartingLine(FolderWatch.added, helpers: pauseHelpers)
+        if pauseHelpers { pauseHelpersForFolder() }  // before the engine goes: their turns end as "paused", not "done"
+        bubbles.removeAll { $0.text == FolderWatch.restartedLine || $0.text.hasPrefix("Restarting to ") }
+        bubbles.append(Bubble(fromMe: false, text: line))
+        saveBubbles()
+        Floater.shared.note(line)
         await Engine.shared.stopForNewAccess()
-        await ensureEngine()  // same conversation: the saved session is reopened (with retries)
-        bubbles.removeAll { $0.text == FolderWatch.restartedLine }
-        bubbles.append(Bubble(fromMe: false, text: FolderWatch.restartedLine))
+        await ensureEngine()  // same conversation reopened (with retries); paused helpers pick back up here
         if resume { await send(FolderWatch.carryOn, toNova: true, hidden: true) }
     }
 

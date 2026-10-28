@@ -477,7 +477,9 @@ struct WorldStage: View {
 struct FolderSheet: View {
     @ObservedObject var m: Model
     let done: () -> Void
-    @State var folders: [String] = Access.folders
+    @State var folders: [String] = Access.freshFolders
+    /// The list as the window opened: Done applies only what changed since (`Access.merge`).
+    @State var opened: [String] = Access.folders
     let common = ["Desktop", "Documents", "Downloads"].map { NSHomeDirectory() + "/" + $0 }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -513,7 +515,7 @@ struct FolderSheet: View {
             HStack {
                 Spacer()
                 Button("Done") {
-                    m.setFolders(folders)
+                    m.setFolders(Access.merge(opened: opened, chosen: folders, current: Access.freshFolders))
                     done()
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                     .onGeometryChange(for: CGRect.self) {

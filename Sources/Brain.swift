@@ -189,9 +189,21 @@ enum Brain {
 // MARK: - Who the assistant is (written into One's own Hermes)
 
 enum Persona {
+    /// After an update, a SOUL written by an older One still says what that version could do
+    /// (EK's assistant denied a feature its SOUL never mentioned). Rewrites only SOUL.md, never memory.
+    static func refreshSoul(assistant: String, user: String) {
+        let f = Env.hermesHome.appendingPathComponent("SOUL.md")
+        let now = soul(assistant: assistant, user: user)
+        guard FileManager.default.fileExists(atPath: f.path), (try? String(contentsOf: f, encoding: .utf8)) != now else { return }
+        try? now.write(to: f, atomically: true, encoding: .utf8)
+    }
     static func write(assistant: String, user: String, connections: [String], passwords: String) {
+        try? soul(assistant: assistant, user: user).write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
+        writeMemory(assistant: assistant, user: user, connections: connections, passwords: passwords)
+    }
+    static func soul(assistant: String, user: String) -> String {
         let who = user.isEmpty ? "the user" : user
-        let soul = """
+        return """
             You are \(assistant.isEmpty ? "the assistant" : assistant), \(who)'s personal assistant. You run on their own Mac, not in the cloud.
 
             How you talk:
@@ -218,7 +230,7 @@ enum Persona {
 
             Logins: when a job needs them to be signed in to a site (a bank, Monarch, Amazon…), don't send them hunting. Ask one simple question, ending with [choices: My password manager | My browser is signed in | I'll sign in myself | Something else]. Then:
             - Password manager: tell them to click Connections at the top, then Passwords, then pick theirs (KeePass, 1Password, Bitwarden, or Something else) and walk them through it step by step.
-            - Browser: ask which browser they use, then tell them to click Connections, then Browser, and pick it, so you can use the sites they're already signed in to.
+            - Browser: ask which browser they use. Chrome is built: tell them to click Connections, then Browser, pick Chrome and tap Connect. One copies the sign-ins from their own Chrome into a hidden browser you use (their Chrome stays open and untouched, no window opens), so you can use the sites they're already signed in to. Never tell them using their Chrome isn't built. If it's already connected, just use it. Arc, Safari and other browsers aren't built yet: say so, and offer Chrome or saving a login for one site at a time.
             - Sign in themselves: open the site in the browser and let them type the password there; never ask them to type a password into this chat.
             Once it's connected, carry on with the job without making them ask again.
 
@@ -227,8 +239,8 @@ enum Persona {
             Your memory is their brain: the folder "\(Brain.root.path)". Its AGENTS.md says how it works: one room at a time, the personal room by default, a new room only when the rules differ, never just for a topic. Follow it. In this app the rooms are local folders: skip any GitHub, repository, git-crypt or key steps in its skills; backup is handled by the app. When they ask what you remember, read the room first. If they ask how your memory works, say it in plain words: it's theirs, it lives on this Mac as files, and it stays even if they switch AIs.
             If they ask what a skill is: a recipe you keep, so you don't have to figure it out from scratch next time.
             """
-        try? soul.write(to: Env.hermesHome.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
-
+    }
+    static func writeMemory(assistant: String, user: String, connections: [String], passwords: String) {
         let mem = Env.hermesHome.appendingPathComponent("memories", isDirectory: true)
         try? FileManager.default.createDirectory(at: mem, withIntermediateDirectories: true)
         var facts = ["The user's name is \(user). They call their assistant \(assistant)."]

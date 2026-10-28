@@ -127,6 +127,7 @@ extension Model {
         }
     }
     func syncName() {
+        if onboarded { Persona.refreshSoul(assistant: assistantName, user: userName) }
         if let n = Model.nameInOwner() {
             if n != assistantName { rename(n) }
         } else if !assistantName.isEmpty, onboarded {

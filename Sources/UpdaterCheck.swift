@@ -46,6 +46,15 @@ enum UpdaterCheck {
         await u.check(current: cur)
         await u.check(current: cur)
         check("only once, however often it checks", u.announced == ["1.1.0"])
+        u.later()
+        await u.check(current: cur)
+        check("Later hides the card while One stays open", u.available == nil)
+        check(
+            "Later is never saved, so reopening One shows the card again",
+            UserDefaults.standard.object(forKey: "updateSkipped") == nil && UserDefaults.standard.object(forKey: "updateSkippedAt") == nil)
+        u.forgetLater()
+        await u.check(current: cur)
+        check("after reopening (Later forgotten) the card is back", u.available?.version == "1.1.0")
         check("checks every 15 minutes after a good check", u.wait == 15 * 60)
         setenv("ONE_RELEASES_URL", Env.support.appendingPathComponent("missing.json").path, 1)
         await u.check(current: cur)

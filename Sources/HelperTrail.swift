@@ -83,6 +83,7 @@ enum HelperTrail {
     static func toldUpdate(_ title: String, for reason: String? = nil) -> String {
         "\(title) was paused for \(reason ?? "the update"). I picked it back up."
     }
+    static func toldMany(_ n: Int) -> String { "\(n) helpers were cut off by a restart. I picked them all back up." }
     static func gaveUp(_ n: Int) -> String { "Stopped: cut off by a restart \(n + 1) times · tap to see what it did" }
 
     /// At launch: helpers that were working (or waiting to be picked back up) when One stopped are

@@ -118,7 +118,11 @@ extension Model {
     func resumeWhenReady(after secs: Double) {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(secs))
-            for _ in 0..<100 where !Engine.shared.running { try? await Task.sleep(for: .seconds(3)) }
+            // The engine may be gone for good (it crashed or was killed, not restarted): start it again.
+            for _ in 0..<100 where !Engine.shared.running {
+                await self.startEngineAgain()
+                if !Engine.shared.running { try? await Task.sleep(for: .seconds(3)) }
+            }
             self.resumeInterrupted()
         }
     }

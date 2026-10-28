@@ -49,7 +49,7 @@ cp assets/One.icns "$APP/Contents/Resources/One.icns"
 HERMES_COMMIT="${HERMES_COMMIT:-bf0203a794a07aac3ff764972ab9087baa4e4f4e}"
 echo "$HERMES_COMMIT" > "$APP/Contents/Resources/hermes-commit.txt"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/$HERMES_COMMIT/scripts/install.sh}"
-curl -fsSL "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"
+curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"
 # Memory templates (rooms). Point BRAIN_STARTER at a checkout of the brain starter.
 BRAIN_STARTER="${BRAIN_STARTER:-$HOME/Repos/brain-starter}"
 if [ -d "$BRAIN_STARTER/.git" ]; then

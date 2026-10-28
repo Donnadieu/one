@@ -67,6 +67,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HumanStepCheck.run()) }
             return
         }
+        if HelperStress.launch() { return }  // --test-helpers-stress (tools/helpers-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {

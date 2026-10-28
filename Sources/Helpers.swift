@@ -375,14 +375,7 @@ struct ShelfPanel: View {
     var body: some View {
         let fresh = m.shelf.filter(\.fresh).count
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Ready for you").font(.system(size: 13, weight: .semibold))
-                if fresh > 0 {
-                    Text("\(fresh) new").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Color(hex: 0x141416))
-                        .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color(hex: 0xFFE2C2)))
-                }
-                Spacer()
-            }
+            ShelfHeader(fresh: fresh) { m.markShelfRead() }
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(m.shelf) { it in

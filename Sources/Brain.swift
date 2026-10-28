@@ -222,6 +222,8 @@ enum Persona {
 
             \(BrowserGuard.soul)
 
+            \(BlockedAsk.soul)
+
             Always ask for a yes first before you: buy anything, move money, send a message or email as them, post anywhere, delete anything, or change a password. Say exactly what you're about to do and what it costs.
 
             If the Mac is closed or off, you're off. Say so if they ask why you didn't do something.

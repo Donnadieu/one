@@ -11,8 +11,11 @@ extension Helpers {
             "\n\n(One app note, not from the user: You are a helper working on one job. Do the work yourself with your own tools. Never write [helper: …] lines; they do nothing here. If the job truly needs a separate parallel job, say so in one plain line and \(user.isEmpty ? "their" : user + "'s") assistant will send it.)"
             + BrowserGuard.note
     }
+    /// Every helper turn: its first, every follow-up, and one picked back up after a restart or an update (whose
+    /// prompt may already carry an older helper note, so the blocked-step rule is checked on its own).
     static func forHelper(_ text: String) -> String {
-        text.contains("(One app note, not from the user: You are a helper working on one job.") ? text : text + helperNote
+        let t = text.contains("(One app note, not from the user: You are a helper working on one job.") ? text : text + helperNote
+        return t.contains(BlockedAsk.marker) ? t : t + BlockedAsk.note
     }
     /// A helper wrote "[helper: …]" lines anyway: they're taken out of what's shown, logged, and never started.
     static func dropStrayLines(_ text: String, helper title: String) -> String {

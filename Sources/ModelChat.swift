@@ -224,6 +224,7 @@ extension Model {
                 Task { @MainActor in
                     guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line
                     self.helperUnderway(id)
+                    BlockedAsk.saw(s, by: id.uuidString)
                     self.learnHelperStep(id, s)
                     self.update(id) {
                         $0.line = Plain.step(s)
@@ -259,6 +260,8 @@ extension Model {
                 h.reply = "I tried to hand this to another helper instead of doing it. Ask me again and I'll do it myself."
             }
             if stop.hasPrefix("error") && h.reply.isEmpty { h.reply = "I couldn't finish this (\(stop.dropFirst(7)))." }
+            // One stopped it at a robot check and its ask is still open: it ends on that ask, orange, never done.
+            if let b = self.blockedAsk(for: id) { h.reply = BlockedAsk.enforce(h.reply, line: b.line) }
             let parts = Choices.split(h.reply)
             if !parts.choices.isEmpty {
                 h.state = "needsYes"
@@ -394,8 +397,9 @@ extension Model {
     /// toNova: the floating orb always talks to Nova, never to an open helper.
     func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
         if !toNova, let hid = openHelper, let h = openedHelper {
-            guard let c = compose(text) else { return }
+            guard var c = compose(text) else { return }
             BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
+            c.engine += blockedYes(text, helper: hid)  // "Yes, show it" to a robot-check ask shows that one window
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.
             if paused || h.state == "working" { return followUp(c, helper: hid, hidden: false) }
             await ensureEngine()
@@ -403,7 +407,8 @@ extension Model {
             await runHelper(hid, c.engine, images: c.images)
             return
         }
-        guard let c = compose(text) else { return }
+        guard var c = compose(text) else { return }
+        if !hidden { c.engine += blockedYes(text, helper: nil) }
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy (or stopped): the message goes into the running turn as it runs, or waits next up. Never a second turn, never a stop.
@@ -432,6 +437,7 @@ extension Model {
         Engine.shared.onTool = { s in
             Task { @MainActor in
                 self.working = Plain.step(s)
+                BlockedAsk.saw(s, by: "main")
                 self.learnStep(s)
             }
         }

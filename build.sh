@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 APP=build/app.noindex/One.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macosx14.0 \
-  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -swift-version 5 \
+  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -framework IOKit -swift-version 5 \
   Sources/*.swift -o "$APP/Contents/MacOS/One"
 VERSION=$(tr -d ' \n' < VERSION)
 cat > "$APP/Contents/Info.plist" <<PLIST

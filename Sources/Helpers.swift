@@ -51,7 +51,7 @@ enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
         "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here; One tells you when to add one \"By the way, <title> is done. Tap it to take a look.\" line, after you finish what you're saying. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
-            + HelperStop.note + BlockedAsk.note
+            + HelperStop.note + BlockedAsk.note + KeepAwake.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     static func extract(_ text: String) -> (String, [(String, String)]) {

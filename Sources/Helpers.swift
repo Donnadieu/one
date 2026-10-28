@@ -54,24 +54,23 @@ enum Helpers {
             + HelperStop.note + BlockedAsk.note + KeepAwake.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
+    /// Run this BEFORE reading any other tag: a helper line is opaque (HelperLines.swift), whatever its job text quotes.
     static func extract(_ text: String) -> (String, [(String, String)]) {
         var jobs: [(String, String)] = []
-        var keep: [String] = []
-        for l in text.components(separatedBy: "\n") {
-            let tl = l.trimmingCharacters(in: .whitespaces)
-            if tl.lowercased().hasPrefix("[helper:"), tl.hasSuffix("]") {
-                let parts = tl.dropFirst(8).dropLast().split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { jobs.append((parts[0], parts[1])) }
-            } else {
-                keep.append(l)
-            }
+        var (keep, found) = lines(text)
+        for l in found {
+            let job = parse(l)
+            if let job { jobs.append(job) }
+            if job == nil || !l.hasSuffix("]") { logOdd(l, started: job != nil) }  // never shown either way
         }
         while let last = keep.last, last.trimmingCharacters(in: .whitespaces).isEmpty { keep.removeLast() }
         return (keep.joined(separator: "\n"), jobs)
     }
-    /// Hide helper lines while a reply is still streaming in.
+    /// Hide helper lines while a reply is still streaming in. Helper lines go first, whole, so a tag quoted
+    /// inside one never splits it.
     static func strip(_ text: String) -> String {
-        Learning.hideTags(HelperStop.hide(text)).components(separatedBy: "\n").filter {
+        let rest = lines(text).keep.joined(separator: "\n")
+        return Learning.hideTags(HelperStop.hide(rest)).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper")
         }.joined(

@@ -107,6 +107,8 @@ enum HelperCheck {
         check("even if One quit before the cancel landed", relaunch([saved])[0].resumeQueued != true)
         check("and it stays stopped after another restart", relaunch(relaunch([mine]))[0].state == "stopped")
 
+        quotedTags(check)
+
         // Stop by chat: the assistant's [stop-helper: …] line.
         let (said, names) = HelperStop.extract("Stopped Flight to Quebec.\n[stop-helper: Flight to Quebec]\n[STOP-HELPER: all]\n")
         check("a stop line is taken out of the reply", said == "Stopped Flight to Quebec." && names == ["Flight to Quebec", "all"])

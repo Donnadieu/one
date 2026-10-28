@@ -5,7 +5,8 @@ It speaks the same ACP JSON-RPC over stdin/stdout as the real engine, costs noth
 Every helper job the check sends contains `STRESSJOB <id> secs=<n>`: the stand-in takes a step, says it is
 working (partial words, like a real helper mid-job), waits n seconds and only then ends with `DONE <id>`.
 `ask=1` after secs ends the job with a [choices: …] line (needs their yes). `STRESSCLOSE <title>` answers with
-a [close-helper: <title>] line. A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
+a [close-helper: <title>] line. `STRESSQUOTED <a> <b>` answers with three helper lines quoting
+[close-helper: <a>], [stop-helper: all], [stop-helper: <b>] and [choices: …] inside their jobs. A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
 first one written twice, and the whole reply delivered twice (how the real engine doubled a reply on
 Oct 27, 2026). Everything it does is appended to $ONE_FAKE_ENGINE_LOG (one JSON object per line), so the
 check can count how many times each job really ran and whether two copies ever overlapped.
@@ -102,6 +103,19 @@ def prompt(rid, sid, text):
         log(ev="spawn-reply", n=n, sid=sid)
         chunk(sid, reply)
         chunk(sid, reply)  # and the whole reply delivered twice
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESSQUOTED (\S+) (\S+)", text)
+    if m:  # Oct 28: helper lines whose job text quotes a close, a stop and a choices line (real titles, live helpers)
+        a, b = m.group(1), m.group(2)
+        reply = ("Sending three helpers now.\n"
+                 "[helper: Q1 | STRESSJOB Q1 secs=2 Remove the X from the orbs; Elias writes [close-helper: %s] on its own line.]\n"
+                 "[helper: Q2 | STRESSJOB Q2 secs=2 Make Stop also stop helpers on [stop-helper: all] and [stop-helper: %s].]\n"
+                 "[helper: Q3 | STRESSJOB Q3 secs=2 Check a reply ending in [choices: A | B] shows two buttons.]\n"
+                 "They'll report back.\n" % (a, b))
+        log(ev="quoted-reply", sid=sid)
+        for i in range(0, len(reply), 7):  # streamed in small pieces, like the real engine
+            chunk(sid, reply[i:i + 7])
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     m = re.search(r"STRESSCLOSE ([^\n]+)", text)

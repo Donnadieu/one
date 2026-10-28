@@ -437,24 +437,20 @@ extension Model {
         await turnOver(idx, failed: stop.hasPrefix("error"))
         var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         heldText = ""
-        let (unstopped, stops) = HelperStop.extract(full)
-        if !stops.isEmpty {
-            // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
-            full = unstopped
-            for s in stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        }
-        let (unclosed, closes) = HelperStop.extract(full, tag: "close-helper")
-        if !closes.isEmpty {
-            // "[close-helper: …]": asked to take an orb off the screen. The only way besides its X.
-            full = unclosed
-            for s in closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        }
         full = Helpers.undouble(full)  // one reply delivered twice shows (and sends its helpers) once
-        let (clean, all) = Helpers.extract(full)
+        // Helper lines come out FIRST, whole: a [helper: …] line is opaque, so a stop/close/choices tag its job text
+        // quotes is never read (Oct 28: two helpers split in two by a quoted [close-helper: …], never started).
+        let tags = Helpers.read(full)
+        let all = tags.jobs
+        full = tags.said
+        // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
+        for s in tags.stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
+        // "[close-helper: …]": asked to take an orb off the screen. The only way besides its X.
+        for s in tags.closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
         Helpers.logSkipped(skipped)
         if !all.isEmpty {
-            full = clean
+            // Started after the stops, so a helper sent in the same reply is never caught by "all".
             let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }

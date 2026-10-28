@@ -179,6 +179,45 @@ enum HelperStress {
     }
 
     /// `--test-helpers-stress <phase>`: true if this launch is the stress check (it then runs and exits).
+    /// Oct 28: a helper line whose job quotes [close-helper: …], [stop-helper: …] or [choices: …] starts whole,
+    /// and nothing is stopped, closed, shown or read aloud from inside it (HelperLines.swift).
+    static let quotedJobs: Set<String> = ["Q1", "Q2", "Q3"]  // step 1b's own helpers, not counted with the rest
+    @MainActor
+    static func quoted(_ m: Model) async {
+        print("1b. three helper lines quoting close, stop and choices tags, streamed in small pieces")
+        let live = m.helpers.filter { $0.state == "working" }
+        guard live.count >= 2 else { return check("two helpers at work to quote (\(live.count))", false) }
+        let before = Dictionary(uniqueKeysWithValues: m.helpers.map { ($0.id, $0.state) })
+        var shown: [String] = []
+        let watcher = Task { @MainActor in
+            while !Task.isCancelled {
+                if let b = m.bubbles.last, !b.fromMe { shown.append(Helpers.strip(b.text)) }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        await m.send("STRESSQUOTED \(live[0].title) \(live[1].title)")
+        _ = await wait(20) { !m.thinking }
+        watcher.cancel()
+        let q = m.helpers.filter { ["Q1", "Q2", "Q3"].contains($0.title) }
+        check("all 3 started (\(q.map(\.title)))", q.count == 3)
+        check(
+            "each with its whole job text",
+            q.contains { $0.task.hasSuffix("[close-helper: \(live[0].title)] on its own line.") }
+                && q.contains { $0.task.hasSuffix("[stop-helper: \(live[1].title)].") } && q.contains { $0.task.hasSuffix("shows two buttons.") })
+        let gone = before.keys.filter { id in !m.helpers.contains { $0.id == id } }
+        let stopped = m.helpers.filter { before[$0.id] == "working" && ($0.state == "stopped" || $0.stoppedByYou == true) }
+        check("nothing was stopped or closed (\(gone.count) gone, \(stopped.count) stopped)", gone.isEmpty && stopped.isEmpty)
+        let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
+        let bits = ["[helper", "orbs", "STRESSJOB", "Make Stop", "buttons", "couldn't find"]
+        check("the reply shows only what was said (\(said.prefix(60)))", said == "Sending three helpers now.\nThey'll report back.")
+        check("no piece of a helper line ever showed while it streamed", !shown.contains { s in bits.contains { s.contains($0) } })
+        check(
+            "nothing of them is read aloud",
+            !Speaker.spoken(said + "\n" + (m.bubbles.last?.text ?? "")).contains { s in bits.contains { s.contains($0) } })
+        _ = await wait(15) { q.allSatisfy { h in m.helpers.first { $0.id == h.id }?.state == "done" } }
+        m.helpers.removeAll { ["Q1", "Q2", "Q3"].contains($0.title) }  // the rest of the check counts its own helpers
+    }
+
     static func launch() -> Bool {
         guard let k = CommandLine.arguments.firstIndex(of: "--test-helpers-stress") else { return false }
         TestWorld.enter()  // scratch folder, own settings; the stand-in engine only (tools/helpers-check.sh)
@@ -207,14 +246,15 @@ enum HelperStress {
             let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
             check("the doubled reply shows once", said.components(separatedBy: "Sending \(chatCount) helpers now.").count == 2)
             check("and no helper line shows", !said.contains("[helper"))
+            await quoted(m)
             let keep = await makeKeepers(m)
             let total = chatCount + directCount + keepers.count
             print("2. \(directCount) more at once (\(total) in all)")
             for n in 1...directCount { m.spawnHelper(title: String(format: "B%02d", n), task: "STRESSJOB B\(n) secs=\(n % 2 == 0 ? 3 : Int(long))") }
             check("all \(total) are listed", m.helpers.count == total)
             keepersOK(m, keep, "a new helper sent (75 of them)")
-            let started = await wait(20) { Set(events().filter { $0.ev == "start" }.compactMap(\.job)).count == total }
-            print("   [\(at())] \(Set(events().filter { $0.ev == "start" }.compactMap(\.job)).count) at work")
+            let started = await wait(20) { Set(events().filter { $0.ev == "start" }.compactMap(\.job)).subtracting(quotedJobs).count == total }
+            print("   [\(at())] \(Set(events().filter { $0.ev == "start" }.compactMap(\.job)).subtracting(quotedJobs).count) at work")
             check("all \(total) are at work at the same time, none waits for a slot", started)
             let shortDone = await wait(30) { m.helpers.filter { secs($0) < 10 && !isKeeper($0) }.allSatisfy { $0.state == "done" } }
             print("   [\(at())] \(m.helpers.filter { $0.state == "done" }.count) done")
@@ -314,7 +354,7 @@ enum HelperStress {
             let extra = m.helpers.filter { h in files.filter { $0.contains("DONE \(job(h))\n") }.count > 1 }
             check("and only one each (\(extra.count) with more)", extra.isEmpty)
             let evs = events()
-            let fresh = evs.filter { $0.ev == "start" && $0.resumed != true }.compactMap(\.job)
+            let fresh = evs.filter { $0.ev == "start" && $0.resumed != true }.compactMap(\.job).filter { !quotedJobs.contains($0) }
             let twice = Set(fresh.filter { j in fresh.filter { $0 == j }.count > 1 })
             check(
                 "none was started twice (\(Set(fresh).count) jobs started fresh, \(twice.count) twice)",

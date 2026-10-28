@@ -48,6 +48,10 @@ extension Model {
 
     func talkBegin() {
         guard !talkingInApp else { return }
+        guard isReady else {
+            talkNote = GateWords.talk
+            return
+        }
         talkNote = nil
         // Talking always works, busy or not: what's said goes into the running turn or waits next up.
         talkingInApp = true
@@ -117,46 +121,10 @@ extension Model {
         return HelperTrail.restore(HelperClose.decode(d))  // the ones a restart cut off get picked back up once the engine is ready
     }
 
-    /// Picks up helpers a restart cut off, all at once. Runs once the engine is ready and
-    /// whenever a helper finishes. Tells the person once per helper, in the chat, on the orb and out loud.
-    func resumeInterrupted() {
-        guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
-        let picked = HelperTrail.pick(&helpers) { Helpers.brief(assistant: self.assistantName, user: self.userName, task: $0) }
-        // One line for the whole batch: 46 helpers cut off by one restart used to post 46 lines and say each out loud.
-        // Said once per cut-off, not on every retry while a helper's last step finishes.
-        let told = picked.compactMap { p in
-            helpers.first { $0.id == p.id && ($0.busyTries == nil || $0.busyTries == 1) }.map { $0.restartNews ?? HelperTrail.told($0.title) }
-        }
-        if let line = told.count == 1 ? told.first : (told.isEmpty ? nil : HelperTrail.toldMany(told.count)) {
-            bubbles.removeAll { $0.text == line }
-            bubbles.append(Bubble(fromMe: false, text: line))
-            Floater.shared.note(line)
-            Task {
-                for _ in 0..<24 where self.thinking { try? await Task.sleep(for: .seconds(5)) }
-                _ = await Speaker.shared.sayNow(line)  // silent when muted
-            }
-        }
-        for p in picked {
-            guard let h = helpers.first(where: { $0.id == p.id }) else { continue }
-            HelperTrail.flush(h)
-            Task { @MainActor in
-                let sid = await HelperTrail.session(
-                    old: h.sid, reopen: { await Engine.shared.reopenSession($0) }, open: { await Engine.shared.openSession() })
-                guard let sid else {
-                    self.update(p.id) {
-                        $0.state = "stopped"
-                        $0.line = "Couldn't pick it back up · tap to see what it did"
-                    }
-                    return
-                }
-                self.update(p.id) { $0.sid = sid }
-                await self.runHelper(p.id, p.prompt, images: [])
-            }
-        }
-    }
     func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
     func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
     func focusHelper(_ id: UUID) {
+        if let h = helpers.first(where: { $0.id == id }), asleep(h) || !isReady { return }  // not back yet: can't be opened
         openHelper = openHelper == id ? nil : id
         update(id) { $0.finishedAway = false }
         if openHelper == id { markSeen(id) }
@@ -392,12 +360,14 @@ extension Model {
 
     /// toNova: the floating orb always talks to Nova, never to an open helper.
     func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
+        if !isReady { gateCheck() }  // the engine may be up a moment before its news arrives
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard var c = compose(text) else { return }
             BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
             c.engine += blockedYes(text, helper: hid)  // "Yes, show it" to a robot-check ask shows that one window
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.
-            if paused || h.state == "working" { return followUp(c, helper: hid, hidden: false) }
+            // Being picked back up, or One is getting ready: it waits next up and goes once the helper is back.
+            if paused || h.state == "working" || asleep(h) || !isReady { return followUp(c, helper: hid, hidden: false) }
             await ensureEngine()
             update(hid) { $0.asked = c.display }
             await runHelper(hid, c.engine, images: c.images)
@@ -408,7 +378,8 @@ extension Model {
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy (or stopped): the message goes into the running turn as it runs, or waits next up. Never a second turn, never a stop.
-        if paused || thinking { return followUp(c, helper: nil, hidden: hidden) }
+        // Getting ready: it waits next up and goes the moment One opens (StartupGate.swift). Never lost.
+        if paused || thinking || !isReady { return followUp(c, helper: nil, hidden: hidden) }
         thinking = true  // taken now, before any wait, so two sends can never both start a turn
         await runTurn(c, hidden: hidden)
     }

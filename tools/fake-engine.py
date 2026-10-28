@@ -13,6 +13,7 @@ Sessions are remembered in $ONE_FAKE_ENGINE_LOG.sessions, so a restarted stand-i
 """
 import json
 import os
+import random
 import re
 import sys
 import threading
@@ -71,6 +72,7 @@ def prompt(rid, sid, text):
     with c_lock:
         cancelled.discard(sid)
     if text.startswith("/steer "):
+        log(ev="steer", sid=sid, text=text[7:87])  # the check looks for messages held while One was getting ready
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)
@@ -130,7 +132,12 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": sid}})
         elif method == "session/load":
             ok = p.get("sessionId") in known()
-            send({"jsonrpc": "2.0", "id": rid, "result": {}} if ok else {"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "no such session"}})
+            reply = {"jsonrpc": "2.0", "id": rid, "result": {}} if ok else {"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "no such session"}}
+            slow = float(os.environ.get("ONE_FAKE_LOAD_SECS", "0") or 0)  # reopening takes a while, like the real one
+            if slow > 0:
+                threading.Timer(random.uniform(0, slow), send, args=(reply,)).start()
+            else:
+                send(reply)
         elif method == "session/prompt":
             text = "".join(b.get("text", "") for b in p.get("prompt", []) if b.get("type") == "text")
             threading.Thread(target=prompt, args=(rid, p.get("sessionId"), text), daemon=True).start()

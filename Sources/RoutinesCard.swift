@@ -147,7 +147,7 @@ extension RoutinesPanel {
 
     func ask(_ text: String) {
         close()
-        Task { await m.send(text, toNova: true) }
+        Task { await m.send(text, toNova: true) }  // getting ready: waits next up, goes when One opens
     }
 
     func act(_ r: Routine, _ args: [String], doing: String, done: String) async {

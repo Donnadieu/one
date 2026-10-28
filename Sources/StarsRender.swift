@@ -8,6 +8,7 @@ import SwiftUI
 
 enum StarsRender {
     @MainActor static func cli(_ args: [String]) {
+        StartupRender.cli(args)  // --render-startup <prefix>: the getting-ready frames (StartupRender.swift)
         if let k = args.firstIndex(of: "--render-stars"), k + 1 < args.count {
             TestWorld.enter()
             MainActor.assumeIsolated { renders(args[k + 1]) }

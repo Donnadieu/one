@@ -243,6 +243,21 @@ final class Model: ObservableObject {
     var heldText = ""
     var pendingReveal: (idx: Int, text: String, token: Int)?
     var revealCount = 0
+
+    // Getting ready (StartupGate.swift): closed while the engine starts, the conversation loads and helpers re-attach.
+    @Published var gate: Gate = Gate.atLaunch
+    @Published var waking: Set<UUID> = []  // helpers being picked back up, not re-attached yet
+    @Published var wakingTotal = 0  // helpers picked back up in this get-ready (for "1 of 4 back")
+    var gateSince: Date?
+    var gateWatch = 0
+
+    init() {
+        Engine.shared.onPhase = { p in Task { @MainActor in Model.shared.enginePhase(p) } }
+        if gate == .gettingReady {
+            gateSince = Date()
+            Task { @MainActor in Model.shared.watchGate() }
+        }
+    }
 }
 
 /// Turns the engine's technical step titles ("browser_exec: import time…") into plain words.

@@ -88,6 +88,7 @@ enum HelperStress {
             print("FAIL the stand-in engine didn't start: \(e)")
             return nil
         }
+        try? await Task.sleep(for: .milliseconds(300))  // the engine's news (getting ready / ready) reaches the model
         watch(m)
         return m
     }
@@ -100,6 +101,7 @@ enum HelperStress {
         let job: String?
         let resumed: Bool?
         let sid: String?
+        var text: String? = nil
     }
     static func events() -> [Event] {
         let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
@@ -222,6 +224,7 @@ enum HelperStress {
             let cut = working.map(job)
             check("long jobs are still at work (\(working.count))", working.count > 30)
             if let pid = Engine.shared.enginePID { kill(pid, SIGKILL) }
+            check("One shows it's getting ready the moment the engine goes", await wait(3) { !m.isReady })
             let back = await wait(30) {
                 let resumed = Set(events().filter { $0.ev == "start" && $0.resumed == true }.compactMap(\.job))
                 return Set(cut).isSubset(of: resumed) && m.helpers.filter { cut.contains(job($0)) }.allSatisfy { $0.state == "working" }
@@ -230,6 +233,7 @@ enum HelperStress {
                 "   [\(at())] engine back: \(Engine.shared.running), picked back up: \(m.helpers.filter { cut.contains(job($0)) && $0.state == "working" }.count) of \(cut.count)"
             )
             check("One started the engine again by itself", Engine.shared.running)
+            check("and opened again once every helper was back", await wait(30) { m.isReady && m.waking.isEmpty })
             check("every helper the engine cut off was picked back up", back)
             check("none of them was shown done", m.helpers.filter { cut.contains(job($0)) }.allSatisfy { $0.state != "done" })
             let restartLines = m.bubbles.filter { $0.text.contains("picked") && $0.text.contains("back up") }.count
@@ -263,7 +267,7 @@ enum HelperStress {
                 "the ones at work are waiting to pick back up (\(queued.count))", queued.count == others.count - wasDone.count && !queued.isEmpty)
             let before = events().count
             let saidBefore = m.bubbles.count
-            m.resumeInterrupted()
+            await gateHolds(m, queued: queued)  // getting ready: no messages to sleeping helpers, nothing lost; resumes them
             let back = await wait(20) { events().dropFirst(before).filter { $0.ev == "start" }.count >= queued.count }
             print("   [\(at())] picked back up: \(events().dropFirst(before).filter { $0.ev == "start" }.count) of \(queued.count)")
             check("all of them picked back up", back)
@@ -359,6 +363,7 @@ enum HelperStress {
                 try? await Task.sleep(for: .milliseconds(800))
                 check("\(j) closed: gone, and only it", Set(m.helpers.map(\.id)) == before.subtracting([id]))
             }
+            await neverStuck(m)
             Engine.shared.stop()
             print(fails == 0 ? "helpers-stress ok" : "helpers-stress FAILED (\(fails))")
             return fails == 0 ? 0 : 1

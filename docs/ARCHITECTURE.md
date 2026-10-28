@@ -21,6 +21,7 @@
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |
 | Voice.swift | service | Kokoro voice process, speaking, listening (push to talk) |
 | Updater.swift | service | check GitHub releases every 15 min (ETag, back-off), announce a new version once (notification, orb note, spoken line), download, swap the app |
+| VersionNote.swift | service | the hidden note on every prompt (assistant and helpers): running version, newer release if any, read the code at that tag before saying how One works |
 | UpdaterCheck.swift | dev only | `One --test-updates`, run by preflight |
 | Brain.swift | service | the memory folder and room templates, persona (SOUL) |
 | Helpers.swift | service + UI | background helper sessions, the Ready for you shelf |

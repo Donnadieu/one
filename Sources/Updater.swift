@@ -18,6 +18,8 @@ final class Updater: ObservableObject {
     static let repo = "Donnadieu/one"
     @Published var available: (version: String, notes: String, zip: URL)?
     @Published var state: String?  // "Downloading…", errors
+    /// The newest release with One.zip above the running version, even after "Later" (told to the assistant every turn).
+    private(set) var newest: String?
     var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
 
     static func newer(_ a: String, than b: String) -> Bool {
@@ -101,6 +103,7 @@ final class Updater: ObservableObject {
         lastList = data
         wait = Updater.every
         guard let best = Updater.pick(list, current: cur ?? current) else { return }
+        newest = best.0
         if laterThisRun != best.0 {
             available = (best.0, best.1, best.2)
         }

@@ -22,6 +22,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 await Updater.shared.check()
                 print("current", Updater.shared.current, "available", Updater.shared.available.map { "\($0.version) \($0.zip)" } ?? "none")
+                if CommandLine.arguments.contains("--version-note") { print(VersionNote.note) }  // the hidden note every prompt carries
                 exit(0)
             }
             return

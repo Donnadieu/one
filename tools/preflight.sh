@@ -40,6 +40,11 @@ made_list() { ls -1 "$HOME/Documents"/Made\ by*/ 2>/dev/null | sort; }
 shelf_list() { defaults export ai.forjado.one - 2>/dev/null | plutil -extract shelf raw -o - - 2>/dev/null | base64 -D 2>/dev/null \
   | /usr/bin/python3 -c 'import json,sys; [print(x["path"]) for x in json.load(sys.stdin)]' 2>/dev/null | sort; }
 made_list > "$T/made.before"; shelf_list > "$T/shelf.before"
+# The folder-restart check mostly waits (about 20 s): start it now and read its result in its place below.
+# It uses its own scratch folder and its own stand-in helper, so it can't touch the checks running meanwhile.
+mkdir -p "$T/rs"
+ONE_SUPPORT_DIR="$T/rs" perl -e 'alarm 180; exec @ARGV' "$TBIN" --test-restart > "$T/rs/out.txt" 2>&1 &
+RS_PID=$!
 
 echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
@@ -105,8 +110,8 @@ check "same profile and port, hidden, never from a test copy; Claude sign-in rea
 grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Restart by itself after a new folder is allowed"
-mkdir -p "$T/rs"
-check "a changed folder list restarts once with the new folder, an unchanged one never" bash -c "ONE_SUPPORT_DIR=$T/rs $TBIN --test-restart | tee $T/rs/out.txt | grep -q '^restart ok'"
+wait $RS_PID
+check "a changed folder list restarts once with the new folder, an unchanged one never" grep -q '^restart ok' "$T/rs/out.txt"
 grep "✗" "$T/rs/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Helpers a restart cut off pick up where they left off"

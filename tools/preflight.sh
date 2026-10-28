@@ -3,10 +3,13 @@
 #   tools/preflight.sh           quick checks (about 1 minute, no login, no network except the updater check)
 #   tools/preflight.sh --full    also a fresh engine install into an empty folder (about 2 minutes)
 #   tools/preflight.sh --ci      skip checks that need a Mac with One's engine (GitHub runners)
+#   tools/preflight.sh --quick   skip the slow helpers stress check (pull request checks; it still runs on main,
+#                                every night, on release tags and in every local run, so releases always pass it)
+# Every check has a time limit (LIMIT seconds, 180 by default), so a stuck check fails instead of holding a runner for hours.
 set -u
 cd "$(dirname "$0")/.."
-FULL=0; CI=0
-for a in "$@"; do [ "$a" = --full ] && FULL=1; [ "$a" = --ci ] && CI=1; done
+FULL=0; CI=0; QUICK=0
+for a in "$@"; do [ "$a" = --full ] && FULL=1; [ "$a" = --ci ] && CI=1; [ "$a" = --quick ] && QUICK=1; done
 # .noindex: Spotlight never lists the test copies as apps
 T="${TMPDIR:-/tmp}/one-preflight-$$.noindex"; mkdir -p "$T"
 trap 'rm -rf "$T"; defaults delete ai.forjado.one.preflight >/dev/null 2>&1; defaults delete ai.forjado.one.preflight-old >/dev/null 2>&1' EXIT
@@ -14,7 +17,12 @@ APP=build/app.noindex/One.app; BIN="$APP/Contents/MacOS/One"
 pass=0; fail=0
 ok()  { echo "  ✓ $1"; pass=$((pass+1)); }
 bad() { echo "  ✗ $1"; fail=$((fail+1)); }
-check() { local name="$1"; shift; if "$@" >"$T/last.log" 2>&1; then ok "$name"; else bad "$name"; sed 's/^/      /' "$T/last.log" | tail -5; fi; }
+check() {
+  local name="$1" lim="${LIMIT:-180}" rc; shift
+  if perl -e '$t = shift; alarm $t; exec @ARGV or exit 127' "$lim" "$@" >"$T/last.log" 2>&1; then ok "$name"; else
+    rc=$?; bad "$name"; [ $rc = 142 ] && echo "      stopped: still running after ${lim}s"; sed 's/^/      /' "$T/last.log" | tail -5
+  fi
+}
 
 # The person's live One must survive this run: note its engine helper now, compare at the end.
 REAL_PID_FILE="$HOME/Library/Application Support/One/hermes/gateway.pid"
@@ -22,7 +30,7 @@ gw_id() { local p; p=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$REAL_PID_FILE" 2
 GW_BEFORE=$(gw_id)
 
 echo "Build"
-check "app builds" ./build.sh
+LIMIT=600 check "app builds" ./build.sh
 [ -x "$BIN" ] || { echo "No app binary, stopping."; exit 1; }
 # Your files and settings are production. Every test below runs from a test copy with its own bundle id
 # (own settings) and a scratch One folder; the real build only runs to prove it refuses. See TestWorld.swift.
@@ -32,6 +40,11 @@ made_list() { ls -1 "$HOME/Documents"/Made\ by*/ 2>/dev/null | sort; }
 shelf_list() { defaults export ai.forjado.one - 2>/dev/null | plutil -extract shelf raw -o - - 2>/dev/null | base64 -D 2>/dev/null \
   | /usr/bin/python3 -c 'import json,sys; [print(x["path"]) for x in json.load(sys.stdin)]' 2>/dev/null | sort; }
 made_list > "$T/made.before"; shelf_list > "$T/shelf.before"
+# The folder-restart check mostly waits (about 20 s): start it now and read its result in its place below.
+# It uses its own scratch folder and its own stand-in helper, so it can't touch the checks running meanwhile.
+mkdir -p "$T/rs"
+ONE_SUPPORT_DIR="$T/rs" perl -e 'alarm 180; exec @ARGV' "$TBIN" --test-restart > "$T/rs/out.txt" 2>&1 &
+RS_PID=$!
 
 echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
@@ -97,8 +110,8 @@ check "same profile and port, hidden, never from a test copy; Claude sign-in rea
 grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Restart by itself after a new folder is allowed"
-mkdir -p "$T/rs"
-check "a changed folder list restarts once with the new folder, an unchanged one never" bash -c "ONE_SUPPORT_DIR=$T/rs $TBIN --test-restart | tee $T/rs/out.txt | grep -q '^restart ok'"
+wait $RS_PID
+check "a changed folder list restarts once with the new folder, an unchanged one never" grep -q '^restart ok' "$T/rs/out.txt"
 grep "✗" "$T/rs/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Helpers a restart cut off pick up where they left off"
@@ -106,10 +119,14 @@ mkdir -p "$T/hl"  # the test never reads or writes your saved helpers: they go t
 check "trail saved, picked up once at launch with it; finished, stopped-with-Stop and a third cut-off never" bash -c "ONE_SUPPORT_DIR=$T/hl $TBIN --test-helpers | tee $T/hl/out.txt | grep -q '^helpers ok'"
 grep "✗" "$T/hl/out.txt" 2>/dev/null | sed 's/^/    /'
 
-echo "Lots of helpers survive restarts (stand-in engine, no cost)"
-check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \
-  bash -c "tools/helpers-check.sh --no-build > '$T/hs.txt' 2>&1"
-grep "✗" "$T/hs.txt" 2>/dev/null | sed 's/^/    /'
+if [ $QUICK = 0 ]; then
+  echo "Lots of helpers survive restarts (stand-in engine, no cost)"
+  LIMIT=480 check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \
+    bash -c "tools/helpers-check.sh --no-build > '$T/hs.txt' 2>&1"
+  grep "✗" "$T/hs.txt" 2>/dev/null | sed 's/^/    /'
+else
+  echo "Lots of helpers survive restarts: skipped (--quick; runs on main, nightly, on release tags and locally)"
+fi
 
 echo "Stop talking just this once"
 mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings

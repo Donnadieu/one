@@ -1,19 +1,43 @@
 name: check
+# Goal: a pull request's check is green (or red) within 3 minutes of the push.
+#  - Pull requests: fast unoptimized build + every quick check (tools/preflight.sh --ci --quick).
+#  - main, release tags (v*) and every night: the same plus the slow helpers stress check (--ci).
+#  - A newer push to the same pull request or branch cancels the older run, so stale runs never hold a runner.
+#  - Every check has its own time limit and the job stops at 10 minutes: a stuck check can't block the line for hours.
 on:
   push:
     branches: [main]
+    tags: ['v*']
+    paths-ignore: ['*.md', 'docs/**', 'LICENSE', '.agents/**']
   pull_request:
+    paths-ignore: ['*.md', 'docs/**', 'LICENSE', '.agents/**']
+  schedule:
+    - cron: '17 7 * * *'  # nightly full run (3:17 am New York)
+  workflow_dispatch:
+concurrency:
+  group: check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      QUICK: ${{ github.event_name == 'pull_request' && '--quick' || '' }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - name: Use the newest Xcode on the runner
+        id: xcode
         run: |
           X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           sudo xcode-select -s "$X"
           swiftc --version
+          echo "key=$ImageOS-$(basename "$X" .app)-$(swiftc --version 2>&1 | head -1 | md5 | cut -c1-8)" >> "$GITHUB_OUTPUT"
+      - name: Apple's framework modules from the last run
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/swift-module-cache
+          key: swift-modules-${{ steps.xcode.outputs.key }}
       - name: Formatting
         run: xcrun swift-format lint -r -s -p Sources
       - name: One's own rules
@@ -21,4 +45,7 @@ jobs:
       - name: Lint baseline only shrinks
         run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
       - name: Preflight (no login needed)
-        run: tools/preflight.sh --ci
+        env:
+          ONE_FAST_BUILD: '1'
+          ONE_MODULE_CACHE: ${{ runner.temp }}/swift-module-cache
+        run: tools/preflight.sh --ci $QUICK

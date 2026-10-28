@@ -8,7 +8,10 @@ cd "$(dirname "$0")/.."
 case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAIL build (run ./build.sh)"; exit 1; } ;; esac
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-helperdone.XXXXXX")
 tools/test-copy.sh helperdone-test "$S" >/dev/null  # own bundle id: never your real One or its settings
-env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+# Its own One folder, borrowing only the installed engine program (Hermes), so it also starts from inside One's lock.
+mkdir -p "$S/sup"
+ln -s "$HOME/Library/Application Support/One/engine" "$S/sup/engine"
+env -i ONE_SUPPORT_DIR="$S/sup" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
   LANG="${LANG:-en_US.UTF-8}" HERMES_RUNTIME_DIR="$HOME/Library/Application Support/One/hermes/tools" \
   perl -e 'alarm 840; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-helper-done > "$S/out.txt" 2>"$S/err.txt"
 rc=$?

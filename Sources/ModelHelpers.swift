@@ -6,24 +6,13 @@ import Foundation
 @MainActor
 extension Model {
     /// A helper finished: its orb turns orange and holds the result. The assistant never relays it or asks its question;
-    /// once its current reply is over (never in the middle of one), it adds one "By the way, <title> is done" line.
-    /// Helpers that finish during the same reply share one line. Nothing goes out for a helper they already opened.
+    /// it adds one "By the way, <title> is done" line, at the back of the one line everything it says goes through
+    /// (SayQueue.swift): never in the middle of a reply or its voice, one helper at a time, in the order they finished.
+    /// One per change of state: a helper that ends several turns the same way (picked back up, carried on after a
+    /// check) gets one notice, and a notice still waiting says its newest state. None for a helper they opened.
     func queueDoneNote(_ id: UUID) {
-        if !doneQueue.contains(id) { doneQueue.append(id) }
-        guard !doneNoteWaiting else { return }
-        doneNoteWaiting = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))  // helpers finishing together go in one line
-            // Wait for the reply (and its voice) to end, and let anything they sent first go first.
-            while thinking || paused || voicePlaying || followUps.contains(where: { $0.helper == nil }) {
-                try? await Task.sleep(for: .milliseconds(500))
-            }
-            doneNoteWaiting = false
-            let ready = doneQueue.compactMap { q in helpers.first { $0.id == q && $0.waiting && $0.routine == nil } }
-            doneQueue = []
-            guard !ready.isEmpty else { return }
-            await send(Helpers.doneNote(ready, user: userName), toNova: true, hidden: true)
-        }
+        guard let h = helpers.first(where: { $0.id == id }), h.waiting, h.routine == nil, h.toldState != h.state else { return }
+        enqueue(.helperNews(id))
     }
 
     /// Good morning / afternoon / evening or a status report: its helpers report together. Once every helper from
@@ -33,7 +22,6 @@ extension Model {
         guard !mine().isEmpty, !mine().contains(where: { $0.state == "working" || $0.resumeQueued == true }) else { return }
         guard !routinesTold.contains(batch) else { return }
         routinesTold.insert(batch)
-        while thinking || paused || voicePlaying { try? await Task.sleep(for: .milliseconds(500)) }
         var parts: [String] = []
         for h in mine() {
             var r = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -43,11 +31,11 @@ extension Model {
             update(h.id) { $0.toldNova = true }
         }
         let asks = mine().contains { $0.state == "needsYes" } ? " If one needs their yes, say exactly what for and offer the choices." : ""
-        await send(
-            "(One app note, not from the user: all the helpers you sent for that are back. Give \(userName) ONE combined report now, "
-                + "in your own words: the real content (the numbers, names, times, what changed), short and complete. "
-                + "Never just say you have the update or that it's ready.\(asks) Their results:\n" + parts.joined(separator: "\n") + ")",
-            toNova: true, hidden: true)
+        enqueue(
+            .note(
+                "(One app note, not from the user: all the helpers you sent for that are back. Give \(userName) ONE combined report now, "
+                    + "in your own words: the real content (the numbers, names, times, what changed), short and complete. "
+                    + "Never just say you have the update or that it's ready.\(asks) Their results:\n" + parts.joined(separator: "\n") + ")"))
     }
 
     /// What the assistant should know about her helpers every turn: who's still working and who's done.

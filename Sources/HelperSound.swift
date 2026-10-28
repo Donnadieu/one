@@ -36,7 +36,7 @@ enum HelperSound {
         gathering = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))
-            for _ in 0..<80 where Speaker.shared.talking { try? await Task.sleep(for: .milliseconds(250)) }
+            for _ in 0..<80 where Speaker.shared.busy { try? await Task.sleep(for: .milliseconds(250)) }
             let yes = wantsYes
             wantsYes = false
             gathering = false

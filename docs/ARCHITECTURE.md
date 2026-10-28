@@ -20,6 +20,7 @@
 | Installer.swift | service | install Hermes (pinned commit), KeePass overlay, provider sign-in, tools Python |
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |
 | Voice.swift | service | Kokoro voice process, speaking, listening (push to talk) |
+| HelperSound.swift | service | the organ swell when a helper's orb turns orange (done / needs your yes): on the voice line, after any sentence, never muted or during push to talk, one for several (`sounds/`, made by `sounds/make_sounds.py`) |
 | Updater.swift | service | check GitHub releases every 15 min (ETag, back-off), announce a new version once (notification, orb note, spoken line), download, swap the app |
 | VersionNote.swift | service | the hidden note on every prompt (assistant and helpers): running version, newer release if any, read the code at that tag before saying how One works |
 | UpdaterCheck.swift | dev only | `One --test-updates`, run by preflight |
@@ -34,7 +35,7 @@
 | HelperStress.swift | check | `One --test-helpers-stress <phase>` (tools/helpers-check.sh, `make helpers-check`, in preflight): 100 helpers against the stand-in engine `tools/fake-engine.py`, engine killed, One killed, an update; none lost, doubled, run twice or falsely done; every result filed; finished ones stay until dismissed |
 | HelperCheck.swift | dev only | `One --test-helpers`, run by preflight |
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
-| VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; stand-in voice), run by preflight |
+| VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; helper sound rules; stand-in voice), run by preflight |
 | ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | ShelfRead.swift | UI | the shelf's title row (`ShelfHeader`) and "Mark all read" (`Model.markShelfRead`: every card read in one save, their helpers seen); renders `shelf-read-new` / `shelf-read-done` |
 | Pictures.swift | service | images and files attached to a message |

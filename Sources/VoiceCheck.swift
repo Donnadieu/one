@@ -2,6 +2,7 @@ import Foundation
 
 /// `One --test-voice`: proves that stopping the voice just this once (Esc, or a click on the orb while it
 /// talks) drops the rest of that reply's sentences, never turns the mute on, and lets the next reply speak.
+/// Also the helper sound's rules (muted, push to talk, one sound for several helpers), with no sound made.
 /// Run with ONE_SUPPORT_DIR set to an empty folder. The voice process is a stand-in (no Kokoro, no sound)
 /// and the mute is read from the test's own settings, so the person's real settings are only read, never written.
 enum VoiceCheck {
@@ -56,6 +57,27 @@ enum VoiceCheck {
         sp.read("One line while muted.") { muted += 1 }
         await settle(0.5)
         check("the real mute still keeps it quiet", muted == 1 && sp.reached == base3)
+
+        // The helper sound: plays with the orange pulse, never muted, never during push to talk, one for several.
+        check(
+            "helper sound rules: plays, muted, push to talk, too soon",
+            HelperSound.decide(muted: false, listening: false, sinceLast: 60) == .play
+                && HelperSound.decide(muted: true, listening: false, sinceLast: 60) == .muted
+                && HelperSound.decide(muted: false, listening: true, sinceLast: 60) == .listening
+                && HelperSound.decide(muted: false, listening: false, sinceLast: 1) == .tooSoon)
+        let r0 = HelperSound.rung.count
+        HelperSound.ring(needsYes: false)
+        await settle(1.0)
+        check("muted: no helper sound", HelperSound.rung.count == r0)
+        suite.set(false, forKey: "voiceMuted")
+        HelperSound.ring(needsYes: false)
+        HelperSound.ring(needsYes: true)
+        HelperSound.ring(needsYes: false)
+        await settle(1.0)
+        check("three helpers at once: one sound, the needs-your-yes one", HelperSound.rung.count == r0 + 1 && HelperSound.rung.last == "chime-yes")
+        HelperSound.ring(needsYes: false)
+        await settle(1.0)
+        check("another one right after stays quiet", HelperSound.rung.count == r0 + 1)
 
         sp.stand = nil
         UserDefaults.standard.removePersistentDomain(forName: "ai.forjado.one.voice-test")

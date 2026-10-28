@@ -272,6 +272,7 @@ extension Model {
             h.seen = self.openHelper == id || h.routine != nil
         }
         learnHelperFinished(id, stop: stop)
+        if let h = helpers.first(where: { $0.id == id }), h.waiting { HelperSound.ring(needsYes: h.state == "needsYes") }  // with the orange pulse
         if let h = helpers.first(where: { $0.id == id }), !stop.hasPrefix("error") {
             let said = Choices.split(h.reply).body.trimmingCharacters(in: .whitespacesAndNewlines)
             if !said.isEmpty {

@@ -30,6 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"
+cp sounds/chime-done.mp3 sounds/chime-yes.mp3 "$APP/Contents/Resources/"
 cp tools/speak.py tools/speak_file.py tools/install_voice.sh "$APP/Contents/Resources/"
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
 cp tools/overlay/tools/one_human_step.py "$APP/Contents/Resources/"

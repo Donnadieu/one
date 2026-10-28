@@ -20,7 +20,7 @@ enum HelperStop {
 
     /// Pull "[stop-helper: Title]" and "[stop-helper: all]" out of the assistant's reply, on their own line or
     /// in the middle of one (the assistant sometimes runs it into its sentence).
-    /// `tag: "close-helper"` reads the close lines the same way.
+    /// `tag: "done-helper"` (or the older "close-helper") reads the lines that take an orb off the screen the same way.
     static func extract(_ text: String, tag: String = "stop-helper") -> (String, [String]) {
         guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[\(tag):([^\\]\\n]*)\\][ \\t]*", options: [.caseInsensitive]) else {
             return (text, [])
@@ -49,10 +49,11 @@ enum HelperStop {
     }
     /// While a reply streams in: hide a stop line, even half-written.
     static func hide(_ text: String) -> String {
-        var t = extract(extract(text).0, tag: "close-helper").0
+        var t = extract(extract(extract(text).0, tag: "close-helper").0, tag: "done-helper").0
         if let k = t.lastIndex(of: "[") {
             let tail = t[k...].lowercased()
-            for tag in ["[stop-helper", "[close-helper"] where (tag + ":").hasPrefix(tail) || (tail.hasPrefix(tag) && !tail.contains("]")) {
+            for tag in ["[stop-helper", "[close-helper", "[done-helper"]
+            where (tag + ":").hasPrefix(tail) || (tail.hasPrefix(tag) && !tail.contains("]")) {
                 t = String(t[..<k]).trimmingCharacters(in: .whitespaces)
                 break
             }
@@ -61,12 +62,13 @@ enum HelperStop {
     }
 
     /// Which helpers a stop line means: "all" = every one still at work; otherwise the exact title
-    /// (any case), the most recently sent on ties. Only helpers still at work (or waiting to pick back up) count.
+    /// (any case), the most recently sent on ties. Only helpers still at work (or waiting to pick back up) count;
+    /// by name, one waiting for their yes counts too (it has to be stopped before it can come off the screen).
     static func match(_ name: String, in hs: [Helper]) -> [UUID] {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'“”‘’"))).lowercased()
         let live = hs.enumerated().filter { $0.element.state == "working" || $0.element.resumeQueued == true }
         if n == "all" { return live.map(\.element.id) }
-        let same = live.filter { $0.element.title.lowercased() == n }
+        let same = hs.enumerated().filter { $0.element.title.lowercased() == n && HelperClose.busy($0.element) }
         let pick = same.max { a, b in
             (a.element.started ?? .distantPast, a.offset) < (b.element.started ?? .distantPast, b.offset)
         }
@@ -207,7 +209,8 @@ struct HelperCard: View {
     }
 
     @ViewBuilder var buttons: some View {
-        if h.state == "working" {
+        // Still at work or waiting for their yes: it can only be stopped here. "Got it" comes once it's done or stopped.
+        if HelperClose.busy(h) {
             HStack {
                 Spacer()
                 Button {
@@ -228,14 +231,14 @@ struct HelperCard: View {
                     }
                     .buttonStyle(.bordered).help("Sends this job out again, from the start")
                 }
-                // The only way an orb leaves the screen (besides its X or asking): never on its own.
+                // One of the only two ways an orb leaves the screen (the other is asking): never on its own, never from the orb.
                 Button {
                     m.closeHelper(h.id)
                 } label: {
-                    Label("Close", systemImage: "xmark")
+                    Label("Got it", systemImage: "checkmark")
                 }
                 .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                .help("Takes this helper off the screen. Its file stays in Ready for you.")
+                .help("Takes this helper off your screen. Its file stays in Ready for you.")
             }
         }
     }
@@ -245,6 +248,7 @@ struct HelperCard: View {
 /// opened as a conversation with the update card above it.
 struct HelperStopScene: View {
     var working = false  // the opened helper is still at work: its Stop button
+    var opened: String? = nil  // `helper-stop-got-it` / `helper-stop-needs-yes`: a done one (Got it) or one waiting for a yes (Stop only)
     static func helper(_ state: String, line: String, reply: String = "") -> Helper {
         var h = Helper(title: "Flight to Quebec", task: "Find the cheapest flight to Quebec City.", sid: nil, state: state, line: line)
         h.reply = reply
@@ -270,9 +274,26 @@ struct HelperStopScene: View {
             }.frame(width: 200)
             VStack(spacing: 14) {
                 UpdateCard()
-                HelperCard(m: Model.shared, h: working ? Self.helper("working", line: "Checking Google Flights…") : stopped)
+                HelperCard(m: Model.shared, h: card(stopped))
             }.frame(width: 520)
         }
         .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(WorldLook.bg).environment(\.colorScheme, .dark)
+    }
+    /// Its `--render-world` names: helper-stop, -working, -got-it (a done one), -needs-yes (Stop only).
+    @MainActor static var renders: [(String, AnyView)] {
+        [
+            ("helper-stop", AnyView(Self())), ("helper-stop-working", AnyView(Self(working: true))),
+            ("helper-stop-got-it", AnyView(Self(opened: "done"))), ("helper-stop-needs-yes", AnyView(Self(opened: "needsYes"))),
+        ]
+    }
+    func card(_ stopped: Helper) -> Helper {
+        if working { return Self.helper("working", line: "Checking Google Flights…") }
+        if opened == "done" {
+            return Self.helper("done", line: "Done", reply: "Cheapest is **$212** on Dec 20 (United, from EWR). Saved in Ready for you.")
+        }
+        if opened == "needsYes" {
+            return Self.helper("needsYes", line: "Needs your yes", reply: "Found **$212** on Dec 20. Book it?\n\n[choices: Yes, book it | Not now]")
+        }
+        return stopped
     }
 }

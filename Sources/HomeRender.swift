@@ -6,7 +6,7 @@ import SwiftUI
 // Model.shared with made-up helpers (tools/test-copy.sh gives the copy its own settings).
 
 enum HomeRender {
-    nonisolated(unsafe) static var closeFirst = false  // `home-close`: the first orb shows its X, as if pointed at
+    nonisolated(unsafe) static var pointFirst = false  // `home-pointed`: the first orb as if pointed at
     static let jobs: [(String, String, String)] = [
         ("Germán 1:1 prep", "needsYes", ""), ("Canvas price options", "working", "Reading your files…"),
         ("Stale task check", "new", ""), ("Helper double count", "working", "Counting twice to be sure…"),
@@ -39,7 +39,7 @@ enum HomeRender {
             m.helpers = helpers(n)
             m.openHelper = nil
         }
-        HomeView.stillClose = closeFirst ? HelperRings.sorted(m.helpers).first?.id : nil
+        HomeView.stillPointed = pointFirst ? HelperRings.sorted(m.helpers).first?.id : nil
         m.interviewOffered = true
         m.bubbles = [
             Bubble(fromMe: true, text: "Check on everything that's still open"),

@@ -445,7 +445,8 @@ extension Model {
         full = tags.said
         // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
         for s in tags.stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        // "[close-helper: …]": asked to take an orb off the screen. The only way besides its X.
+        // "[done-helper: …]" (or the older "[close-helper: …]"): asked to take an orb off the screen. The only way besides
+        // Got it in its thread. After the stops, so "stop it and clear it" in one reply works.
         for s in tags.closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
         Helpers.logSkipped(skipped)

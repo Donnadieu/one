@@ -116,7 +116,7 @@ struct HelperConstellation: View {
         nonmutating set { m.stopAsk = newValue }
     }
     @State var hover: UUID?
-    var closeShown: UUID? = nil  // renders: the X shown on this one as if pointed at
+    var pointed: UUID? = nil  // renders: this one shown as if pointed at
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
         let hs = HelperRings.sorted(m.helpers)
@@ -161,7 +161,7 @@ struct HelperConstellation: View {
 
     func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint) -> some View {
         let sleeping = m.asleep(h)  // being picked back up: dim, "starting again", can't be tapped (StartupGate.swift)
-        let on = hover == h.id && !sleeping
+        let on = (hover == h.id || pointed == h.id) && !sleeping
         let warm = (h.state == "needsYes" || h.waiting) && !sleeping
         let opened = h.state == "done" && !h.waiting
         let line = sleeping ? GateWords.helper : HelperRings.status(h)
@@ -184,21 +184,12 @@ struct HelperConstellation: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(h.title), \(line)")
-        .overlay(alignment: .top) {
-            // Pointing at an orb shows its X: the only way it leaves the screen (it never goes on its own).
-            if on || closeShown == h.id {
-                HelperCloseDot(title: h.title, working: h.state == "working" || h.resumeQueued == true, ask: { m.closeAsk = h.id }) {
-                    m.closeHelper(h.id)
-                }
-                .offset(x: spot.orb / 2 + 1, y: -1)
-            }
-        }
+        // Nothing on the orb takes it off the screen (Omar lost one to a stray click on an X here): no X, no
+        // right-click item, no swipe, no key. Only "Got it" inside its thread, or asking the assistant.
         .onHover { inside in hover = inside ? h.id : (hover == h.id ? nil : hover) }
         .contextMenu {
             if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } }
-            Button(h.state == "working" ? "Stop and close" : "Close") { m.closeHelper(h.id) }
         }
-        .accessibilityAction(named: "Close") { m.closeHelper(h.id) }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
         .allowsHitTesting(!sleeping)  // not back yet: no tap, no X, no menu, no long press
         .offset(x: dx, y: dy)

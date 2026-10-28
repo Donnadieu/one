@@ -185,8 +185,6 @@ struct HomePopups: ViewModifier {
     /// Under the name in the title row, like the design (a card that drops from the name, no arrow).
     var stopping: Helper? { m.stopAsk.flatMap { id in m.helpers.first { $0.id == id && $0.state == "working" } } }
     func endStop() { m.stopAsk = nil }
-    var closing: Helper? { m.closeAsk.flatMap { id in m.helpers.first { $0.id == id } } }
-    func endClose() { m.closeAsk = nil }
     static func nameInset(top: CGFloat) -> EdgeInsets { EdgeInsets(top: top, leading: 72, bottom: 0, trailing: 0) }
     func body(content: Content) -> some View {
         content
@@ -203,14 +201,6 @@ struct HomePopups: ViewModifier {
                     HelperStopAsk(title: h.title) { stop in
                         if stop { m.stopHelper(h.id) }
                         m.stopAsk = nil
-                    }
-                }
-            }
-            .onePopup(closing != nil, close: endClose) { _ in
-                if let h = closing {
-                    HelperCloseAsk(title: h.title) { yes in
-                        if yes { m.closeHelper(h.id) }
-                        m.closeAsk = nil
                     }
                 }
             }

@@ -5,7 +5,7 @@ It speaks the same ACP JSON-RPC over stdin/stdout as the real engine, costs noth
 Every helper job the check sends contains `STRESSJOB <id> secs=<n>`: the stand-in takes a step, says it is
 working (partial words, like a real helper mid-job), waits n seconds and only then ends with `DONE <id>`.
 `ask=1` after secs ends the job with a [choices: …] line (needs their yes). `STRESSCLOSE <title>` answers with
-a [close-helper: <title>] line. `STRESSQUOTED <a> <b>` answers with three helper lines quoting
+a [close-helper: <title>] line, `STRESSDONE <title>` with a [done-helper: <title>] line. `STRESSQUOTED <a> <b>` answers with three helper lines quoting
 [close-helper: <a>], [stop-helper: all], [stop-helper: <b>] and [choices: …] inside their jobs. A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
 first one written twice, and the whole reply delivered twice (how the real engine doubled a reply on
 Oct 27, 2026). Everything it does is appended to $ONE_FAKE_ENGINE_LOG (one JSON object per line), so the
@@ -116,6 +116,12 @@ def prompt(rid, sid, text):
         log(ev="quoted-reply", sid=sid)
         for i in range(0, len(reply), 7):  # streamed in small pieces, like the real engine
             chunk(sid, reply[i:i + 7])
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESSDONE ([^\n]+)", text)
+    if m:  # asked to clear a helper: the line the assistant writes for it
+        log(ev="done-reply", sid=sid)
+        chunk(sid, "Done, %s is off your screen.\n[done-helper: %s]\n" % (m.group(1).strip(), m.group(1).strip()))
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     m = re.search(r"STRESSCLOSE ([^\n]+)", text)

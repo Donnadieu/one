@@ -151,6 +151,13 @@ enum BrowserCheck {
         let ask = HumanStepAsk(id: "x", site: "claude.ai", kind: "check", line: "", port: 9223, target: "t", url: "https://claude.ai/")
         let code = HumanStepAsk(id: "y", site: "claude.ai", kind: "code", line: "", port: 9223, target: "t", url: "https://claude.ai/")
         expect(HumanCheck.wanted(ask) && !HumanCheck.wanted(code), "only robot checks get the plain window; codes keep the live view")
+        expect(
+            HumanCheckCard.siteName(site: "claude.ai", url: "https://claude.ai/design/p/1") == "Claude Design"
+                && HumanCheckCard.siteName(site: "amazon.com", url: "https://amazon.com/") == "amazon.com",
+            "the card names the site (Claude Design for its pages)")
+        expect(
+            HumanCheckCard.action("check") == "tick “I'm human”" && HumanCheckCard.action("code") == "enter the code",
+            "the card says the one thing to do")
         expect(HumanCheck.mainChrome(profile: "/tmp/one-no-such-profile-\(getpid())") == nil, "no Chrome holds an unused profile")
 
         // The pass is read from the profile's cookie file, the way Chrome stores it.

@@ -165,6 +165,12 @@ final class Engine: @unchecked Sendable {
         p.standardOutput = o
         p.standardInput = i
         p.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        if Env.selfTest {  // a check's engine: keep what it said, so a failed start can be read
+            let f = Env.hermesHome.appendingPathComponent("logs/engine-stderr.log")
+            try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: f.path, contents: nil)
+            if let h = FileHandle(forWritingAtPath: f.path) { p.standardError = h }
+        }
         o.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
             if !d.isEmpty { self?.feed(d) }
@@ -311,6 +317,17 @@ final class Engine: @unchecked Sendable {
         loaded.insert(sid)
         lock.unlock()
         return sid
+    }
+
+    /// A copy of a conversation (ACP session/fork): checks talk to the copy, never the original.
+    func forkSession(_ sid: String) async -> String? {
+        if await ensureStarted() != nil { return nil }
+        let r = await call("session/fork", ["sessionId": sid, "cwd": Engine.workDir, "mcpServers": [Any]()], timeout: 120)
+        guard let res = r["result"] as? [String: Any], let new = res["sessionId"] as? String else { return nil }
+        lock.lock()
+        loaded.insert(new)
+        lock.unlock()
+        return new
     }
 
     /// Reopen a helper's old conversation after a restart. False if the engine can't load it.

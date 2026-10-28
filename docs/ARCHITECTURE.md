@@ -47,6 +47,8 @@
 | FollowUpCheck.swift | check | `One --test-followups` (tools/followups-check.sh): real turn, messages during it, all arrive in order |
 | HelperDoneCheck.swift | check | `One --test-helper-done` (tools/helper-done-check.sh, `make helperdone`): real helper finishes mid-reply, one "by the way" line after, orange until opened, good morning gets one report |
 | HelperNote.swift | helpers | The note on every prompt to a helper session (do the work yourself, never `[helper: …]` lines) and the safety net that drops and logs a stray helper line |
+| HelperNotesCheck.swift | check | `One --test-helper-notes` (tools/helper-notes-check.sh, `make helpernotes`): a helper started under an old SOUL, forked after the SOUL updates, asked "can you use my Chrome?" / "where do I save a password?" must name Connections › Browser / Passwords, never a Settings screen |
+| SessionNotes.swift | chat | the notes every prompt carries, main chat and every helper turn alike (screen, logins, connections, hidden browser, GitHub, folders, version); old conversations keep their first system prompt, so these are how they learn what a newer One has |
 | HelperSelfCheck.swift | check | `One --test-helper-self` (tools/helper-self-check.sh, `make helperself`): an opened helper asked for more work does it itself; stray `[helper: …]` lines are dropped and logged |
 | Reader.swift | UI | `MarkdownText`: renders the assistant's Markdown replies |
 | ChatText.swift | UI | `ChatText`: every chat message (the person's and the assistant's, home and helpers) as one selectable AppKit text with Copy / Copy as Markdown on right-click; `ReaderText` for the Ready for you and file readers |

@@ -212,7 +212,7 @@ extension Model {
             $0.seen = nil
         }
         let stop = await Engine.shared.promptSession(
-            sid, Helpers.forHelper(text) + VersionNote.note, images: images,
+            sid, Helpers.forHelper(text) + SessionNotes.helper, images: images,  // the same notes as the main chat, every turn
             onText: { s in
                 Task { @MainActor in
                     self.helperUnderway(id)
@@ -331,7 +331,7 @@ extension Model {
     func sharedNote() -> String {
         let n = Shared.note(clashes: clashes)
         clashes = []
-        return n + SharedGuard.note + Model.githubNote
+        return n + SharedGuard.note
     }
     /// If they're signed in to GitHub on this Mac, say so every turn so the assistant never claims it can't.
     static var githubNote: String {
@@ -446,8 +446,8 @@ extension Model {
         }
         Engine.shared.onActivity = { Task { @MainActor in self.turnUnderway() } }
         let message =
-            c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + Bridge.note + BrowserKeeper.note + FolderWatch.note + helperNews()
-            + VersionNote.note
+            c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + helperNews()
+            + SessionNotes.main  // their screen, what is connected and built, which One: told every turn
             + (hidden ? "" : Learning.kindNote)
         learnStart(hidden: hidden)
         let gateway = GatewayGuard.recordedPID()

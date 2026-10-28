@@ -104,6 +104,13 @@ mkdir -p "$T/sk"
 check "fresh home gets them, edited copies are kept" bash -c "ONE_SUPPORT_DIR=$T/sk $TBIN --test-skills | tee $T/sk/out.txt | grep -q '^skills ok'"
 grep "✗" "$T/sk/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Home glass"
+if [ $CI = 0 ]; then  # needs a real window on screen
+  mkdir -p "$T/gl"
+  check "only the blur is left under the tint (design: blur 40, saturate 1.4), also after focus, resize, appearance" bash -c "ONE_SUPPORT_DIR=$T/gl $TBIN --test-glass | tee $T/gl/out.txt | grep -q '^glass ok'"
+  grep "FAIL" "$T/gl/out.txt" 2>/dev/null | sed 's/^/    /'
+fi
+
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"

@@ -241,12 +241,9 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
-        if let k = args.firstIndex(of: "--test-select") {
-            TestWorld.enter()  // a test copy only: one window, events sent into it, the clipboard
-            MainActor.assumeIsolated { SelectCheck.run(k + 1 < args.count ? args[k + 1] : "reply") }
-            exit(0)
-        }
+        SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
+        GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
         if let k = args.firstIndex(of: "--test-connections-open") {
             TestWorld.enter()  // a test copy only: one window, the Connections sheet opened in it
             MainActor.assumeIsolated {
@@ -405,6 +402,7 @@ struct Entry {
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
                     ("home-4", AnyView(EmptyView())),
+                    ("home-glass", AnyView(EmptyView())),
                     ("home-8", AnyView(EmptyView())),
                     ("home-10", AnyView(EmptyView())),
                     ("home-15", AnyView(EmptyView())),
@@ -434,7 +432,7 @@ struct Entry {
                     }
                     if LongMessageRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
-                        let n = Int(name.dropFirst(5)) ?? 4
+                        let n = Int(name.dropFirst(5)) ?? 10
                         HomeRender.png(HomeRender.scene(n), "\(out)-\(name).png", height: n > 22 ? 1200 : n > 15 ? 1000 : 760)
                         print("wrote \(out)-\(name).png")
                         continue

@@ -13,6 +13,8 @@ struct HomeView: View {
     @ObservedObject var m: Model
     /// Renders: no live text field (ImageRenderer can't draw it) and no motion.
     nonisolated(unsafe) static var still = false
+    /// Renders only: a desktop picture to draw the glass over (`--render-world home-glass`).
+    nonisolated(unsafe) static var stillDesk: NSImage?
     /// Renders only: a draft to show in the ask box, and whether the writing panel is open.
     nonisolated(unsafe) static var stillDraft = ""
     nonisolated(unsafe) static var stillWriting = false
@@ -41,10 +43,11 @@ struct HomeView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
+                // Pinned above the scrolling part, so the greeting can never slide up under the title row.
+                Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+                    .foregroundStyle(WorldLook.cream).padding(.top, 18).padding(.bottom, 12).lineLimit(1)
                 StillScroll {
                     VStack(spacing: 12) {
-                        Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
-                            .foregroundStyle(WorldLook.cream).padding(.top, 18)
                         HelperConstellation(m: m, still: HomeView.still)
                         if m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
@@ -320,7 +323,7 @@ struct HomeView: View {
                 micButton
             }
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(WorldLook.cream.opacity(0.05)))
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(WorldLook.cream.opacity(0.06)))
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(WorldLook.cream.opacity(typing ? 0.2 : 0.09)))
             .overlay(alignment: .topTrailing) {

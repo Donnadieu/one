@@ -26,6 +26,9 @@ enum HomeRender {
     }
     @MainActor static func scene(_ n: Int) -> AnyView {
         HomeView.still = true
+        // `home-glass`: drawn over a desktop picture (ONE_DESK=<png>; ONE_GLASS_OLD=1 for the look before the fix).
+        if let d = ProcessInfo.processInfo.environment["ONE_DESK"] { HomeView.stillDesk = NSImage(contentsOfFile: d) }
+        GlassStill.oldMaterial = ProcessInfo.processInfo.environment["ONE_GLASS_OLD"] == "1"
         let m = Model.shared
         m.assistantName = "Elias"
         m.userName = "Omar"
@@ -63,7 +66,9 @@ enum HomeRender {
                 .padding(.leading, 18).padding(.trailing, 16).frame(height: 52)
                 HomeView(m: m).frame(height: (n > 22 ? 1200 : n > 15 ? 1000 : 760) - 52, alignment: .top).clipped()
             }
-            .background(WorldLook.bg).foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
+            .background(HomeView.stillDesk == nil ? AnyView(WorldLook.bg) : AnyView(HomeBackdrop(outer: true)))
+            .clipShape(RoundedRectangle(cornerRadius: HomeView.stillDesk == nil ? 0 : 12, style: .continuous))
+            .foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
     }
     @MainActor static func png(_ v: AnyView, _ path: String, height: CGFloat) {
         let r = ImageRenderer(content: v.frame(width: 1180, height: height))

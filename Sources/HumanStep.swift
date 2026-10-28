@@ -98,9 +98,14 @@ extension Model {
         blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
     }
 
-    /// Their tap on Show the window is the yes to that window. A robot check opens the same profile in a plain
-    /// Chrome window (nothing attached, so the tick counts); anything else uses the live view.
+    /// Their yes ("Yes, show it" on the card, in the chat, or "Show the window") is the yes to that window: the same
+    /// profile opens as a plain Chrome window on the blocked page (address bar, nothing attached, so the tick counts).
+    /// The live view is only the last resort, when that browser isn't One's own hidden browser.
     func showHumanStep(_ a: HumanStepAsk) {
+        if HumanCheck.active != nil {
+            HumanCheck.log("\(a.site): a check window is already open; not opening a second one")
+            return
+        }
         if HumanCheck.wanted(a),
             HumanCheck.begin(
                 a,
@@ -111,6 +116,7 @@ extension Model {
         {
             return
         }
+        HumanCheck.log("\(a.site): no hidden browser of One's on port \(a.port); showing the live view instead")
         HumanStep.windows[a.id]?.show()
     }
 
@@ -133,7 +139,9 @@ struct HumanStepCard: View {
                 HStack {
                     Button("Yes, show it") {
                         shown = true
-                        HumanStep.windows[a.id]?.show()
+                        // The same route as a yes typed or tapped in the chat: a real Chrome window on the page.
+                        // (0.9.51–0.9.53 called the live view here directly, so the plain window never opened.)
+                        Model.shared.showHumanStep(a)
                     }.buttonStyle(.borderedProminent)
                     Button("Not now") { answer("away") }.buttonStyle(.bordered)
                     Spacer()

@@ -24,6 +24,12 @@ enum VoiceCheck {
             return nil
         }
         func settle(_ s: Double) async { try? await Task.sleep(for: .milliseconds(Int(s * 1000))) }
+        /// Until the helper sound has been decided (it waits for any sentence still being spoken), up to 30 s.
+        func rang() async {
+            await settle(0.5)
+            for _ in 0..<120 where HelperSound.gatheringNow { await settle(0.25) }
+            await settle(0.2)
+        }
 
         // Sentences are grouped up to 160 characters, so these long ones make replies of several parts.
         let pad = " This sentence is long on purpose so that the next one is spoken on its own."
@@ -67,16 +73,16 @@ enum VoiceCheck {
                 && HelperSound.decide(muted: false, listening: false, sinceLast: 1) == .tooSoon)
         let r0 = HelperSound.rung.count
         HelperSound.ring(needsYes: false)
-        await settle(1.0)
+        await rang()
         check("muted: no helper sound", HelperSound.rung.count == r0)
         suite.set(false, forKey: "voiceMuted")
         HelperSound.ring(needsYes: false)
         HelperSound.ring(needsYes: true)
         HelperSound.ring(needsYes: false)
-        await settle(1.0)
+        await rang()
         check("three helpers at once: one sound, the needs-your-yes one", HelperSound.rung.count == r0 + 1 && HelperSound.rung.last == "chime-yes")
         HelperSound.ring(needsYes: false)
-        await settle(1.0)
+        await rang()
         check("another one right after stays quiet", HelperSound.rung.count == r0 + 1)
 
         sp.stand = nil

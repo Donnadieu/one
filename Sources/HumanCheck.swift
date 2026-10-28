@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import SQLite3
@@ -33,8 +34,12 @@ enum HumanCheck {
     nonisolated(unsafe) static var requested: String?
     static let waitLimit: TimeInterval = 600
 
-    /// Only robot checks go to a real window. Codes, passkeys and approvals keep the live view.
-    static func wanted(_ a: HumanStepAsk) -> Bool { a.kind == "check" }
+    /// Every step only a person can do (robot check, sign-in, code, passkey, approve) gets the real window: the live
+    /// view had no address bar, showed a dark page and its clicks were DevTools clicks a robot check refuses.
+    static func wanted(_ a: HumanStepAsk) -> Bool { !a.kind.isEmpty }
+
+    /// Robot checks end by themselves when the check's cookie lands; other steps end on Done or Chrome closing.
+    static func watchesCookie(_ kind: String) -> Bool { kind == "check" }
 
     /// A plain Chrome window on the saved profile: no DevTools port, no automation flags, no headless.
     static func headedArguments(profile: String, url: String, app: String) -> [String] {
@@ -74,13 +79,22 @@ enum HumanCheck {
             try? await Task.sleep(for: .milliseconds(500))
             s.pid = mainChrome(profile: s.profile)
         }
+        if s.pid == nil {
+            log("\(s.site): the window didn't open; trying once more")
+            _ = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app))
+            for _ in 0..<20 where s.pid == nil {
+                try? await Task.sleep(for: .milliseconds(500))
+                s.pid = mainChrome(profile: s.profile)
+            }
+        }
         active = s
         let shown = s
         await MainActor.run { HumanCheckCard.show(id: shown.id, site: shown.site, url: shown.url, kind: shown.kind, pid: shown.pid) }
         var answer = "done"
-        var why = "time limit"
+        var why = s.pid == nil ? "the window didn't open" : "time limit"
+        if s.pid == nil { answer = "away" }
         let cookies = s.profile + "/Default/Cookies"
-        while Date().timeIntervalSince(s.started) < waitLimit {
+        while s.pid != nil, Date().timeIntervalSince(s.started) < waitLimit {
             try? await Task.sleep(for: .seconds(2))
             let pid = s.pid
             await MainActor.run { HumanCheckCard.place(pid: pid) }
@@ -89,7 +103,7 @@ enum HumanCheck {
                 why = r == "away" ? "they're not at the Mac" : "they tapped Done"
                 break
             }
-            if let t = lastClearance(cookies: cookies, site: s.site), t > s.started.timeIntervalSince1970 {
+            if watchesCookie(s.kind), let t = lastClearance(cookies: cookies, site: s.site), t > s.started.timeIntervalSince1970 {
                 why = "the check passed (its cookie is saved)"
                 break
             }
@@ -135,7 +149,19 @@ enum HumanCheck {
         }
     }
 
+    /// Quits the window's Chrome politely, the way ⌘Q does, so it writes its cookies first. SIGTERM (0.9.51-0.9.53)
+    /// ends Chrome without saving the last ~30 seconds of cookies, so the pass from their tick was lost (proved
+    /// 2026-10-28: a cookie set 1 s before SIGTERM never reached the Cookies file).
     static func quit(_ pid: pid_t) async {
+        let asked = Date()
+        let polite = await MainActor.run { NSRunningApplication(processIdentifier: pid)?.terminate() ?? false }
+        for _ in 0..<40 {
+            if kill(pid, 0) != 0 { return }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        log("Chrome didn't quit politely (asked: \(polite)); waiting for it to save its cookies, then stopping it")
+        // Chrome saves cookies at least every 30 seconds.
+        while Date().timeIntervalSince(asked) < 32, kill(pid, 0) == 0 { try? await Task.sleep(for: .milliseconds(500)) }
         kill(pid, SIGTERM)
         for _ in 0..<30 {
             if kill(pid, 0) != 0 { return }

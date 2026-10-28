@@ -25,6 +25,8 @@ enum HelperSound {
     private static var wantsYes = false
     /// Sounds that passed every rule (self-tests count them; there they make no sound).
     private(set) static var rung: [String] = []
+    /// A sound is still being gathered (self-tests wait on this instead of a fixed pause; slow CI runners need it).
+    static var gatheringNow: Bool { gathering }
 
     /// A helper's orb just turned orange. Waits a moment so helpers finishing together make one sound
     /// (the "needs your yes" one wins), and waits for a sentence being spoken to end.

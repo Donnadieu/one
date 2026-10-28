@@ -39,6 +39,14 @@ enum FolderSheetCheck {
         }
     }
 
+    /// Runs the check and exits when `--test-folders-fit` is among the arguments; returns otherwise.
+    nonisolated static func main(_ args: [String]) {
+        guard let k = args.firstIndex(of: "--test-folders-fit") else { return }
+        TestWorld.enter()  // a test copy only: one window, the Folders sheet opened in it with made-up folders
+        MainActor.assumeIsolated { run(pictures: k + 1 < args.count ? args[k + 1] : nil) }
+        exit(0)
+    }
+
     static func run(pictures: String?) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)

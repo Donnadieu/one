@@ -4,10 +4,9 @@ import SwiftUI
 // MARK: - Check: the Connections screen opens smoothly (`One --test-connections-open [rounds] [png dir]`)
 
 /// Opens a window like Home (the orb breathing behind, the status read ahead the way Home does), then
-/// opens Connections as the same sheet the toolbar button opens, and measures how evenly frames arrive
-/// once it's in: the gaps between animation frames and how long the main thread was busy. The sheet's
-/// own slide (~0.3 s) is drawn by macOS from a still of the sheet, so the app draws no frames during it;
-/// timing starts after it. Optionally saves a picture of the open sheet. Touches no settings, brain or engine.
+/// opens Connections as the same pop-up the toolbar button opens, and measures how evenly frames arrive
+/// once it's in: the gaps between animation frames and how long the main thread was busy. Timing starts
+/// after the short fade-in. Optionally saves a picture of the open pop-up. Touches no settings, brain or engine.
 @MainActor
 enum ConnectionsCheck {
     static var ticks: [Date] = []
@@ -25,7 +24,7 @@ enum ConnectionsCheck {
                 }
             }
             .frame(width: 900, height: 780)
-            .sheet(isPresented: $open) {
+            .onePopup($open) { _ in
                 ConnectionsWorld(m: Model.shared) { open = false }.frame(width: 720, height: 680)
                     .overlay(TimelineView(.animation) { tl in Color.clear.onChange(of: tl.date) { _, d in if recording { ticks.append(d) } } })
             }
@@ -58,8 +57,8 @@ enum ConnectionsCheck {
                 NotificationCenter.default.post(name: Notification.Name("oneCheckOpen"), object: nil)
                 try? await Task.sleep(for: .seconds(1.2))
                 recording = false
-                if r == rounds, let dir = pictures, let sheet = win.attachedSheet?.contentView {
-                    save(sheet, to: URL(fileURLWithPath: dir).appendingPathComponent("connections-open.png"))
+                if r == rounds, let dir = pictures, let v = win.contentView {
+                    save(v, to: URL(fileURLWithPath: dir).appendingPathComponent("connections-open.png"))
                 }
                 let f = ticks.filter { $0.timeIntervalSince(t0) > slide }
                 let b = beats.filter { $0.timeIntervalSince(t0) > slide }

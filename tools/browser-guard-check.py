@@ -105,5 +105,18 @@ check("only once", blocked("open -a Arc"))
 check("an old yes doesn't count", blocked("open -a Arc"))
 check("the allowed window is logged", "allowed once" in logf.read_text())
 
+# The engine's own words for screens One doesn't have are swapped for One's buttons before the model reads them.
+def words(text):
+    r = g.on_transform_tool_result(tool_name="browser_vault", result=text)
+    return text if r is None else r
+vault = "Tell them to run `hermes vault add` or use Desktop → Settings → Passwords & Logins for https://www.monarchmoney.com."
+for t in (vault, json.dumps({"error": vault})):
+    r = words(t)
+    check("Settings → Passwords & Logins becomes Connections › Passwords", "Settings" not in r and "Connections at the top of One, then Passwords" in r)
+check("Credential Vault too", "Connections" in words("To save a credential: run `hermes vault add` in a terminal, or in the desktop app open Settings → Credential Vault."))
+check("the browser section points at Connections › Browser", "Connections at the top of One (Browser, then Chrome" in words(
+    "Enable it in config.yaml (browser.use_real_profile: true) or the desktop Settings → Browser section, then retry."))
+check("plain results untouched", g.on_transform_tool_result(tool_name="terminal", result="ok") is None)
+
 print("browser guard ok" if fails == 0 else f"browser guard: {fails} failed")
 sys.exit(1 if fails else 0)

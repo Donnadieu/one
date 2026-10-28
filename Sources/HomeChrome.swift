@@ -166,14 +166,54 @@ struct HomeTitleRow: ViewModifier {
             }
             .modifier(QuietTitleRow())
             .navigationTitle("")
-            .sheet(isPresented: $folderSheet) { FolderSheet(m: m) { folderSheet = false } }
-            .sheet(isPresented: $talkKeySheet) { TalkKeySheet { talkKeySheet = false } }
-            .sheet(isPresented: $connectionsSheet) { ConnectionsWorld(m: m) { connectionsSheet = false }.frame(width: 720, height: 680) }
-            .popover(isPresented: $meCard, arrowEdge: .bottom) { MeCard(m: m) { meCard = false } }
+            .modifier(HomePopups(m: m, meCard: $meCard, connections: $connectionsSheet, talkKey: $talkKeySheet, folders: $folderSheet))
             .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
             .task { await m.ensureEngine() }
             .task { await ConnectionsWorld.prefetch() }  // so Connections opens already complete, with no wait while it slides in
         }
+    }
+}
+
+/// The top row's pop-ups, in the window on the pop-up glass (they were Mac sheets with no X and no click-outside).
+/// Renders use the same pieces through `PopupRender`.
+struct HomePopups: ViewModifier {
+    @ObservedObject var m: Model
+    @Binding var meCard: Bool
+    @Binding var connections: Bool
+    @Binding var talkKey: Bool
+    @Binding var folders: Bool
+    /// Under the name in the title row, like the design (a card that drops from the name, no arrow).
+    var stopping: Helper? { m.stopAsk.flatMap { id in m.helpers.first { $0.id == id && $0.state == "working" } } }
+    func endStop() { m.stopAsk = nil }
+    var closing: Helper? { m.closeAsk.flatMap { id in m.helpers.first { $0.id == id } } }
+    func endClose() { m.closeAsk = nil }
+    static func nameInset(top: CGFloat) -> EdgeInsets { EdgeInsets(top: top, leading: 72, bottom: 0, trailing: 0) }
+    func body(content: Content) -> some View {
+        content
+            .onePopup($folders) { g in FolderSheet(m: m, done: { folders = false }, room: g.height) }
+            .onePopup($talkKey) { _ in TalkKeySheet { talkKey = false } }
+            .onePopup($connections) { g in
+                ConnectionsWorld(m: m) { connections = false }.frame(width: min(760, g.width - 48), height: min(680, g.height - 40))
+            }
+            .onePopup($meCard, align: .topLeading, inset: HomePopups.nameInset(top: 6)) { _ in
+                MeCard(m: m) { meCard = false }
+            }
+            .onePopup(stopping != nil, close: endStop) { _ in
+                if let h = stopping {
+                    HelperStopAsk(title: h.title) { stop in
+                        if stop { m.stopHelper(h.id) }
+                        m.stopAsk = nil
+                    }
+                }
+            }
+            .onePopup(closing != nil, close: endClose) { _ in
+                if let h = closing {
+                    HelperCloseAsk(title: h.title) { yes in
+                        if yes { m.closeHelper(h.id) }
+                        m.closeAsk = nil
+                    }
+                }
+            }
     }
 }
 
@@ -186,7 +226,7 @@ struct HomeBackdrop: View {
     var outer = false
     var body: some View {
         GeometryReader { g in
-            if HomeView.stillDesk != nil && !outer { Color.clear } else { layers(g) }
+            if (HomeView.stillDesk != nil || HomeView.outerStars) && !outer { Color.clear } else { layers(g) }
         }
         .ignoresSafeArea()
     }

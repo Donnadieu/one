@@ -128,8 +128,8 @@ enum HelperStopCheck {
         let before = m.helpers.count
         m.startAgain(price.id)
         let fresh = h("Price check")
-        check("its original job went out again as a new helper", fresh?.id != price.id && fresh?.task == price.task && fresh?.state == "working")
-        check("the stopped one made way for it", !m.helpers.contains { $0.id == price.id } && m.helpers.count <= before)
+        check("the same orb went back to work on its original job", fresh?.id == price.id && fresh?.task == price.task && fresh?.state == "working")
+        check("no orb went away and none was added", m.helpers.count == before)
         await wait(90) { started("Price check") }
         check("the new one is at work", started("Price check"))
         if let f = fresh { m.stopHelper(f.id) }

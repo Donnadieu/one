@@ -134,41 +134,53 @@ struct TalkKeySheet: View {
     @State var monitor: Any?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Push to talk").font(.title2.weight(.semibold))
-            Text("Hold this key or button anywhere on your Mac, talk, then let go to send.").foregroundStyle(.secondary)
+            HStack {
+                Text("Push to talk").font(.system(size: 17, weight: .semibold))
+                Spacer(minLength: 150)  // the X and "Esc to close"
+            }.frame(height: 28)
+            Text("Hold this key or button anywhere on your Mac, talk, then let go to send.").foregroundStyle(WorldLook.cream.opacity(0.75))
             HStack(spacing: 12) {
                 Text(recording ? "Press a key or a mouse button…" : (key?.label ?? "Off"))
                     .font(.system(size: 18, weight: .medium, design: .rounded))
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .frame(minWidth: 220, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(recording ? 0.14 : 0.07)))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(recording ? 0.4 : 0.12)))
-                Button(recording ? "Cancel" : "Change") { recording ? stop() : record() }
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(recording ? 0.12 : PopupLook.card))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(
+                            WorldLook.cream.opacity(recording ? 0.4 : PopupLook.cardEdge)))
+                Button(recording ? "Cancel" : "Change") { recording ? stop() : record() }.buttonStyle(.bordered)
             }
             if let warn { Text(warn).foregroundStyle(.orange).font(.callout) }
             Text("Good choices: a key like F5, a combo like ⌥ Space, or a side button on your mouse.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(WorldLook.cream.opacity(0.6))
             HStack {
                 Button("Turn off") {
                     stop()
                     key = nil
                     TalkKey.current = nil
                     TalkKeys.shared.apply()
-                }
+                }.buttonStyle(.bordered)
                 Button("Use ⌥ Space") {
                     stop()
                     key = .standard
                     TalkKey.current = .standard
                     TalkKeys.shared.apply()
-                }
+                }.buttonStyle(.bordered)
                 Spacer()
-                Button("Done") {
+                Button {
                     stop()
                     done()
-                }.keyboardShortcut(.defaultAction)
+                } label: {
+                    Text("Done").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 20).frame(height: 34).background(Capsule().fill(WorldLook.cream))
+                }
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24).frame(width: 470)
+        .foregroundStyle(WorldLook.cream)
+        .padding(22).frame(width: 470)
         .onDisappear { stop() }
     }
     func record() {

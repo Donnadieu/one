@@ -110,6 +110,19 @@ def r_secret_in_source(path, lines):
         if re.search(r'sk-ant-[A-Za-z0-9]|ghp_[A-Za-z0-9]{20}|AIza[0-9A-Za-z_-]{30}|"client_secret"\s*:', l):
             yield i, "secret in source"
 
+# Every pop-up shares one look and closes three ways (Claude Design "Popup Glass", A · Smoked glass, Oct 28).
+# Mac sheets, popovers and alerts have no X and no click-outside; a hand-made dim drifts from the shared look.
+POPUP_CALL = re.compile(r'\.(sheet|popover|alert|confirmationDialog|fullScreenCover)\s*\(|\bNSAlert\s*\(')
+def r_popup_glass(path, lines):
+    if path.endswith(("PopupGlass.swift", "Previews.swift")): return   # the shared style itself; render-only scenes
+    for i, l in enumerate(lines, 1):
+        code = l.split("//", 1)[0]
+        m = POPUP_CALL.search(code)
+        if m:
+            yield i, f"{m.group(0).strip('( ')} instead of the shared pop-up"
+        if re.search(r'Color\.black\.opacity\(', code) and any("onTapGesture" in x for x in lines[i - 1:i + 2]):
+            yield i, "hand-made dim backdrop"
+
 RULES = {
     "file-length":   (r_file_length,   "Big files are hard to read and to edit safely.",
                       "Move whole declarations into a new file in Sources/ for that area (see docs/ARCHITECTURE.md)."),
@@ -131,6 +144,8 @@ RULES = {
                       "Open a visible draft instead (Bridge --mail draft)."),
     "no-secrets":    (r_secret_in_source,"The repo is public.",
                       "Load it at build time from outside the repo, or from the user's Keychain at run time."),
+    "popup-glass":   (r_popup_glass,   "Every pop-up wears the same glass and closes with its X, a click outside and Esc.",
+                      "Use PopupStage(close:) { size in … } or .onePopup(shown, close:) { size in … } (Sources/PopupGlass.swift); no .sheet/.popover/.alert or own dim."),
 }
 
 SHELL_RULES = {"test-copy"}

@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helperstop helpercut helpers-check learning
+.PHONY: build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -24,6 +24,8 @@ helperdone:       ## finished helpers: orange until opened, one "by the way" lin
 	tools/helper-done-check.sh
 helperself:       ## a helper you talk to does the work itself, never a [helper: …] line (real engine)
 	tools/helper-self-check.sh
+helpernotes:      ## a helper from an older One still names Connections › Browser / Passwords after an update (real engine, a fork)
+	tools/helper-notes-check.sh
 helperstop:       ## stop a helper (button, by asking), it stays stopped; an update with a helper at work resumes it (real engine)
 	tools/helper-stop-check.sh
 helpercut:        ## helpers cut off by an engine restart show stopped, pick back up, are done only with their answer (real engine)

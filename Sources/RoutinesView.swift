@@ -19,20 +19,13 @@ struct RoutinesPanel: View {
 
     var body: some View {
         let s = fixed ?? snap
-        GeometryReader { g in
-            let k = min((g.size.width - 32) / Dial.size.width, (g.size.height - 32) / Dial.size.height)
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { close() }
-                stage(s)
-                    .frame(width: Dial.size.width, height: Dial.size.height)
-                    .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: 0x17171A, 0.98)))
-                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.09)))
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .scaleEffect(k)
-                    .frame(width: Dial.size.width * k, height: Dial.size.height * k)
-                    .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
-            }
-            .frame(width: g.size.width, height: g.size.height)
+        PopupStage(close: close) { g in
+            let k = min((g.width - 32) / Dial.size.width, (g.height - 32) / Dial.size.height)
+            stage(s)
+                .frame(width: Dial.size.width, height: Dial.size.height)
+                .clipShape(RoundedRectangle(cornerRadius: PopupLook.corner / k, style: .continuous))
+                .scaleEffect(k)
+                .frame(width: Dial.size.width * k, height: Dial.size.height * k)
         }
         .foregroundStyle(WorldLook.cream)
         .environment(\.colorScheme, .dark)
@@ -58,9 +51,10 @@ struct RoutinesPanel: View {
         let starC = CGPoint(x: 1025, y: starTop + 70)
         let stars = Dial.stars(s.skills, center: starC, radius: 62)
         ZStack(alignment: .topLeading) {
-            RadialGradient(colors: [Color(hex: 0x24242A, 0.6), .clear], center: UnitPoint(x: 0.41, y: 0.54), startRadius: 0, endRadius: 420)
             pulseCanvas(L, stars: stars, skills: s.skills)
-            orb.position(Dial.center)
+            // The skills' own stars stay a cluster of their own: the galaxy keeps clear of them.
+            Color.clear.frame(width: 124, height: 124).starCalm(radius: 62, feather: 30).position(starC).allowsHitTesting(false)
+            orb.starCalm(radius: 88, feather: 40).position(Dial.center)
             Text("6 AM").dialHour().position(x: Dial.center.x + Dial.r0 - 26, y: Dial.center.y)
             Text("Noon").dialHour().position(x: Dial.center.x, y: Dial.center.y + Dial.r0 - 18)
             Text("6 PM").dialHour().position(x: Dial.center.x - Dial.r0 + 26, y: Dial.center.y)
@@ -70,21 +64,19 @@ struct RoutinesPanel: View {
             outsideColumn(L.outside)
             laterColumn(L.later, now: s.now)
             Text("\(s.skills.count) skills · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
-                .fixedSize().position(x: starC.x, y: starC.y + 84)
+                .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + 84)
             starHits(stars, skills: s.skills)
             Text("Filled: done · Hollow: still to come · Orange: didn't finish").font(.system(size: 11, weight: .medium))
-                .foregroundStyle(WorldLook.cream.opacity(0.36)).fixedSize().offset(x: 24, y: 648)
+                .foregroundStyle(WorldLook.cream.opacity(0.36)).fixedSize().starCalm(floor: 0.15).offset(x: 24, y: 648)
             learnedNotice(s)
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
             card(s, L)
-            Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 30, height: 30)
-                    .background(Circle().fill(WorldLook.cream.opacity(0.08)))
-            }
-            .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("Close").position(x: Dial.size.width - 30, y: 30)
         }
         .frame(width: Dial.size.width, height: Dial.size.height, alignment: .topLeading)
+        .withStars {
+            RadialGradient(colors: [Color(hex: 0x24242A, 0.6), .clear], center: UnitPoint(x: 0.41, y: 0.54), startRadius: 0, endRadius: 420)
+        }
     }
 
     var orb: some View {
@@ -145,6 +137,7 @@ struct RoutinesPanel: View {
                     1)
             }
             .fixedSize()
+            .starCalm(pad: 4, feather: 14, floor: 0.12)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 6).fill(WorldLook.cream.opacity(sel == l.rid ? 0.1 : 0)))
             .contentShape(Rectangle())
@@ -169,7 +162,7 @@ struct RoutinesPanel: View {
             }
             .font(.system(size: 12))
         }
-        .fixedSize().offset(x: 24, y: 20)
+        .fixedSize().starCalm(floor: 0.12).offset(x: 24, y: 20)
     }
 
     func smallOrb(_ r: Routine, size: CGFloat = 18) -> some View {
@@ -201,7 +194,7 @@ struct RoutinesPanel: View {
                     ForEach(rs) { r in miniStop(r, sub: r.often, width: 118).opacity(0.6) }
                 }
             }
-            .frame(width: 250).offset(x: 24, y: 96)
+            .frame(width: 250).starCalm(floor: 0.12).offset(x: 24, y: 96)
         }
     }
 
@@ -218,7 +211,7 @@ struct RoutinesPanel: View {
                     miniStop(r, sub: sub, width: 220)
                 }
             }
-            .frame(width: 240).offset(x: 905, y: 80)
+            .frame(width: 240).starCalm(floor: 0.12).offset(x: 905, y: 80)
         }
     }
 

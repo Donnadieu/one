@@ -64,6 +64,13 @@ mkdir -p "$T/bl"
 check "rule in SOUL and every helper turn (first, follow-up, picked back up); One spots a robot check, asks Can I show you the window?, turns that helper orange, shows nothing by itself" bash -c "ONE_SUPPORT_DIR=$T/bl $TBIN --test-blocked | tee $T/bl/out.txt | grep -q '^blocked ok'"
 grep "✗" "$T/bl/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "The Mac stays awake while One works, and sleeps as usual after"
+mkdir -p "$T/ka" "$T/ka2"
+check "a fake helper holds one plain-words no-idle-sleep assertion (screen can still sleep), more work renames it, 300 flips leak nothing, done lets go; SOUL and every prompt say lid open = keeps going" bash -c "ONE_SUPPORT_DIR=$T/ka $TBIN --test-keep-awake | tee $T/ka/out.txt | grep -q '^keep awake ok'"
+grep "✗" "$T/ka/out.txt" 2>/dev/null | sed 's/^/    /'
+check "pmset -g assertions: shown while a fake helper works, gone after, gone when One crashes" bash -c "tools/keep-awake-check.sh $TBIN $T/ka2 | tee $T/ka2/out.txt | grep -q '^keep awake pmset ok'"
+grep "✗" "$T/ka2/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Tell me when I learn (decisions on a made-up skill log)"
 mkdir -p "$T/lrn"
 check "new skill told once, fixes silent, the remember question once and never after a no; shared rooms left out" bash -c "ONE_SUPPORT_DIR=$T/lrn $TBIN --test-learning | tee $T/lrn/out.txt | grep -q '^learning ok'"

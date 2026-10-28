@@ -297,7 +297,7 @@ struct ConnectionsWorld: View {
     }
     nonisolated static func connected() -> [String] {
         var c = ["Files", "Web"]
-        if BrowserKeeper.plan != nil { c.append("Browser") }  // a hidden browser is really set up (their Chrome's copy or One's own)
+        if MyChrome.connected { c.append("Browser") }  // only their Chrome's copy: another hidden browser must leave Connect tappable
         for x in custom() where !c.contains(x.id) { c.append(x.id) }
         if Bridge.calendarOK && Bridge.calendarAccounts > 0 { c.append("Calendar") }
         if UserDefaults.standard.bool(forKey: "mailConnected") { c.append("Email") }
@@ -342,7 +342,6 @@ struct ConnectionsWorld: View {
         let all = ConnectionsWorld.nodes(st.custom)
         let sel = picked.flatMap { id in all.first { $0.id == id } }
         ZStack {
-            WorldLook.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 VStack(spacing: 8) {
                     Text(sel?.id ?? "Connections").font(.system(size: 12, weight: .medium)).tracking(0.4)
@@ -422,13 +421,14 @@ struct ConnectionsWorld: View {
             return
         }
         if id == "Browser" && with == "Chrome" {
-            note = "Copying your Chrome's sign-ins into a hidden browser. Your Chrome stays open; no window will pop up."
+            note =
+                "Copying your Chrome's sign-ins (Chrome can stay open). If your Mac asks about \u{201C}Chrome Safe Storage\u{201D}, type your Mac password and click Always Allow."
             Task { @MainActor in
                 note = await MyChrome.connect()
                 if note != nil { return }
                 close()
                 await m.send(
-                    "I just connected my Chrome in Connections › Browser. Check it with `\(Bridge.exe) --browser-check`, then open one site I'm signed in to in Chrome, in the hidden browser, and tell me in one line whether I'm signed in there. Read only: don't click, send or change anything.",
+                    "I just connected my Chrome in Connections › Browser. Run `\(Bridge.exe) --chrome-check` and tell me in plain words what it says (which sites I'm signed in to there). If it reports a problem, tell me exactly what it says to do. Read only: don't click, send or change anything.",
                     toNova: true)
             }
             return

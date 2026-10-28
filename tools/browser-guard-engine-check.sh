@@ -36,6 +36,24 @@ check("and asks in plain words", bool(m) and "Can I?" in m)
 check("the engine blocks AppleScript driving Arc", bool(block("terminal", {"command": "osascript -e 'tell application \"Arc\" to activate'"})))
 check("the engine blocks webbrowser.open", bool(block("execute_code", {"code": "import webbrowser\nwebbrowser.open('https://x.com')"})))
 check("the hidden browser over its port still works", block("terminal", {"command": "curl -s localhost:9223/json/version"}) is None)
+# One's real buttons, not the engine's screens: every tool message naming a Settings screen in the real engine.
+import json, re
+from hermes_cli.lifecycle import invoke_hook
+def fixed(text):
+    out = [r for r in invoke_hook("transform_tool_result", tool_name="browser_vault", args={}, result=text) if isinstance(r, str)]
+    return out[0] if out else text
+said = []
+for f in ["tools/browser_vault_tool.py", "tools/browser_use_cli.py"]:
+    src = open(f).read()
+    for m in re.finditer(r'(?:f?"[^"\n]*"\s*)+', src):
+        lit = "".join(re.findall(r'"([^"\n]*)"', m.group(0)))
+        if "Settings →" in lit or "hermes vault add" in lit:
+            said.append(lit.replace("{origin}", "https://www.monarchmoney.com"))
+check("the engine's tool messages that name Settings screens were found (%d)" % len(said), len(said) >= 3)
+for lit in said:
+    for text in (lit, json.dumps({"success": False, "error": lit})):
+        r = fixed(text)
+        check("rewritten for One: " + lit[:70], "Settings" not in r and "hermes vault" not in r and "Connections" in r)
 log = os.path.join(os.environ["HERMES_HOME"], "logs", "one-browser-guard.log")
 check("each block is logged", os.path.exists(log) and "blocked terminal" in open(log).read())
 print("engine guard ok" if fails == 0 else f"engine guard: {fails} failed")

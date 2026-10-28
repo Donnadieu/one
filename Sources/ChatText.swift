@@ -133,9 +133,9 @@ struct ReaderText: View {
     @Environment(\.openURL) var openURL
     var body: some View {
         if ChatText.still {
-            ScrollView {
-                MarkdownText(text: text, size: 15).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 22).padding(.vertical, 18)
-            }
+            // Renders draw a ScrollView blank, so the text is drawn as is, from the top.
+            MarkdownText(text: text, size: 15).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 22).padding(.vertical, 18)
+                .frame(maxHeight: .infinity, alignment: .top).clipped()
         } else {
             NoteText(text: text, size: 15, open: { openURL($0) }, system: true).padding(.horizontal, 22).padding(.vertical, 18)
         }

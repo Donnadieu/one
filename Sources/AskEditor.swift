@@ -212,44 +212,32 @@ struct WritingPanel: View {
     @StateObject var metrics = AskMetrics()
     @State var focused = true
     var body: some View {
-        GeometryReader { g in
-            ZStack {
-                Color.black.opacity(0.55).ignoresSafeArea().onTapGesture(perform: close)
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 10) {
-                        MiniOrb(size: 16)
-                        Text("Writing to \(m.name)").font(.system(size: 15, weight: .semibold))
-                        Spacer()
-                        Text("Esc to close").font(.system(size: 11)).foregroundStyle(.tertiary)
-                        Button(action: close) {
-                            Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 26, height: 26).contentShape(
-                                Rectangle())
-                        }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction).help("Close")
-                    }
-                    .padding(.horizontal, 24).padding(.vertical, 14)
-                    Divider().overlay(WorldLook.cream.opacity(0.08))
-                    page.padding(.horizontal, 28).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
-                    Divider().overlay(WorldLook.cream.opacity(0.08))
-                    HStack(spacing: 14) {
-                        Text("\(AskField.words(draft)) words").font(.system(size: 12)).foregroundStyle(.secondary)
-                        Text("Return for a new line · ⌘ Return to send").font(.system(size: 11)).foregroundStyle(.tertiary)
-                        Spacer()
-                        Button("Shrink back", action: close).buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(.secondary)
-                        Button(action: send) {
-                            Text("Send").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
-                                .padding(.horizontal, 18).padding(.vertical, 8).background(Capsule().fill(WorldLook.cream))
-                        }
-                        .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    .padding(.horizontal, 24).padding(.vertical, 14)
+        PopupStage(close: close) { g in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    MiniOrb(size: 16)
+                    Text("Writing to \(m.name)").font(.system(size: 15, weight: .semibold))
+                    Spacer(minLength: 150)  // the X and "Esc to close"
                 }
-                .frame(width: min(760, g.size.width - 60), height: max(320, g.size.height * 0.8))
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: 0x1E1E22, 0.99)))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.14)))
-                .shadow(color: .black.opacity(0.5), radius: 24, y: 10)
+                .frame(height: 30).padding(.horizontal, 24).padding(.vertical, 14)
+                Divider().overlay(WorldLook.cream.opacity(0.08))
+                page.padding(.horizontal, 28).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
+                Divider().overlay(WorldLook.cream.opacity(0.08))
+                HStack(spacing: 14) {
+                    Text("\(AskField.words(draft)) words").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("Return for a new line · ⌘ Return to send").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Shrink back", action: close).buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(.secondary)
+                    Button(action: send) {
+                        Text("Send").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                            .padding(.horizontal, 18).padding(.vertical, 8).background(Capsule().fill(WorldLook.cream))
+                    }
+                    .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.horizontal, 24).padding(.vertical, 14)
             }
+            .frame(width: min(760, g.width - 60), height: max(320, g.height * 0.8))
         }
         .foregroundStyle(WorldLook.cream)
     }

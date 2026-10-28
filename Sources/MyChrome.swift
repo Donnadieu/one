@@ -13,7 +13,26 @@ enum MyChrome {
     static var copyDir: URL { Env.support.appendingPathComponent("browser/my-chrome") }
     static var resyncFile: URL { Env.support.appendingPathComponent("browser/resync") }
     static var chromeData: String { NSHomeDirectory() + "/Library/Application Support/Google/Chrome" }
-    static let port = 9223
+    /// 9223, the hidden browser's usual port. A test copy (its own bundle id) may pick another, never the person's One.
+    static var firstPort: Int {
+        if Bundle.main.bundleIdentifier != TestWorld.productionID,
+            let p = ProcessInfo.processInfo.environment["ONE_BROWSER_PORT"].flatMap({ Int($0) })
+        {
+            return p
+        }
+        return 9223
+    }
+    /// The copy's port: 9223 unless another hidden browser (one the assistant or the person set up
+    /// before) already answers there, then the next free one. That browser is left running.
+    static var port: Int { BrowserKeeper.plan.flatMap { isCopy($0) ? $0.port : nil } ?? firstPort }
+    static func freePort() -> Int {
+        for p in firstPort..<(firstPort + 20) where p != 9333 {
+            if !BrowserKeeper.alive(p) || BrowserKeeper.profileInUse(p) == copyDir.path { return p }
+        }
+        return firstPort
+    }
+    /// What the last copy found (profile, how many cookies, which well-known sign-ins). Names and counts only.
+    static var reportFile: URL { Env.support.appendingPathComponent("browser/my-chrome.json") }
     nonisolated(unsafe) static var busy = false
     nonisolated(unsafe) static var lastSync: Date?
 
@@ -31,7 +50,7 @@ enum MyChrome {
 
     /// Copy their Chrome's sign-ins into `copyDir` (Hermes's own snapshot code, run outside the lock).
     /// Never while a browser has the copy open: a copy over open databases corrupts them.
-    static func sync() async -> String? {
+    static func sync(profile: String? = nil) async -> String? {
         if BrowserKeeper.alive(port), BrowserKeeper.profileInUse(port) == copyDir.path { return "the hidden browser is still open" }
         guard let src = Bundle.main.url(forResource: "one_my_chrome", withExtension: "py") else {
             return "One is missing a piece (one_my_chrome.py)."
@@ -41,22 +60,32 @@ enum MyChrome {
             try? FileManager.default.removeItem(at: dst)
             try? FileManager.default.copyItem(at: src, to: dst)
         }
-        let (code, out) = await hermesRun(["--run-module", "tools.one_my_chrome", "chrome", copyDir.path], timeout: 180)
+        // The profile they use (picked once, kept in pinFile), so a refresh never swaps whose sign-ins these are.
+        let prof = profile ?? pinned
+        let (code, out) = await hermesRun(
+            ["--run-module", "tools.one_my_chrome", "chrome", copyDir.path] + (prof.map { ["--profile", $0] } ?? []), timeout: 180)
         let line = out.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }.map(String.init) ?? ""
-        let j = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
-        if code == 0, j?["ok"] as? Bool == true {
-            BrowserKeeper.log("copied Chrome's sign-ins (profile \(j?["profile"] as? String ?? "?")) into \(copyDir.path)")
+        var j = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] ?? [:]
+        j["checked"] = ISO8601DateFormatter().string(from: Date())
+        if j["ok"] == nil { j["ok"] = false }
+        if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]) {
+            try? FileManager.default.createDirectory(at: reportFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? d.write(to: reportFile)
+        }
+        if code == 0, j["ok"] as? Bool == true {
+            let n = (j["signs"] as? [Any])?.count ?? 0
+            BrowserKeeper.log("copied Chrome's sign-ins (profile \(j["profile"] as? String ?? "?"), \(n) known sign-ins) into \(copyDir.path)")
             return nil
         }
-        let why = (j?["error"] as? String) ?? String(out.suffix(300))
+        let why = (j["error"] as? String) ?? String(out.suffix(300))
         BrowserKeeper.log("couldn't copy Chrome's sign-ins: \(why)")
-        return why
+        return ChromeCheck.plain(why)
     }
 
     /// Stop the hidden browser only when it runs on the copy (never their own Chrome, never another profile).
     static func stopCopy() -> Bool {
         guard let pid = BrowserKeeper.pidOn(port) else { return true }
-        guard BrowserKeeper.profileInUse(port) == copyDir.path else { return false }
+        guard BrowserKeeper.profileInUse(port) == copyDir.path else { return true }  // not the copy: left alone, the copy takes another port
         kill(pid, SIGTERM)
         for _ in 0..<40 where BrowserKeeper.alive(port) { usleep(250_000) }
         if BrowserKeeper.alive(port) { kill(pid, SIGKILL) }
@@ -65,34 +94,44 @@ enum MyChrome {
     }
 
     /// Connections › Browser › Chrome › Connect. Returns nil when the hidden browser runs on the copy.
-    static func connect() async -> String? {
+    /// verify: false when the caller (`connectNow`) does its own check and says the result itself.
+    static func connect(profile: String? = nil, verify: Bool = true) async -> String? {
         guard BrowserKeeper.chromeApp != nil else {
-            return "Google Chrome isn't on this Mac. Install it, sign in to your sites there, then tap Connect again."
+            return "Google Chrome isn't on this Mac. Install it, sign in to your sites there, then try again."
         }
         guard FileManager.default.fileExists(atPath: chromeData + "/Local State") else {
-            return "Chrome hasn't been used on this Mac yet. Open it once, sign in to your sites, then tap Connect again."
+            return "Chrome hasn't been used on this Mac yet. Open it once, sign in to your sites, then try again."
         }
-        if let p = BrowserKeeper.plan, !isCopy(p), BrowserKeeper.alive(p.port) {
-            return "A hidden browser is already set up here with its own sign-ins, so I left it as it is."
-        }
+        // A hidden browser set up earlier (by the assistant, or One's own) used to block this with
+        // "already set up", and the tile then read Connected with no way to switch: EK's dead end.
+        // It's left running, untouched; the copy takes the next free port.
+        if let p = BrowserKeeper.plan, !isCopy(p) { BrowserKeeper.log("switching from the hidden browser on \(p.port) to their Chrome's copy") }
         busy = true
         defer { busy = false }
         guard stopCopy() else { return "Something else is using the hidden browser's port \(port). Try again in a minute." }
-        if let e = await sync() { return "I couldn't copy Chrome's sign-ins: \(e)" }
+        if let e = await sync(profile: profile) { return e }
         lastSync = Date()
         try? FileManager.default.createDirectory(at: copyDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let port = freePort()
         let k: [String: Any] = ["port": port, "profile": copyDir.path, "headless": true]
         if let d = try? JSONSerialization.data(withJSONObject: k, options: [.prettyPrinted, .sortedKeys]) {
             try? d.write(to: BrowserKeeper.settingsFile)
         }
         // The engine reads browser.cdp_url on every browser call: no restart, no helper cut off.
         _ = await hermesRun(["config", "set", "browser.cdp_url", "http://localhost:\(port)"])
-        UserDefaults.standard.set("Chrome", forKey: "browserWith")
+        if !Env.commandLine { UserDefaults.standard.set("Chrome", forKey: "browserWith") }
         BrowserKeeper.lastStart = nil
         busy = false
-        BrowserKeeper.tend()
-        for _ in 0..<40 where !BrowserKeeper.alive(port) { try? await Task.sleep(for: .milliseconds(500)) }
-        return BrowserKeeper.alive(port) ? nil : "I copied your sign-ins, but the hidden browser didn't start. I'll keep trying by myself."
+        // Start it here (not only from the keeper loop), so this also works from `One --chrome-connect`.
+        if let p = BrowserKeeper.plan, !BrowserKeeper.alive(p.port) { BrowserKeeper.start(p) }
+        // A first start on a fresh copy can take half a minute.
+        for _ in 0..<120 where !BrowserKeeper.alive(port) { try? await Task.sleep(for: .milliseconds(500)) }
+        guard BrowserKeeper.alive(port) else {
+            return
+                "I copied your sign-ins, but the hidden browser didn't start yet. I'll keep trying by myself; try again in a minute if it still says this."
+        }
+        // The Mac must let Chrome unlock its saved sign-ins (Keychain, "Chrome Safe Storage"). Check it really did.
+        return verify ? await ChromeCheck.verify() : nil
     }
 
     /// Disconnect: stop the copy and delete it (it holds copies of their sign-ins). Their Chrome is untouched.
@@ -129,21 +168,16 @@ enum MyChrome {
         return true
     }
 
-    /// Per-prompt note (main chat and helpers): what's built, so nobody says it isn't.
+    /// Per-prompt note (main chat and every helper turn): what's built and the "use my Chrome" rule.
     static func note(_ p: BrowserKeeper.Plan?) -> String {
-        guard let p else {
-            return """
-
-
-                (One app note, not from the user: their own browser isn't connected yet. Using their Chrome IS built: they click Connections at the top, then Browser, pick Chrome and tap Connect. One copies the sign-ins from their own Chrome into a hidden browser you can use (their Chrome stays open and untouched, no window opens). If they want you to use their Chrome or their signed-in sites, send them there; never say it isn't built. Arc, Safari and other browsers aren't built yet.)
-                """
+        let head = "\n\n(One app note, not from the user: "
+        guard let p, isCopy(p) else {
+            let state = p == nil ? "Their own Chrome isn't connected yet. " : ""
+            return head + state + rule + ")"
         }
-        guard isCopy(p) else { return "" }
-        return """
-
-
-            (One app note, not from the user: the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)), connected in Connections › Browser. Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, create an empty file at \(resyncFile.path): One copies their Chrome again within a minute (it restarts that hidden browser, so not while another helper is mid-task in it). It's always hidden; their own Chrome is never touched.)
-            """
+        return head
+            + "the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)). Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, run `\(Bridge.exe) --connect-chrome` again: it copies their Chrome again (it restarts that hidden browser, so not while another helper is mid-task in it). If they say a site doesn't work there, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words. "
+            + rule + ")"
     }
 
     /// What Connect tells the assistant for the browsers and password managers One doesn't do by itself.

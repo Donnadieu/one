@@ -10,16 +10,19 @@ enum HelperStop {
     static var note: String {
         "\n\n(One app note, not from the user: to stop a helper, when they say \"stop the <name> helper\", \"stop that one\" or \"stop all\", "
             + "add a line exactly like [stop-helper: <its exact title>] or [stop-helper: all], and confirm in one short line, like "
-            + "\"Stopped Flight to Quebec. What it found so far stays under its orb.\" One stops it. Never stop one they didn't ask about.)"
+            + "\"Stopped Flight to Quebec. What it found so far stays under its orb.\" One stops it. Never stop one they didn't ask about. "
+            + HelperClose.rule + ")"
     }
     /// The same rule in the assistant's SOUL (`Persona.write`).
     static let soul =
-        "To stop a helper, when they say \"stop the <name> helper\", \"stop that one\" or \"stop all\", add a line exactly like [stop-helper: Flight to Quebec] (the helper's exact title) or [stop-helper: all], and confirm in one short line, like \"Stopped Flight to Quebec. What it found so far stays under its orb.\" Never stop one they didn't ask about."
+        "To stop a helper, when they say \"stop the <name> helper\", \"stop that one\" or \"stop all\", add a line exactly like [stop-helper: Flight to Quebec] (the helper's exact title) or [stop-helper: all], and confirm in one short line, like \"Stopped Flight to Quebec. What it found so far stays under its orb.\" Never stop one they didn't ask about. "
+        + HelperClose.rule
 
     /// Pull "[stop-helper: Title]" and "[stop-helper: all]" out of the assistant's reply, on their own line or
     /// in the middle of one (the assistant sometimes runs it into its sentence).
-    static func extract(_ text: String) -> (String, [String]) {
-        guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[stop-helper:([^\\]\\n]*)\\][ \\t]*", options: [.caseInsensitive]) else {
+    /// `tag: "close-helper"` reads the close lines the same way.
+    static func extract(_ text: String, tag: String = "stop-helper") -> (String, [String]) {
+        guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[\(tag):([^\\]\\n]*)\\][ \\t]*", options: [.caseInsensitive]) else {
             return (text, [])
         }
         let ns = text as NSString
@@ -46,11 +49,12 @@ enum HelperStop {
     }
     /// While a reply streams in: hide a stop line, even half-written.
     static func hide(_ text: String) -> String {
-        var t = extract(text).0
+        var t = extract(extract(text).0, tag: "close-helper").0
         if let k = t.lastIndex(of: "[") {
             let tail = t[k...].lowercased()
-            if "[stop-helper:".hasPrefix(tail) || (tail.hasPrefix("[stop-helper") && !tail.contains("]")) {
+            for tag in ["[stop-helper", "[close-helper"] where (tag + ":").hasPrefix(tail) || (tail.hasPrefix(tag) && !tail.contains("]")) {
                 t = String(t[..<k]).trimmingCharacters(in: .whitespaces)
+                break
             }
         }
         return t
@@ -116,16 +120,6 @@ extension Model {
         return nil
     }
 
-    /// "Start again" on a stopped helper: its original job goes out again as a new helper.
-    func startAgain(_ id: UUID) {
-        guard let h = helpers.first(where: { $0.id == id }), h.state == "stopped", h.resumeQueued != true else { return }
-        let wasOpen = openHelper == id
-        if wasOpen { openHelper = nil }
-        helpers.removeAll { $0.id == id }
-        spawnHelper(title: h.title, task: h.task)
-        if wasOpen, let new = helpers.last?.id { openHelper = new }
-    }
-
     /// Just before an update restarts One: every working helper is paused and picks back up after the restart.
     func pauseHelpersForUpdate() {
         for k in helpers.indices where helpers[k].state == "working" {
@@ -150,15 +144,25 @@ struct HelperStopAsk: View {
     let done: (Bool) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Stop \(title)?").font(.headline)
-            Text("What it found so far stays here.").font(.callout).foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                Text("Stop \(title)?").font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 120)  // the X and "Esc to close"
+            }.frame(minHeight: 28)
+            Text("What it found so far stays here.").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.7))
             HStack(spacing: 8) {
+                Spacer()
                 Button("Keep going") { done(false) }.buttonStyle(.bordered)
-                Button("Stop this helper") { done(true) }
-                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-            }
+                Button {
+                    done(true)
+                } label: {
+                    Text("Stop this helper").font(.system(size: 13, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 16).frame(height: 30).background(Capsule().fill(WorldLook.cream))
+                }
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+            }.padding(.top, 6)
         }
-        .padding(16).frame(width: 270, alignment: .leading)
+        .foregroundStyle(WorldLook.cream)
+        .padding(20).frame(width: 380, alignment: .leading)
     }
 }
 
@@ -213,10 +217,10 @@ struct HelperCard: View {
                 }
                 .buttonStyle(.bordered).help("Stops this job. What it found so far stays here.")
             }
-        } else if h.state == "done" || (h.state == "stopped" && h.resumeQueued != true) {
+        } else {
             HStack(spacing: 8) {
                 Spacer()
-                if h.state == "stopped" {
+                if h.state == "stopped" && h.resumeQueued != true {
                     Button {
                         m.startAgain(h.id)
                     } label: {
@@ -224,8 +228,14 @@ struct HelperCard: View {
                     }
                     .buttonStyle(.bordered).help("Sends this job out again, from the start")
                 }
-                Button("Got it") { m.dismissHelper(h.id) }.buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(
-                    Color(hex: 0x141416))
+                // The only way an orb leaves the screen (besides its X or asking): never on its own.
+                Button {
+                    m.closeHelper(h.id)
+                } label: {
+                    Label("Close", systemImage: "xmark")
+                }
+                .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                .help("Takes this helper off the screen. Its file stays in Ready for you.")
             }
         }
     }

@@ -418,5 +418,42 @@ def on_pre_tool_call(tool_name: str = "", args: Optional[dict[str, Any]] = None,
         return None
 
 
+# --- One's own words for the engine's tool messages -------------------------------------------------------------
+# The engine's tools were written for another app: they tell the model to send people to "Desktop → Settings →
+# Passwords & Logins", "Settings → Credential Vault", `hermes vault add` or "the desktop Settings → Browser section".
+# One has none of those, and the model repeats them to the person (EK was sent hunting for a Settings screen). Every
+# tool result passes through here before the model sees it; the screens are swapped for One's real buttons.
+_ARROW = r"\s*(?:→|\\u2192|->)\s*"
+_PASSWORDS = "click Connections at the top of One, then Passwords, and connect their password manager (or sign in themselves on the site in the hidden browser)"
+SCREEN_FIXES = [
+    (re.compile(r"run `hermes vault add`(?: in a terminal)?,? or (?:use|in the desktop app open) (?:Desktop" + _ARROW + r")?Settings" + _ARROW
+                + r"(?:Passwords (?:&|\\u0026|and) Logins|Credential Vault)"), _PASSWORDS),
+    (re.compile(r"(?:Enable it in config\.yaml \(browser\.use_real_profile: true\) or )?the desktop Settings" + _ARROW + r"Browser section"),
+     "Their own Chrome is connected in Connections at the top of One (Browser, then Chrome, then Connect; One copies its sign-ins into a hidden browser)"),
+    (re.compile(r"(?:Desktop" + _ARROW + r")?Settings" + _ARROW + r"(?:Passwords (?:&|\\u0026|and) Logins|Credential Vault)"), "Connections, then Passwords"),
+    (re.compile(r"(?:Desktop" + _ARROW + r")?Settings" + _ARROW + r"Browser"), "Connections, then Browser"),
+    (re.compile(r"`hermes vault add`"), "Connections, then Passwords"),
+]
+
+
+def one_words(text: str) -> str:
+    """The same message with One's real buttons in place of screens One doesn't have."""
+    for rx, to in SCREEN_FIXES:
+        text = rx.sub(to, text)
+    return text
+
+
+def on_transform_tool_result(tool_name: str = "", result: Any = None, **_: Any):
+    try:
+        if not isinstance(result, str) or ("Settings" not in result and "hermes vault" not in result):
+            return None
+        fixed = one_words(result)
+        return fixed if fixed != result else None
+    except Exception as e:  # never break a tool result because the rewrite failed
+        log(f"screen-words error on {tool_name}: {e}")
+        return None
+
+
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
+    ctx.register_hook("transform_tool_result", on_transform_tool_result)

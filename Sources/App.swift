@@ -62,6 +62,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HelperSelfCheck.run()) }
             return
         }
+        if HelperNotesCheck.launch() { return }  // --test-helper-notes (tools/helper-notes-check.sh)
         if CommandLine.arguments.contains("--test-human-step") {
             TestWorld.enter()  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser
             Task { @MainActor in exit(await HumanStepCheck.run()) }
@@ -105,7 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
-        if BlockedAskCheck.launch() { return }  // --test-blocked
+        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() { return }  // --test-blocked, --test-keep-awake(-hold)
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -159,13 +160,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             print(out.joined(separator: "\n"))
             exit(0)
         }
-        // The hidden browser helpers use: started again with its saved sign-ins if it goes down.
-        Task.detached {
-            while true {
-                BrowserKeeper.tend()
-                try? await Task.sleep(for: .seconds(10))
-            }
-        }
+        BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
         // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
         Task.detached {
             while true {
@@ -177,6 +172,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             for tick in 0... {
                 Model.shared.tendHumanSteps()
+                Model.shared.tendKeepAwake()  // the Mac stays awake while anything works (KeepAwake.swift)
                 if tick % 4 == 0 { Task { await Model.shared.tendBlocked() } }
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -244,6 +240,7 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
+        if let code = MyChrome.cli(args) { exit(code) }
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
@@ -285,6 +282,7 @@ struct Entry {
             exit(ok ? 0 : 1)
         }
         RoutinesRender.cli(args)  // --render-routines <png>
+        MainActor.assumeIsolated { StarsRender.cli(args) }  // --render-stars <prefix>, --stars-cpu <seconds>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
             MainActor.assumeIsolated {
@@ -408,7 +406,7 @@ struct Entry {
                     ("home-10", AnyView(EmptyView())),
                     ("home-15", AnyView(EmptyView())),
                     ("home-22", AnyView(EmptyView())),
-                    ("home-33", AnyView(EmptyView())),
+                    ("home-33", AnyView(EmptyView())), ("home-close", AnyView(EmptyView())),  // home-close: the first orb's X
                     ("helper-states", AnyView(HelperStatesScene())),
                     ("helper-stop", AnyView(HelperStopScene())),
                     ("helper-stop-working", AnyView(HelperStopScene(working: true))),
@@ -434,6 +432,7 @@ struct Entry {
                     if LongMessageRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
                         let n = Int(name.dropFirst(5)) ?? 10
+                        HomeRender.closeFirst = name == "home-close"
                         HomeRender.png(HomeRender.scene(n), "\(out)-\(name).png", height: n > 22 ? 1200 : n > 15 ? 1000 : 760)
                         print("wrote \(out)-\(name).png")
                         continue
@@ -470,6 +469,7 @@ struct Entry {
                         print("wrote \(out)-\(name).png")
                     }
                 }
+                for name in PopupRender.names { _ = PopupRender.draw(name, out) }
             }
             exit(0)
         }

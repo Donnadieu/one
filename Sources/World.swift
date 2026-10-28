@@ -419,7 +419,7 @@ struct WorldStage: View {
                     Text("Tap to connect. You can change this anytime.").font(.system(size: 13))
                         .foregroundStyle(WorldLook.cream.opacity(0.6)).opacity(picking ? 1 : 0)
                 }
-                .frame(minHeight: 120).padding(.top, 28).padding(.horizontal, 24)
+                .frame(minHeight: 120).starCalm(floor: 0.15).padding(.top, 28).padding(.horizontal, 24)
                 .id(m.worldCaption).transition(.opacity.combined(with: .offset(y: -6)))
                 .animation(.easeOut(duration: 0.32), value: m.worldCaption)
                 GeometryReader { geo in
@@ -432,6 +432,7 @@ struct WorldStage: View {
                     }
                     .scaleEffect(k)
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .overlay(Color.clear.frame(width: 2, height: 2).starCalm(radius: 95 * k, feather: 45 * k))  // the orb
                 }
                 ZStack {
                     Button("Skip tour") { m.skipTour = true }.buttonStyle(.plain)
@@ -451,15 +452,18 @@ struct WorldStage: View {
                         }
                         .buttonStyle(.plain).font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.6))
                     }.opacity(picking ? 1 : 0).allowsHitTesting(picking)
-                }.frame(height: 90).padding(.bottom, 26).animation(.easeOut(duration: 0.6), value: m.touring)
+                }.frame(height: 90).starCalm(floor: 0.15).padding(.bottom, 26).animation(.easeOut(duration: 0.6), value: m.touring)
             }
+            .withStars()
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $folderSheet) {
-            FolderSheet(m: m) {
-                folderSheet = false
-                syncLinks()
-            }
+        .onePopup($folderSheet) { g in
+            FolderSheet(
+                m: m,
+                done: {
+                    folderSheet = false
+                    syncLinks()
+                }, room: g.height)
         }
         .onChange(of: m.pickedConnections) { _, _ in syncLinks() }
         .task { await m.runTour() }
@@ -480,67 +484,90 @@ struct FolderSheet: View {
     @State var folders: [String] = Access.freshFolders
     /// The list as the window opened: Done applies only what changed since (`Access.merge`).
     @State var opened: [String] = Access.folders
+    /// How tall the pop-up may get (the window's room); only the list of extra folders scrolls.
+    var room: CGFloat = 700
     let common = ["Desktop", "Documents", "Downloads"].map { NSHomeDirectory() + "/" + $0 }
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Which folders can I see?").font(.title2.bold()).onGeometryChange(for: CGRect.self) {
-                $0.frame(in: .global)
-            } action: {
-                FolderSheet.seen["title"] = $0
-            }
-            Text("Everything else stays locked. You can change this any time.").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                ForEach(common, id: \.self) { f in
-                    Chip(label: (f as NSString).lastPathComponent, selected: folders.contains(f)) { toggle(f) }
-                }
-            }
-            Button("Choose another folder…", action: pick)
-            if !extra.isEmpty {
-                // Only the list scrolls: the title, the buttons and Done always stay in view.
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Self.gap) {
-                        ForEach(extra, id: \.self) { f in
-                            HStack {
-                                Image(systemName: "folder").font(.system(size: 13, weight: .light))
-                                Text((f as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
-                                Spacer()
-                                Button("Remove") { toggle(f) }.buttonStyle(.link)
-                            }.frame(height: Self.row)
-                        }
-                    }
-                }
-                .scrollIndicators(extra.count * Int(Self.row + Self.gap) > Int(Self.listMax) ? .visible : .never)
-                .frame(height: listHeight)
-            }
-            HStack {
-                Spacer()
-                Button("Done") {
-                    m.setFolders(Access.merge(opened: opened, chosen: folders, current: Access.freshFolders))
-                    done()
-                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Text("Which folders can I see?").font(.system(size: 17, weight: .semibold)).foregroundStyle(WorldLook.cream)
                     .onGeometryChange(for: CGRect.self) {
                         $0.frame(in: .global)
                     } action: {
-                        FolderSheet.seen["done"] = $0
+                        FolderSheet.seen["title"] = $0
                     }
-            }.padding(.top, 8)
-        }.padding(24).frame(width: 480).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 150)  // the X and "Esc to close"
+            }.frame(height: 28)
+            VStack(spacing: 0) {
+                ForEach(common, id: \.self) { f in
+                    row(f)
+                    Divider().overlay(WorldLook.cream.opacity(0.06))
+                }
+                if !extra.isEmpty {
+                    // Only the list scrolls: the title, the buttons and Done always stay in view.
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(extra, id: \.self) { f in
+                                row(f)
+                                Divider().overlay(WorldLook.cream.opacity(0.06))
+                            }
+                        }
+                    }
+                    .scrollIndicators(CGFloat(extra.count) * Self.row > listMax ? .visible : .never)
+                    .frame(height: listHeight)
+                }
+                Button(action: pick) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus").font(.system(size: 13, weight: .regular)).frame(width: 18)
+                        Text("Choose another folder…").font(.system(size: 13.5, weight: .medium))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).frame(height: Self.row).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundStyle(WorldLook.cream.opacity(0.9))
+            }
+            .popupCard()
+            Text("Everything else stays locked. You can change this any time.").font(.system(size: 13)).foregroundStyle(WorldLook.cream.opacity(0.75))
+            HStack {
+                Spacer()
+                Button {
+                    m.setFolders(Access.merge(opened: opened, chosen: folders, current: Access.freshFolders))
+                    done()
+                } label: {
+                    Text("Done").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(WorldLook.bg)
+                        .padding(.horizontal, 20).frame(height: 34).background(Capsule().fill(WorldLook.cream))
+                }
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                .onGeometryChange(for: CGRect.self) {
+                    $0.frame(in: .global)
+                } action: {
+                    FolderSheet.seen["done"] = $0
+                }
+            }
+        }
+        .padding(22).frame(width: 450).fixedSize(horizontal: false, vertical: true)
+    }
+    /// One folder: its name, and Remove (or Allow, for one of the usual three that's locked).
+    func row(_ f: String) -> some View {
+        let on = folders.contains(f)
+        let name = common.contains(f) ? (f as NSString).lastPathComponent : (f as NSString).abbreviatingWithTildeInPath
+        return HStack(spacing: 12) {
+            Image(systemName: "folder").font(.system(size: 13, weight: .regular)).frame(width: 18)
+            Text(name).font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            Button(on ? "Remove" : "Allow") { toggle(f) }.buttonStyle(.plain).font(.system(size: 12.5))
+                .foregroundStyle(WorldLook.cream.opacity(on ? 0.6 : 0.9))
+        }
+        .foregroundStyle(WorldLook.cream.opacity(on ? 0.95 : 0.45))
+        .padding(.horizontal, 14).frame(height: Self.row)
     }
     /// Where the title and Done last landed (window coordinates), read by `--test-folders-fit`.
     static var seen: [String: CGRect] = [:]
-    static let row: CGFloat = 16
-    static let gap: CGFloat = 14
-    /// The tallest the folder list gets before it scrolls: what's left of the screen after the rest of the
-    /// window (title, buttons, Done, margins) and some room above and below, never more than 15 rows.
-    static var listMax: CGFloat {
-        let screen = NSScreen.main?.visibleFrame.height ?? 800
-        return max(row * 3 + gap * 2, min(screen - 340, row * 15 + gap * 14))
-    }
+    static let row: CGFloat = 44
+    /// The tallest the extra-folder list gets before it scrolls: the room left after the title, the usual three,
+    /// "Choose another", the line under it and Done, never more than 15 rows.
+    var listMax: CGFloat { max(Self.row * 2, min(room - 430, Self.row * 15)) }
     var extra: [String] { folders.filter { !common.contains($0) } }
-    var listHeight: CGFloat {
-        let n = CGFloat(extra.count)
-        return min(n * Self.row + max(0, n - 1) * Self.gap, Self.listMax)
-    }
+    var listHeight: CGFloat { min(CGFloat(extra.count) * (Self.row + 1), listMax) }
     func toggle(_ p: String) { if let i = folders.firstIndex(of: p) { folders.remove(at: i) } else { folders.append(p) } }
     func pick() {
         let panel = NSOpenPanel()

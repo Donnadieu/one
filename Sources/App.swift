@@ -105,7 +105,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
-        if BlockedAskCheck.launch() { return }  // --test-blocked
+        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() { return }  // --test-blocked, --test-keep-awake(-hold)
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -177,6 +177,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             for tick in 0... {
                 Model.shared.tendHumanSteps()
+                Model.shared.tendKeepAwake()  // the Mac stays awake while anything works (KeepAwake.swift)
                 if tick % 4 == 0 { Task { await Model.shared.tendBlocked() } }
                 try? await Task.sleep(for: .seconds(1))
             }

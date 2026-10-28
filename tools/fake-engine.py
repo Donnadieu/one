@@ -4,7 +4,8 @@
 It speaks the same ACP JSON-RPC over stdin/stdout as the real engine, costs nothing and answers in seconds.
 Every helper job the check sends contains `STRESSJOB <id> secs=<n>`: the stand-in takes a step, says it is
 working (partial words, like a real helper mid-job), waits n seconds and only then ends with `DONE <id>`.
-A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
+`ask=1` after secs ends the job with a [choices: …] line (needs their yes). `STRESSCLOSE <title>` answers with
+a [close-helper: <title>] line. A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
 first one written twice, and the whole reply delivered twice (how the real engine doubled a reply on
 Oct 27, 2026). Everything it does is appended to $ONE_FAKE_ENGINE_LOG (one JSON object per line), so the
 check can count how many times each job really ran and whether two copies ever overlapped.
@@ -72,9 +73,9 @@ def prompt(rid, sid, text):
     if text.startswith("/steer "):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)", text)
+    m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)
     if m:
-        job, secs = m.group(1), float(m.group(2))
+        job, secs, ask = m.group(1), float(m.group(2)), bool(m.group(3))
         resumed = "interrupted by a restart" in text or "were interrupted" in text
         log(ev="start", job=job, sid=sid, resumed=resumed)
         tool(sid, "terminal: sleep %g" % secs)
@@ -86,7 +87,7 @@ def prompt(rid, sid, text):
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
             time.sleep(0.1)
-        chunk(sid, "DONE %s" % job)
+        chunk(sid, "DONE %s" % job + ("\nGo ahead?\n[choices: Yes, go ahead | Not now]" if ask else ""))  # ask=1: needs their yes
         log(ev="end", job=job, sid=sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -99,6 +100,12 @@ def prompt(rid, sid, text):
         log(ev="spawn-reply", n=n, sid=sid)
         chunk(sid, reply)
         chunk(sid, reply)  # and the whole reply delivered twice
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESSCLOSE ([^\n]+)", text)
+    if m:  # asked to close a helper: the line the assistant writes for it
+        log(ev="close-reply", sid=sid)
+        chunk(sid, "Closed %s.\n[close-helper: %s]\n" % (m.group(1).strip(), m.group(1).strip()))
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     log(ev="main", sid=sid, text=text[:80])

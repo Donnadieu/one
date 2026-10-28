@@ -347,6 +347,18 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
         return {"success": False, "answer": "not_at_mac", "site": site, "phone_fallback": req["phone_fallback"],
                 "next": ("The person isn't at the Mac. Give them phone_fallback in one or two short lines, adapted to the job. "
                          "The page stays open on this step; if they later say they're back, call hand_off again.")}
+    # A robot check is done in a plain Chrome window: One closes the hidden browser for it, then starts it again and
+    # reopens the page in a new tab. Carry on there; the old tab is gone.
+    ans = _read_json(handoff_dir() / f"{req['id']}.answer.json") or {}
+    if ans.get("relaunched"):
+        new = next((x for x in _pages(host, p) if x.get("id") == ans.get("target_id")), None)
+        if new is None:
+            return {"success": False, "answer": answer, "moved_on": False, "site": site, "relaunched": True,
+                    "next": ("One showed the check in a Chrome window and has hidden the browser again, but the page "
+                             f"didn't reopen. Open {ans.get('url') or start_url} again in a new tab and check it moved on; "
+                             "if it still asks, tell the person plainly and stop.")}
+        tab = {"target_id": new.get("id"), "ws": new.get("webSocketDebuggerUrl"), "url": new.get("url")}
+        time.sleep(3)
     after = page_step(tab["ws"]) if tab.get("ws") else {"kind": "unknown"}
     moved = after.get("kind") not in HUMAN_KINDS or (after.get("url") and after.get("url") != start_url
                                                       and after.get("kind") != k)

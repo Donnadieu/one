@@ -65,10 +65,39 @@ enum BrowserKeeper {
             "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--no-first-run", "--no-default-browser-check",
             "--window-size=1440,900", "--disable-blink-features=AutomationControlled",
         ]
+        // Headless Chrome says "HeadlessChrome" in its user agent, and Cloudflare refuses that outright (the
+        // "verify you are human" loop). Send what the same Chrome sends in a window; its client hints already match.
+        if let ua = userAgent(app: app) { a.append("--user-agent=\(ua)") }
         // The copy of their own Chrome must never sync helpers' browsing back into their Google account.
         if MyChrome.isCopy(p) { a += ["--disable-sync", "--no-default-browser-check"] }
         a.append("about:blank")
         return a
+    }
+
+    /// The user agent this Chrome sends in a normal window (Chrome freezes the macOS part and the minor version).
+    static func userAgent(version: String) -> String? {
+        guard let major = version.split(separator: ".").first, Int(major) != nil else { return nil }
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(major).0.0.0 Safari/537.36"
+    }
+
+    static func userAgent(app: String) -> String? {
+        let plist = URL(fileURLWithPath: app).appendingPathComponent("Contents/Info.plist")
+        guard let d = NSDictionary(contentsOf: plist), let v = d["CFBundleShortVersionString"] as? String else { return nil }
+        return userAgent(version: v)
+    }
+
+    /// Runs `open` with these arguments (the human-check window). nil = ok, else what went wrong.
+    static func openApp(_ args: [String]) -> String? {
+        let pr = Process()
+        pr.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        pr.arguments = args
+        pr.standardOutput = FileHandle.nullDevice
+        pr.standardError = FileHandle.nullDevice
+        do {
+            try pr.run()
+            pr.waitUntilExit()
+            return pr.terminationStatus == 0 ? nil : "open exited \(pr.terminationStatus)"
+        } catch { return error.localizedDescription }
     }
 
     /// Does a browser answer on this port?
@@ -111,6 +140,8 @@ enum BrowserKeeper {
     static func tend() {
         if Env.selfTest || Env.commandLine { return }
         guard let p = plan else { return log("no local browser set up") }
+        // A robot check is open in a plain Chrome window on this profile: leave it alone until it's done.
+        if HumanCheck.active != nil { return log("a human check window is open on the saved profile; the hidden browser waits") }
         let up = alive(p.port)
         // Their own Chrome's copy: refreshed before every start and when the assistant asks.
         if MyChrome.tend(p, alive: up) { return }
@@ -125,6 +156,10 @@ enum BrowserKeeper {
         // One start a minute at most: a broken profile must not loop.
         if let t = lastStart, Date().timeIntervalSince(t) < 60 { return }
         guard let app = chromeApp else { return log("Google Chrome isn't installed; nothing to start") }
+        // Starting it while another Chrome holds the profile would only open a window in that Chrome.
+        if HumanCheck.mainChrome(profile: p.profile) != nil {
+            return log("the saved profile is open in a Chrome that isn't answering on \(p.port); not starting a second one")
+        }
         lastStart = Date()
         try? FileManager.default.createDirectory(atPath: p.profile, withIntermediateDirectories: true)
         let pr = Process()

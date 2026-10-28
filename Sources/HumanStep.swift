@@ -57,8 +57,9 @@ enum HumanStep {
     }
 
     /// "done" or "away". The engine reads it and carries on.
-    static func answer(_ id: String, _ a: String) {
-        let j: [String: Any] = ["answer": a, "by": "one", "at": Date().timeIntervalSince1970]
+    static func answer(_ id: String, _ a: String, extra: [String: Any] = [:]) {
+        var j: [String: Any] = ["answer": a, "by": "one", "at": Date().timeIntervalSince1970]
+        j.merge(extra) { _, new in new }
         guard let d = try? JSONSerialization.data(withJSONObject: j) else { return }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let tmp = dir.appendingPathComponent("\(id).answer.tmp")
@@ -90,9 +91,27 @@ extension Model {
 
     /// Done or I'm not at the Mac, from the chat card or the window itself.
     func answerHumanStep(_ id: String, _ answer: String) {
+        // A robot check in a real window: One closes it and answers once the browser is hidden again.
+        if HumanCheck.request(id, answer) { return }
         HumanStep.answer(id, answer)
         closeHumanStep(id)
         blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
+    }
+
+    /// Their tap on Show the window is the yes to that window. A robot check opens the same profile in a plain
+    /// Chrome window (nothing attached, so the tick counts); anything else uses the live view.
+    func showHumanStep(_ a: HumanStepAsk) {
+        if HumanCheck.wanted(a),
+            HumanCheck.begin(
+                a,
+                finished: { [weak self] answer in
+                    self?.closeHumanStep(a.id)
+                    self?.blockedAnswered(a.id, answer)
+                })
+        {
+            return
+        }
+        HumanStep.windows[a.id]?.show()
     }
 
     func closeHumanStep(_ id: String) {
@@ -132,7 +151,7 @@ struct HumanStepCard: View {
                 Button("Done") { answer("done") }.buttonStyle(.borderedProminent)
                 Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
                 Spacer()
-                Button("Show the window") { HumanStep.windows[a.id]?.show() }.buttonStyle(.bordered)
+                Button("Show the window") { Model.shared.showHumanStep(a) }.buttonStyle(.bordered)
             }
         }
     }

@@ -205,7 +205,7 @@ extension Model {
         guard BlockedAsk.isYes(text) else { return "" }
         let a = helper.flatMap { blockedAsk(for: $0) } ?? (helper == nil ? humanSteps.first { $0.ask && BlockedAsk.helperFor[$0.id] == nil } : nil)
         guard let a else { return "" }
-        HumanStep.windows[a.id]?.show()
+        showHumanStep(a)
         BlockedAsk.log("their yes: showed the window for \(a.site)")
         return BlockedAsk.shownNote
     }

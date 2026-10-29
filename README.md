@@ -2,11 +2,13 @@
 
 **A personal AI assistant that lives on your Mac, for people who have never opened a terminal.**
 
+**Not a developer?** Go to [donnadieu.github.io/one](https://donnadieu.github.io/one) and press Download.
+
 You download it, you open it, and it talks you through the rest. It sets itself up, asks which AI you already pay for, learns your name, and shows you everything it can reach from your Mac. Then it works for you: your files, your browser, your email, your calendar, the web. It always asks before it does anything that matters.
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.14). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+> Status: early test build (0.9.63). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
 
 ---
 

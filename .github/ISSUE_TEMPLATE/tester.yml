@@ -1,0 +1,31 @@
+name: Tester report
+description: Tried One? Tell me what happened.
+title: "Tester: "
+labels: ["tester"]
+body:
+  - type: textarea
+    id: asked
+    attributes:
+      label: What did you ask it to do?
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened? Anything that broke or confused you?
+    validations:
+      required: true
+  - type: dropdown
+    id: still
+    attributes:
+      label: Are you still using it?
+      options:
+        - Just started
+        - Yes, after a few days
+        - Yes, after a week or more
+        - No, I stopped
+  - type: input
+    id: mac
+    attributes:
+      label: Your Mac and macOS version (if you know)
+      placeholder: "MacBook Air M2, macOS 15"

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One: an AI assistant that lives on your Mac</title>
+<meta name="description" content="One is a free AI assistant for your Mac. You talk to it, it does the errand, and it asks before it buys, sends or deletes. No terminal, no setup.">
+<meta property="og:title" content="One: an AI assistant that lives on your Mac">
+<meta property="og:description" content="You talk to it. It does the errand. It asks before it buys, sends or deletes. Free, for Mac.">
+<meta property="og:image" content="https://donnadieu.github.io/one/poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icon.png">
+<style>
+  :root { --bg:#141416; --panel:#1c1c1f; --line:#2a2a2e; --cream:#efe6d4; --soft:#b9b2a5; --dim:#7d786f; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--cream); font:17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing:antialiased; }
+  main { max-width:880px; margin:0 auto; padding:56px 24px 40px; }
+  header { display:flex; align-items:center; gap:14px; margin-bottom:40px; }
+  header img { width:44px; height:44px; }
+  header span { font-weight:600; font-size:20px; letter-spacing:.2px; }
+  h1 { font-size:46px; line-height:1.1; font-weight:650; letter-spacing:-.6px; max-width:680px; }
+  .lede { color:var(--soft); font-size:20px; margin:18px 0 30px; max-width:620px; }
+  .cta { display:flex; flex-wrap:wrap; align-items:center; gap:14px 22px; }
+  .btn { display:inline-block; background:var(--cream); color:#141416; text-decoration:none; font-weight:650; font-size:18px; padding:15px 28px; border-radius:14px; }
+  .btn:hover { background:#fff7e6; }
+  .need { color:var(--dim); font-size:15px; }
+  video { width:100%; border-radius:18px; border:1px solid var(--line); margin:44px 0 52px; display:block; background:#000; }
+  .three { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px; }
+  .card h3 { font-size:18px; margin-bottom:8px; }
+  .card p { color:var(--soft); font-size:16px; }
+  h2 { font-size:26px; margin:56px 0 16px; letter-spacing:-.2px; }
+  ul.plain { list-style:none; }
+  ul.plain li { color:var(--soft); padding:9px 0; border-bottom:1px solid var(--line); }
+  ul.plain li b { color:var(--cream); font-weight:600; }
+  .tester { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:28px; margin-top:56px; }
+  .tester p { color:var(--soft); margin:8px 0 18px; }
+  .btn2 { display:inline-block; border:1px solid var(--cream); color:var(--cream); text-decoration:none; font-weight:600; padding:12px 22px; border-radius:12px; }
+  footer { color:var(--dim); font-size:14px; margin-top:56px; padding-top:20px; border-top:1px solid var(--line); }
+  footer a { color:var(--soft); }
+  @media (max-width:720px) { h1 { font-size:34px; } .three { grid-template-columns:1fr; } main { padding-top:36px; } }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="icon.png" alt=""><span>One</span></header>
+
+  <h1>An AI assistant that lives on your Mac and does the errand.</h1>
+  <p class="lede">You talk to it. It looks things up, sorts your files, drafts the email, watches a price. It asks before it buys, sends or deletes. No terminal, no setup.</p>
+
+  <div class="cta">
+    <a class="btn" href="https://github.com/Donnadieu/one/releases/latest/download/One.dmg">Download for Mac</a>
+    <span class="need">Free · Apple Silicon Mac · macOS 14 or later</span>
+  </div>
+
+  <video src="one.mp4" poster="poster.jpg" controls playsinline preload="none"></video>
+
+  <div class="three">
+    <div class="card"><h3>It does the work</h3><p>Ask for something and it gets on with it in the background, using your own browser, already signed in. You can keep talking while it works.</p></div>
+    <div class="card"><h3>It asks first</h3><p>Anything that matters waits for your yes: buying, paying, sending, posting, deleting.</p></div>
+    <div class="card"><h3>Your memory stays yours</h3><p>What it learns about you is kept as plain files on your Mac. Switch AIs and it still remembers you.</p></div>
+  </div>
+
+  <h2>What you need</h2>
+  <ul class="plain">
+    <li><b>A Mac with Apple Silicon</b> (M1 or newer) on macOS 14 or later.</li>
+    <li><b>An AI plan you already have:</b> ChatGPT, Claude, Grok or OpenRouter. You sign in once, on their own page.</li>
+    <li><b>Your Mac open.</b> If the lid is closed or it's off, so is One. It tells you that up front.</li>
+  </ul>
+
+  <h2>How to start</h2>
+  <ul class="plain">
+    <li><b>1.</b> Download One and drag it into Applications.</li>
+    <li><b>2.</b> Open it. It sets itself up and talks you through the rest out loud.</li>
+    <li><b>3.</b> Ask for something you'd normally do yourself.</li>
+  </ul>
+
+  <div class="tester">
+    <h2 style="margin:0">Help test it</h2>
+    <p>One is an early test build, and I'm looking for a few people to use it for a week. Tell me what you asked it to do, what broke, and whether you kept using it.</p>
+    <a class="btn2" href="https://github.com/Donnadieu/one/issues/new?template=tester.yml">Tell me what broke</a>
+  </div>
+
+  <footer>
+    One is a free, open-source personal project by Omar Donnadieu, not a company. Built on <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> by Nous Research.
+    <a href="https://github.com/Donnadieu/one">Source code</a>
+  </footer>
+</main>
+</body>
+</html>

@@ -268,12 +268,11 @@ extension Model {
         let old = SwitchAI.currentProvider(config) ?? provider ?? .claude
         let oldModel = MeCard.currentModel()
         // Hermes has one process for all conversations. Let every existing turn finish on its old AI.
-        if !SwitchAI.ready(helpers, thinking: thinking) {
-            await say("I'll switch to \(p.title) once the helpers at work finish. They're staying on their current AI.")
-        }
+        switchWaitMessage = SwitchAI.waitMessage(for: p.title, helpers: helpers, thinking: thinking)
         while (!onboarded || switchingAI) && !SwitchAI.ready(helpers, thinking: thinking) {
             try? await Task.sleep(for: .seconds(2))
         }
+        switchWaitMessage = nil
         guard !onboarded || switchingAI else { return }
         await say("Let me check \(p.title) answers before I switch.", voice: "checking")
         var stop = "error: no model answered"

@@ -16,9 +16,9 @@ struct RootView: View {
     @State var started = false
     var body: some View {
         Group {
-            if m.onboarded && !m.switchingAI {
+            if m.onboarded {
                 HomeView(m: m)
-            } else if !started && m.bubbles.isEmpty && !m.onboarded {
+            } else if !started && m.bubbles.isEmpty {
                 WelcomeView { started = true }
             } else {
                 OnboardingView(m: m)
@@ -221,12 +221,7 @@ struct OnboardingView: View {
         .background(Mist())
         .onePopup($localPicker) { _ in LocalModelPicker(m: m) { localPicker = false } }
         .task {
-            if m.switchingAI {
-                m.step = .pickAI
-                await m.say("Which AI should I use?")
-            } else {
-                await m.beginOnboarding()
-            }
+            await m.beginOnboarding()
         }
     }
 

@@ -198,6 +198,7 @@ struct HomePopups: ViewModifier {
                     }
                 }
             }
+            .onePopup($m.switchingAI) { _ in SwitchAIPanel(m: m) { m.switchingAI = false } }
     }
 }
 

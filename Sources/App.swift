@@ -37,11 +37,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if LocalModelsCheck.launch() { return }
-        if CommandLine.arguments.contains("--test-followups") {
-            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
-            Task { @MainActor in exit(await FollowUpCheck.run()) }
-            return
-        }
+        if FollowUpCheck.launch() { return }
         if CommandLine.arguments.contains("--test-helper-done") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
             Task { @MainActor in exit(await HelperDoneCheck.run()) }

@@ -76,6 +76,11 @@ echo "Local models"
 mkdir -p "$T/local"
 check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"
 
+echo "Switch AI: every provider offered, a stuck wait always has a message, the title never duplicates"
+mkdir -p "$T/switchai"
+check "switch AI decisions, wait message and no duplicate title bubble" bash -c "ONE_SUPPORT_DIR=$T/switchai $TBIN --test-switch-ai | tee $T/switchai/out.txt | grep -q '✓'; ! grep -q '✗' $T/switchai/out.txt"
+grep "✗" "$T/switchai/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Blocked on a step only you can do: ask, never substitute"
 mkdir -p "$T/bl"
 check "rule in SOUL and every helper turn (first, follow-up, picked back up); One spots a robot check, asks Can I show you the window?, turns that helper orange, shows nothing by itself" bash -c "ONE_SUPPORT_DIR=$T/bl $TBIN --test-blocked | tee $T/bl/out.txt | grep -q '^blocked ok'"

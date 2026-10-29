@@ -12,11 +12,12 @@ extension Model {
         let previousModel = oldModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !previousProvider.isEmpty, !previousModel.isEmpty else { return "I couldn't read your current AI, so I didn't change it." }
         if helpers.contains(where: { $0.state == "working" }) || thinking {
-            await say("I'll wait for the helpers at work. They'll finish on their current AI.")
+            switchWaitMessage = SwitchAI.waitMessage(for: "this local model", helpers: helpers, thinking: thinking)
         }
         while switchingAI && (helpers.contains(where: { $0.state == "working" }) || thinking) {
             try? await Task.sleep(for: .seconds(2))
         }
+        switchWaitMessage = nil
         guard !onboarded || switchingAI else { return "The switch was cancelled." }
         func restore() async {
             _ = await hermesRun(["config", "set", "model.provider", previousProvider])

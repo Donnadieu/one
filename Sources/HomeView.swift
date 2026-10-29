@@ -33,6 +33,7 @@ struct HomeView: View {
     @State var micLatched = false
     @State var dropping = false
     @State var typing = false
+    @State var historyOpen = false
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
@@ -44,6 +45,11 @@ struct HomeView: View {
     var sinceAsk: [Bubble] {
         let k = m.bubbles.lastIndex(where: { $0.fromMe }).map { $0 + 1 } ?? 0
         return Array(m.bubbles[k...].filter { !$0.text.isEmpty }.suffix(6))
+    }
+    /// Turns before the current exchange, oldest first: hidden by default, revealed by `HistoryStrip`.
+    var olderTurns: [Bubble] {
+        guard let cutoff = m.bubbles.lastIndex(where: { $0.fromMe }) else { return [] }
+        return m.bubbles[..<cutoff].filter { !$0.text.isEmpty }
     }
     var body: some View {
         HStack(spacing: 0) {
@@ -117,6 +123,7 @@ struct HomeView: View {
                             FollowUpList(m: m, helper: h.id).starCalm()
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
+                                HistoryStrip(m: m, turns: olderTurns, open: $historyOpen)
                                 ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".

@@ -156,7 +156,7 @@ final class Model: ObservableObject {
     func saveBubbles() {
         guard !thinking else { return }
         UserDefaults.standard.set(
-            bubbles.suffix(40).filter { !$0.text.isEmpty }.map { ["me": $0.fromMe, "t": $0.text, "f": $0.followUps] as [String: Any] },
+            bubbles.filter { !$0.text.isEmpty }.suffix(40).map { ["me": $0.fromMe, "t": $0.text, "f": $0.followUps] as [String: Any] },
             forKey: "bubbles")
     }
     @Published var step: Step = .pickAI

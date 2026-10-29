@@ -11,6 +11,9 @@ struct SwitchAIPanel: View {
     @State private var current: Provider?
     @State private var localPicker = false
     @State private var loadedCurrent = false
+    /// Renders only: ImageRenderer draws ScrollView contents and ProgressView blank, so a still
+    /// capture (`--render-switch-ai`) skips both and shows a static dot instead.
+    nonisolated(unsafe) static var renderStill = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -32,24 +35,31 @@ struct SwitchAIPanel: View {
     private var picker: some View {
         VStack(spacing: 14) {
             Text("Which AI should I use?").font(.title2)
-            ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(Provider.allCases) { p in
-                        providerRow(
-                            symbol: p.symbol, title: p.title,
-                            subtitle: m.signedIn[p] == true ? "Already signed in" : p.subtitle,
-                            isCurrent: current == p
-                        ) { Task { await m.choose(p) } }
-                    }
-                    providerRow(
-                        symbol: "desktopcomputer", title: "Local model",
-                        subtitle: "Private and free, but slower and less capable.",
-                        isCurrent: current == nil && loadedCurrent && m.providerRaw == "local"
-                    ) { localPicker = true }
-                }
-            }
-            .frame(maxHeight: 360)
+            providerList
+                .frame(maxHeight: 360)
             if let p = m.signInProblem { Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+        }
+    }
+
+    @ViewBuilder private var providerList: some View {
+        let rows = VStack(spacing: 10) {
+            ForEach(Provider.allCases) { p in
+                providerRow(
+                    symbol: p.symbol, title: p.title,
+                    subtitle: m.signedIn[p] == true ? "Already signed in" : p.subtitle,
+                    isCurrent: current == p
+                ) { Task { await m.choose(p) } }
+            }
+            providerRow(
+                symbol: "desktopcomputer", title: "Local model",
+                subtitle: "Private and free, but slower and less capable.",
+                isCurrent: current == nil && loadedCurrent && m.providerRaw == "local"
+            ) { localPicker = true }
+        }
+        if SwitchAIPanel.renderStill {
+            rows
+        } else {
+            ScrollView { rows }
         }
     }
 
@@ -73,7 +83,7 @@ struct SwitchAIPanel: View {
 
     private func waiting(_ message: String) -> some View {
         VStack(spacing: 16) {
-            ProgressView()
+            if SwitchAIPanel.renderStill { Circle().fill(.secondary).frame(width: 8, height: 8) } else { ProgressView() }
             Text(message).multilineTextAlignment(.center).foregroundStyle(.secondary)
             Button("Cancel") {
                 m.switchingAI = false

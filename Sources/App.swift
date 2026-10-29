@@ -280,6 +280,7 @@ struct Entry {
             exit(ok ? 0 : 1)
         }
         RoutinesRender.cli(args)  // --render-routines <png>
+        SwitchAIPanelRender.cli(args)  // --render-switch-ai <png> [picker|waiting]
         MainActor.assumeIsolated { StarsRender.cli(args) }  // --render-stars <prefix>, --stars-cpu <seconds>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]

@@ -23,7 +23,10 @@ enum HelperTrail {
         let steps = h.trail ?? []
         out += steps.isEmpty ? "(none yet)\n" : steps.map { "- \($0)" }.joined(separator: "\n") + "\n"
         let r = h.reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        out += "\n## Latest reply\n\n\(r.isEmpty ? "(nothing yet)" : r)\n"
+        if h.state == "working", let at = h.lastStepAt {
+            out += "\nNow: \(h.line) (since \(DateFormatter.localizedString(from: at, dateStyle: .none, timeStyle: .medium)))\n"
+        }
+        out += "\n## Latest reply\n\n\(r.isEmpty ? (h.state == "working" ? "(still working, nothing written yet)" : "(nothing yet)") : r)\n"
         return out
     }
 

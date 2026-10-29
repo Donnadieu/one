@@ -60,8 +60,15 @@ def chunk(sid, text):
 
 
 def tool(sid, title):
+    call = uuid.uuid4().hex
     send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
-        "sessionUpdate": "tool_call", "toolCallId": uuid.uuid4().hex, "title": title}}})
+        "sessionUpdate": "tool_call", "toolCallId": call, "title": title, "status": "pending"}}})
+    return call
+
+
+def tool_done(sid, call):
+    send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+        "sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed"}}})
 
 
 def is_cancelled(sid):
@@ -81,7 +88,7 @@ def prompt(rid, sid, text):
         job, secs, ask = m.group(1), float(m.group(2)), bool(m.group(3))
         resumed = "interrupted by a restart" in text or "were interrupted" in text
         log(ev="start", job=job, sid=sid, resumed=resumed)
-        tool(sid, "terminal: sleep %g" % secs)
+        call = tool(sid, "terminal: sleep %g" % secs)
         chunk(sid, "Working on %s, halfway there.\n" % job)  # words before the job is done
         end = time.time() + secs
         while time.time() < end:
@@ -90,6 +97,7 @@ def prompt(rid, sid, text):
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
             time.sleep(0.1)
+        tool_done(sid, call)  # the step ends, like the real engine's tool_call_update
         chunk(sid, "DONE %s" % job + ("\nGo ahead?\n[choices: Yes, go ahead | Not now]" if ask else ""))  # ask=1: needs their yes
         log(ev="end", job=job, sid=sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

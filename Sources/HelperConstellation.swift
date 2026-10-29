@@ -148,7 +148,9 @@ struct HelperConstellation: View {
                         .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
                     ForEach(Array(hs.enumerated()), id: \.element.id) { i, h in
                         let s = lay.spots[i]
-                        spot(h, i: i, t: t, calm: calm, look: lay.look, spot: s, at: CGPoint(x: s.at.x * k, y: s.at.y))
+                        spot(
+                            h, i: i, t: t, calm: calm, look: lay.look, spot: s, at: CGPoint(x: s.at.x * k, y: s.at.y),
+                            now: HelperProgress.now(tl.date))
                     }
                 }
                 .frame(width: g.size.width, height: g.size.height)
@@ -159,12 +161,13 @@ struct HelperConstellation: View {
         .animation(.spring(response: 0.7, dampingFraction: 0.8), value: m.helpers.map(\.id))
     }
 
-    func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint) -> some View {
+    func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint, now: Date) -> some View {
         let sleeping = m.asleep(h)  // being picked back up: dim, "starting again", can't be tapped (StartupGate.swift)
         let on = (hover == h.id || pointed == h.id) && !sleeping
         let warm = (h.state == "needsYes" || h.waiting) && !sleeping
         let opened = h.state == "done" && !h.waiting
-        let line = sleeping ? GateWords.helper : HelperRings.status(h)
+        // The real step, its time, or "No progress for 6 min" (HelperProgress.swift).
+        let line = sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true)
         let seed = Double(i)
         let drift = calm ? CGSize.zero : CGSize(width: sin(t * 0.23 + seed * 1.9) * 3, height: cos(t * 0.19 + seed * 2.7) * 3)
         let gap: CGFloat = spot.orb >= 40 ? 7 : 5
@@ -175,7 +178,9 @@ struct HelperConstellation: View {
         let alpha: Double = dimmed ? 0.5 : (on ? 1 : spot.fade) * (sleeping ? 0.62 : 1)
         let face = HelperFace(
             state: h.viewState, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened,
-            tag: HelperTag(title: h.title, line: line, look: look, warm: warm, opened: opened, full: on), sleeping: sleeping)
+            tag: HelperTag(
+                title: h.title, line: line, look: look, warm: warm, opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now)),
+            sleeping: sleeping)
         return Button {
             if stopAsk == h.id { return }  // the long press already asked; this is its release
             m.focusHelper(h.id)
@@ -236,12 +241,14 @@ struct HelperTag: View {
     var warm = false
     var opened = false
     var full = false
+    var quiet = false  // no progress for a while: its line goes a calm amber
     var body: some View {
         VStack(spacing: 1) {
             Text(title).font(.system(size: look.title, weight: .semibold))
                 .foregroundStyle(warm ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(opened ? 0.62 : 1))
             Text(line).font(.system(size: look.line))
-                .foregroundStyle(warm ? Color(hex: 0xF6B46E, 0.8) : WorldLook.cream.opacity(opened ? 0.36 : 0.52))
+                .foregroundStyle(
+                    warm ? Color(hex: 0xF6B46E, 0.8) : quiet ? HelperProgress.amber.opacity(0.9) : WorldLook.cream.opacity(opened ? 0.36 : 0.52))
         }
         .lineLimit(1).truncationMode(.tail).multilineTextAlignment(.center)
         .padding(.horizontal, 7).padding(.vertical, 3)

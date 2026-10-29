@@ -63,7 +63,8 @@ extension Model {
                     lines.append("- \(h.title): still working. A restart cut it off and One picked it back up by itself; they were told: \"\(n)\"")
                     helpers[k].restartNews = nil
                 } else {
-                    lines.append("- \(h.title): still working (\(h.line)).")
+                    let quiet = seemsStuck(h, now: Date()) ? ", no progress for a while; \(userName) can nudge or stop it from its orb" : ""
+                    lines.append("- \(h.title): still working (\(progressLine(h, now: Date()))\(quiet)).")
                 }
             case "stopped":
                 lines.append(

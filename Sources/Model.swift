@@ -220,6 +220,8 @@ final class Model: ObservableObject {
 
     // Helpers
     @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
+    @Published var pulses: [UUID: HelperPulse] = [:]  // what each working helper is doing right now (HelperProgress.swift)
+    var pulseWired = false
     @Published var openHelper: UUID?
     var helperTurnEnded: [UUID: Date] = [:]  // when each helper's last engine turn ended (checks read it)
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
@@ -323,6 +325,7 @@ extension Plain {
             i += words[i] == "cd" ? 2 : 1
         }
         guard i < words.count else { return "Working on your Mac…" }
+        if let d = dev(words, at: i, cmd: cmd) { return d }  // building, testing, pushing (HelperProgress.swift)
         let head = (words[i].split(separator: "/").last.map(String.init) ?? words[i]).lowercased()
         if head.hasPrefix("python") || ["node", "bash", "sh", "zsh", "ruby", "swift", "perl"].contains(head) {
             return script(words.dropFirst(i + 1).first { !$0.hasPrefix("-") })

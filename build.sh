@@ -5,6 +5,21 @@ set -euo pipefail
 cd "$(dirname "$0")"
 APP=build/app.noindex/One.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+# One compile at a time on this Mac: several helpers building One at once slowed every build down. A build that
+# finds the lock taken waits its turn ("Waiting for another build…" on its helper's orb). A lock left by a build
+# that's gone (or older than 20 min) is taken over; after 15 min of waiting it builds anyway.
+LOCK="${ONE_BUILD_LOCK:-/tmp/one-build-$(id -u).lock}"
+waited=0
+while ! mkdir "$LOCK" 2>/dev/null; do
+  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +20 2>/dev/null)" ] || { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; }; then
+    rm -rf "$LOCK"; continue
+  fi
+  [ "$waited" = 0 ] && echo "Waiting for another build to finish…" >&2
+  [ "$waited" -ge 900 ] && { echo "still waiting after 15 min: building anyway" >&2; LOCK=""; break; }
+  sleep 3; waited=$((waited + 3))
+done
+if [ -n "$LOCK" ]; then echo $$ > "$LOCK/pid"; trap 'rm -rf "$LOCK"' EXIT; fi
 # Releases and local builds: optimized (-O). Pull request checks set ONE_FAST_BUILD=1: unoptimized, whole-module,
 # about 7x faster to compile; the checks test behavior, not speed. ONE_MODULE_CACHE keeps Apple's prebuilt
 # framework modules in a folder CI can save between runs.
@@ -14,6 +29,7 @@ OPT=(-O)
 swiftc "${OPT[@]}" -parse-as-library -target arm64-apple-macosx14.0 \
   -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -framework IOKit -swift-version 5 \
   Sources/*.swift -o "$APP/Contents/MacOS/One"
+if [ -n "$LOCK" ]; then rm -rf "$LOCK"; trap - EXIT; fi  # the compile is the slow, shared part; the rest runs side by side
 VERSION=$(tr -d ' \n' < VERSION)
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

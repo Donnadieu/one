@@ -106,7 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
-        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() { return }  // --test-blocked, -keep-awake(-hold), -progress
+        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() { return }
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -400,6 +400,7 @@ struct Entry {
                     ("shelf-copy-reader", ShelfCopyRender.reader()),
                     ("shelf-read-new", ShelfReadRender.panel(read: false)),
                     ("shelf-read-done", ShelfReadRender.panel(read: true)),
+                    ("shelf-search-grouped", ShelfSearchRender.panel()), ("shelf-search-typed", ShelfSearchRender.panel(query: "routing")),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
                     ("home-4", AnyView(EmptyView())),

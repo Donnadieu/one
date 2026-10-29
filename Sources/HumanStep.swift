@@ -84,7 +84,7 @@ extension Model {
             let w = StepWindow(a) { [weak self] answer in self?.answerHumanStep(a.id, answer) }
             HumanStep.windows[a.id] = w
             // Never put a window in front on its own: their tap on "Show the window" is the yes (BrowserGuard rule).
-            if !Voice.shared.muted { Task { _ = await Speaker.shared.sayNow(a.line) } }
+            if !Voice.shared.muted { enqueue(.line(bubble: nil, spoken: a.line)) }  // after whatever is being said, never into it
         }
         for a in humanSteps where !now.contains(where: { $0.id == a.id }) { closeHumanStep(a.id) }
     }

@@ -38,6 +38,7 @@ Swift 6 toolchain (language mode 5) / SwiftUI + AppKit / macOS 14+, Apple Silico
 - Never run One's `--install-test` without `ONE_SUPPORT_DIR=<empty dir>`.
 - Visual changes: render (`One --render-world <prefix>`), show, get a yes, then install.
 - Commits are signed. `main` has linear history.
+- One is a personal project: every commit, tag, PR, release and comment is the **Donnadieu** account (Donnadieu <donnadieu.86@gmail.com>, GPG ABAFD67086BDA7E0). The Andela work account `donnadieu-andela` must leave no trace here. `make hooks` pins the clone; `tools/check-identity.sh` runs in pre-commit, pre-push, `make check` and CI. For `gh`, use `GH_TOKEN=$(gh auth token --user Donnadieu)` instead of trusting the active account (it flips when Omar does Andela work, and `gh auth switch` fails inside One's folder lock).
 
 ## Skills (the compound loop)
 Repo playbooks live in [.agents/skills/](.agents/skills/). Before work: load the one that matches.

@@ -142,13 +142,8 @@ extension Model {
             helpers.first { $0.id == p.id && ($0.busyTries == nil || $0.busyTries == 1) }.map { $0.restartNews ?? HelperTrail.told($0.title) }
         }
         if let line = told.count == 1 ? told.first : (told.isEmpty ? nil : HelperTrail.toldMany(told.count)) {
-            bubbles.removeAll { $0.text == line }
-            bubbles.append(Bubble(fromMe: false, text: line))
             Floater.shared.note(line)
-            Task {
-                for _ in 0..<24 where self.thinking || !self.isReady { try? await Task.sleep(for: .seconds(5)) }
-                _ = await Speaker.shared.sayNow(line)  // silent when muted
-            }
+            enqueue(.line(bubble: line, spoken: line))  // after whatever is being said, never into it (silent when muted)
         }
         for p in picked {
             guard let h = helpers.first(where: { $0.id == p.id }) else { continue }

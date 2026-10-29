@@ -1,6 +1,6 @@
 #!/bin/bash
 # `make helpers-check` (and part of preflight): 100 helpers at once, then the engine is killed, One is killed and an
-# update restarts it, all mid-run. Proves every helper stays listed and on screen, none starts or runs twice, none is
+# update restarts it, all mid-run; then the one line everything the assistant says goes through (QueueCheck.swift). Proves every helper stays listed and on screen, none starts or runs twice, none is
 # shown done without its real final reply, every cut-off one picks back up and finishes, every result has its file,
 # and a finished one stays until dismissed. Uses a stand-in engine (tools/fake-engine.py): no account, no cost,
 # about a minute. A test copy with its own bundle id and a scratch folder: your One, chat and settings are never touched.
@@ -19,7 +19,8 @@ cp tools/fake-engine.py "$S/fake-engine.py"; chmod +x "$S/fake-engine.py"
 run() {
   local secs=$1; shift
   exec env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
-    LANG="${LANG:-en_US.UTF-8}" ONE_SUPPORT_DIR="$S/support" ONE_TEST_ENGINE="$S/fake-engine.py" ONE_FAKE_ENGINE_LOG="$S/engine.jsonl" ONE_FAKE_LOAD_SECS=1.5 \
+    LANG="${LANG:-en_US.UTF-8}" ONE_SUPPORT_DIR="${SUP:-$S/support}" ONE_TEST_ENGINE="$S/fake-engine.py" ONE_FAKE_ENGINE_LOG="${ELOG:-$S/engine.jsonl}" ONE_FAKE_LOAD_SECS=1.5 \
+    ONE_QUEUE_SHOT="${ONE_QUEUE_SHOT:-}" \
     perl -e "alarm $secs; exec @ARGV" "$APP/Contents/MacOS/One" --test-helpers-stress "$@"
 }
 rc=0
@@ -44,6 +45,14 @@ if [ $rc = 0 ]; then
   (run 120 after-update) > "$S/update.txt" 2>"$S/update-err.txt" || rc=1
   cat "$S/update.txt"
   grep -q '^helpers-stress ok' "$S/update.txt" || rc=1
+fi
+# 4. One line for everything the assistant says: a long reply read aloud, three helpers finishing and a message
+#    sent during it. The reply ends whole (text and voice), then the notices one at a time in order, then the message.
+if [ $rc = 0 ]; then
+  for p in $(pgrep -f "$S/"); do kill "$p" 2>/dev/null; done
+  mkdir -p "$S/q"
+  (SUP="$S/q" ELOG="$S/q/engine.jsonl" run 120 queue) > "$S/queue.txt" 2>"$S/queue-err.txt" || rc=1
+  cat "$S/queue.txt"
 fi
 for p in $(pgrep -f "$S/"); do kill "$p" 2>/dev/null; done
 defaults delete "$ID" >/dev/null 2>&1

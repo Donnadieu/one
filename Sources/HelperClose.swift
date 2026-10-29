@@ -67,7 +67,7 @@ extension Model {
     @discardableResult func closeHelper(_ id: UUID) -> Bool {
         guard let h = helpers.first(where: { $0.id == id }), !HelperClose.busy(h) else { return false }
         if openHelper == id { openHelper = nil }
-        doneQueue.removeAll { $0 == id }
+        outbox.removeAll { $0 == .helperNews(id) }
         Helpers.log("helper \"\(h.title)\" taken off the screen by you (\(h.state))")
         withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
         return true

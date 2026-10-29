@@ -38,6 +38,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/swift-module-cache
           key: swift-modules-${{ steps.xcode.outputs.key }}
+      - name: Only Donnadieu's identity (never donnadieu-andela)
+        if: github.event_name == 'pull_request'
+        run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       - name: Formatting
         run: xcrun swift-format lint -r -s -p Sources
       - name: One's own rules

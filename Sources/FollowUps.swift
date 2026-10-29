@@ -2,12 +2,11 @@ import SwiftUI
 
 // MARK: - Sending while busy
 //
-// Nothing ever waits for a free moment to be typed or said. A message sent while the assistant (or a
-// helper) is working goes straight into that running turn through the engine's own mid-turn message
-// (Hermes puts it right after the latest step, as "[OUT-OF-BAND USER MESSAGE …]"). When the engine
-// can't take one at that moment (the turn hasn't started answering yet, the reply is about to be read
-// aloud, a picture is attached, or One is stopped), it waits "next up" and goes the moment it can:
-// into the turn as soon as it's under way, or, if the turn ends first, as the start of the next one.
+// Nothing typed or said is ever refused or lost. To the main assistant, a message sent while it's busy
+// (working, or still speaking its reply) waits "next up" in the one line everything it says goes through
+// (SayQueue.swift) and goes as the next turn once the reply is fully over, text and voice. To a helper,
+// it goes straight into that helper's running turn through the engine's own mid-turn message (Hermes puts
+// it right after the latest step, as "[OUT-OF-BAND USER MESSAGE …]"), or waits next up for its next turn.
 // Messages go one at a time, oldest first, so they always arrive in order. Stop is separate:
 // a new message never stops anything.
 
@@ -69,7 +68,7 @@ extension Model {
         if let h = f.helper {
             return helperLive.contains(h) && helpers.first { $0.id == h }.map { $0.state == "working" && !asleep($0) } == true
         }
-        return turnLive && turnStarted
+        return false  // the main chat never takes a message mid-turn: it waits in the one line (SayQueue.swift)
     }
 
     /// The oldest message still waiting for each conversation, if the engine can take it now.
@@ -137,18 +136,7 @@ extension Model {
     }
 
     /// Nothing is running: the waiting messages go now, in order, as the next turn.
-    func nextUpReady() {
-        guard !paused, !thinking, isReady else { return }
-        let batch = leadingWaiting(helper: nil)
-        guard !batch.isEmpty else { return }
-        followUps.removeAll { f in batch.contains { $0.id == f.id } }
-        let shown = batch.filter { !$0.hidden }.map(\.display).joined(separator: "\n")
-        let c = Composed(
-            display: shown, engine: batch.map(\.engine).joined(separator: "\n\n"), images: batch.flatMap(\.c.images),
-            typed: shown)
-        thinking = true
-        Task { @MainActor in await self.runTurn(c, hidden: shown.isEmpty) }
-    }
+    func nextUpReady() { pumpOutbox() }  // the main chat's waiting messages are in the one line (SayQueue.swift)
 
     /// A helper's turn ended: messages that went in become part of what was asked.
     func helperTurnOver(_ id: UUID) async {
@@ -165,7 +153,10 @@ extension Model {
         let batch = leadingWaiting(helper: id)
         guard !batch.isEmpty else { return }
         followUps.removeAll { f in batch.contains { $0.id == f.id } }
-        update(id) { $0.asked = batch.map(\.display).joined(separator: "\n") }
+        update(id) {
+            $0.asked = batch.map(\.display).joined(separator: "\n")
+            $0.toldState = nil  // asked something new: its next finish gets its own notice
+        }
         Task { @MainActor in
             await self.runHelper(id, batch.map(\.engine).joined(separator: "\n\n"), images: batch.flatMap(\.c.images))
         }

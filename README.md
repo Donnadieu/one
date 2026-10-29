@@ -8,7 +8,9 @@ You download it, you open it, and it talks you through the rest. It sets itself 
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-> Status: early test build (0.9.63). It runs end to end on Apple Silicon Macs. Passwords (KeePass), email and calendar through the accounts already on your Mac and your own Chrome now work; Phone and News are not built yet, but you can build your own with the assistant (experimental). See [Roadmap](#roadmap).
+*(This screenshot is from the first open-source commit. The tiles and layout are still accurate, but the app has since picked up a starfield background, smoked glass and a breathing orb that don't show here — a refreshed capture is on the TODO list.)*
+
+> Status: early test build (0.9.67). It runs end to end on Apple Silicon Macs, as a Developer ID–signed, notarised app (no "Open Anyway" steps). Passwords (KeePass), email and calendar through the accounts already on your Mac, and your own Chrome, all work today. News is not built yet. Phone works only as a manually-configured Telegram bot today (no in-app setup screen yet — see [Roadmap](#roadmap)). You can build your own connection for anything else with the assistant (experimental).
 
 ---
 
@@ -36,7 +38,7 @@ This is a personal project, not a company. It is built for me, my friends and an
 5. **Memory and rooms.** Everything starts in a personal room. If part of your life needs different rules (your job, a business, something just for you), it gets its own room, kept separate.
 6. **The world.** A short spoken tour of everything it can reach, then you tap what you want connected.
 7. **Passwords and backup.** Where to find logins (your password manager, Keychain, or ask each time), and an optional copy of your memory to iCloud Drive.
-8. **Home.** A greeting, the assistant itself with every helper around it as a small orb (no limit: more helpers wrap onto more orbits; orange = needs your yes or done and not opened yet), the answer to your latest request, and the ask box (+ for a file, photo, screenshot or folder; mic to talk). The **Ready for you** sidebar (files your assistant made) collapses to a thin strip.
+8. **Home.** A greeting, the assistant itself with every helper around it as a small orb (no limit: more helpers wrap onto more orbits; orange = needs your yes or done and not opened yet), the answer to your latest request, and the ask box (+ for a file, photo, screenshot or folder; mic to talk). The **Ready for you** sidebar (files your assistant made) collapses to a thin strip, has a search box (titles and the text inside files), and groups cards by day (Today, Yesterday, This week, an always-searched Older).
 9. **Helpers.** Anything that takes real work (looking things up, browsing, comparing, making a file, watching a price) goes to helpers that run in the background, several at once when a job has separate parts. The assistant stays free to talk.
 10. **Talk.** Hold a shortcut anywhere on your Mac to speak; let go to send. A small orb floats on screen when the window is closed and hides when the window is open. Closing the window tucks it into the orb; only Quit ends One.
 11. **Voice everywhere.** Replies, helper results and finished routines are read aloud even when the window is closed, unless muted. Press Esc, or click the orb, while One is talking to stop the voice for that reply only.
@@ -48,7 +50,7 @@ This is a personal project, not a company. It is built for me, my friends and an
     - **Basecamp:** ask your assistant "connect my Basecamp". It gives you a link and a code; you approve on your phone or computer. It reads your projects, to-dos, cards and messages freely, and asks before posting, commenting or changing anything.
     - **Something else…:** on every tile, plus its own tile. The assistant asks what you use, builds the connection with you, tests it in front of you and only then adds it, tagged **Experimental**.
     - **Goal first:** whenever you ask to connect something, the assistant first asks what you want to happen (for example "text me" or "read my texts"), says it back, then picks a way that actually does that and tells you up front what it can't do.
-14. **Rooms.** A live map of your rooms (personal, work, a shared room with a partner). Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
+14. **Rooms.** An interactive map of your rooms (personal, work, a shared room with a partner): the assistant's orb at the centre, each room a soft glowing region threaded to it, notes as small lights sized by how many links they have, and a fly-in note reader. Rooms can be shared through iCloud Drive or kept in sync with a private GitHub repo.
 
 ## How it is built
 
@@ -69,6 +71,7 @@ One is deliberately small: **one Swift file** and a build script. No Xcode proje
 | **Skills that ship with One** | Repo folder `skills/<category>/<name>/SKILL.md` (today: `productivity/basecamp-connect`, `productivity/connect-goal-first`). `build.sh` bundles it; One copies each skill into its engine after install and at every launch. A skill changed on the Mac is never overwritten; an untouched copy is updated when a newer one ships (tracked by hash). Checked by `--test-skills` in preflight. |
 | **Updates** | `Updater` checks GitHub releases every 15 minutes, at launch and when the Mac wakes (with `If-None-Match`, backing off on errors and rate limits). A newer release with `One.zip` is announced once per version, even with the window closed: a macOS notification, an orb note and a spoken line (unless muted). Clicking the notification opens the update card; nothing installs without a tap. Checked by `--test-updates` (fake list via `ONE_RELEASES_URL`) in preflight. |
 | **Routines** | Hermes scheduled jobs. One watches their results and reads new ones aloud. |
+| **Signing** | `build.sh --package` signs releases with a Developer ID Application identity (hardened runtime, timestamped) and notarises them with `notarytool`, stapling the ticket. A build made without that identity on the machine falls back to an unsigned, ad hoc copy instead of failing. |
 | **Design** | The world screen was designed in Claude Design and rebuilt natively: a living set of soft rings for the assistant, upright tiles drifting around it, links that draw in when you tap. |
 
 ### Build it
@@ -123,8 +126,8 @@ Relies on the assistant following its instructions (usually works, not guarantee
 - News as a built-in connection.
 - A "Today" page: what it did, what needs your yes, what it noticed.
 - It reaches out first ("your flight dropped $80, book it?").
-- Your phone: a small companion app for iPhone and Android, so you can reach your assistant away from the Mac.
-- Signed and notarised builds.
+- An in-app way to set up the phone channel. Today it only works if someone makes you a Telegram bot by hand and edits a config file; there's no Connections tile or setup flow for it yet.
+- A small companion app for iPhone and Android, so you can reach your assistant away from the Mac without a Telegram bot. (WhatsApp is not planned.)
 - Maybe later: an optional hosted version for people who don't want to keep a Mac on. One stays free and open source.
 
 ## Contributing

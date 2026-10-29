@@ -280,6 +280,42 @@ enum Routines {
 
     // MARK: Skills
 
+    /// The engine's `skills.disabled` list, read from config.yaml (a block list under `skills:`).
+    static func switchedOff() -> Set<String> {
+        guard let t = try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8) else { return [] }
+        var inSkills = false
+        var inList = false
+        var out = Set<String>()
+        for raw in t.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            let body = line.trimmingCharacters(in: .whitespaces)
+            if body.isEmpty || body.hasPrefix("#") { continue }
+            if !line.hasPrefix(" ") {
+                inSkills = line.hasPrefix("skills:")
+                inList = false
+                continue
+            }
+            guard inSkills else { continue }
+            if body.hasPrefix("disabled:") {
+                inList = true
+                continue
+            }
+            if inList && body.hasPrefix("- ") {
+                out.insert(String(body.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: " \"'")))
+            } else if inList && !body.hasPrefix("- ") {
+                inList = false
+            }
+        }
+        return out
+    }
+
+    /// The `name:` line of a skill file, if any.
+    static func declaredName(_ text: String) -> String? {
+        guard let l = text.split(separator: "\n").prefix(8).first(where: { $0.hasPrefix("name:") }) else { return nil }
+        let n = l.dropFirst(5).trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+        return n.isEmpty ? nil : n
+    }
+
     static func skills() -> [SkillStar] {
         let fm = FileManager.default
         var made: [String: Date] = [:]
@@ -293,12 +329,15 @@ enum Routines {
         }
         var out: [SkillStar] = []
         var seen = Set<String>()
+        let off = switchedOff()
         func add(_ md: URL, room: String?, mine: Bool) {
             let p = md.standardizedFileURL.path
             guard !seen.contains(p) else { return }
             seen.insert(p)
             let name = md.deletingLastPathComponent().lastPathComponent
             let text = (try? String(contentsOf: md, encoding: .utf8)) ?? ""
+            // A skill switched off in the engine isn't something the assistant uses: no star for it.
+            if off.contains(name) || off.contains(declaredName(text) ?? name) { return }
             let when = made[name] ?? (room == nil ? nil : (try? fm.attributesOfItem(atPath: p)[.creationDate] as? Date) ?? nil)
             out.append(SkillStar(name: name, about: about(text), room: room, made: when, mine: mine || made[name] != nil, path: p))
         }

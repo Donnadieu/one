@@ -167,16 +167,15 @@ extension RoutinesPanel {
 
     func skillCard(_ s: SkillStar, now: Date) -> some View {
         cardShell(orange: false) {
-            eyebrow("Skill" + (s.room.map { " · " + $0 } ?? ""), dot: WorldLook.cream)
+            eyebrow("Something I know how to do", dot: WorldLook.cream)
             Text(s.title).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
-            Text(s.name).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.4))
             if !s.about.isEmpty {
                 Text(s.about).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 4).lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
             VStack(alignment: .leading, spacing: 8) {
-                fact("Where", s.room ?? "\(m.name)'s own skills")
+                fact("Where", s.room ?? "Everywhere")
                 fact("Made", s.made.map { Routines.stamp($0, now: now) } ?? (s.mine ? "For you" : "Before One"))
             }
             HStack(spacing: 6) {
@@ -184,7 +183,7 @@ extension RoutinesPanel {
                     m.routinesOpen = false
                     m.viewing = URL(fileURLWithPath: s.path)
                 }
-                pill("Ask \(m.name)") { ask("Tell me about your skill “\(s.name)”: what it's for and when you use it.") }
+                pill("Ask \(m.name)") { ask("Tell me about “\(s.title)”: what it's for and when you use it.") }
             }
             .padding(.top, 14)
         }

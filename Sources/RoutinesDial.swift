@@ -295,7 +295,9 @@ enum RoutinesRender {
         s.routines = Routines.jobs(at: real, now: s.now)
         s.skills = Routines.skills()
         // ONE_RENDER_PICK=<title>: open that routine's card instead of the first one that needs a look.
-        let pick = ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t }?.id }
+        let pick =
+            ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t }?.id }
+            ?? ProcessInfo.processInfo.environment["ONE_RENDER_SKILL"].flatMap { n in s.skills.first { $0.name == n }.map { "skill:" + $0.path } }
         let v = RoutinesPanel(m: m, fixed: s, sel: pick, picked: pick != nil).frame(width: 1200, height: 740).background(WorldLook.bg)
         let r = ImageRenderer(content: v)
         r.scale = 2

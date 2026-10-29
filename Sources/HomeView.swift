@@ -23,13 +23,8 @@ struct HomeView: View {
     /// Renders only: the helper shown as if pointed at.
     nonisolated(unsafe) static var stillPointed: UUID?
     @State var draft = HomeView.stillDraft
-    @State var writing = HomeView.stillWriting
     @State var windowHeight: CGFloat = 760
     @StateObject var askMetrics = HomeView.makeMetrics()
-    @State var folderSheet = false
-    @State var talkKeySheet = false
-    @State var connectionsSheet = false
-    @State var meCard = false
     @AppStorage("shelfCollapsed") var shelfCollapsed = false
     @AppStorage("voiceMuted") var voiceOff = false
     @AppStorage(Glass.key) var solid = Glass.standard
@@ -187,21 +182,21 @@ struct HomeView: View {
         .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
-            if writing {
+            if m.writingPanel || (HomeView.still && HomeView.stillWriting) {
                 WritingPanel(
                     m: m, draft: $draft,
                     close: {
-                        writing = false
+                        m.writingPanel = false
                         typing = true
                     },
                     send: {
-                        writing = false
+                        m.writingPanel = false
                         go()
                     }
                 ).transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: writing)
+        .animation(.easeOut(duration: 0.15), value: m.writingPanel)
         .background(
             GeometryReader { g in Color.clear.onAppear { windowHeight = g.size.height }.onChange(of: g.size.height) { _, h in windowHeight = h } }
         )
@@ -240,9 +235,7 @@ struct HomeView: View {
         }
         .animation(.easeOut(duration: ReadyLayerLook.fade), value: m.isReady)
         .modifier(
-            HomeTitleRow(
-                m: m, voiceOff: $voiceOff, meCard: $meCard, connectionsSheet: $connectionsSheet, talkKeySheet: $talkKeySheet,
-                folderSheet: $folderSheet, dropping: $dropping)
+            HomeTitleRow(m: m, voiceOff: $voiceOff, dropping: $dropping)
         )
         .overlay {
             if dropping {
@@ -315,7 +308,7 @@ struct HomeView: View {
                     Button("File…") { PictureIn.pick() }
                     Button("Photo…") { PictureIn.pickPhoto() }
                     Button("Screenshot") { PictureIn.screenshot() }
-                    Button("Folder…") { folderSheet = true }
+                    Button("Folder…") { m.folderSheet = true }
                 } label: {
                     Image(systemName: "plus").font(.system(size: 16, weight: .regular)).foregroundStyle(WorldLook.cream.opacity(0.6))
                         .frame(width: 36, height: 36).contentShape(Circle())
@@ -357,7 +350,7 @@ struct HomeView: View {
             .overlay(alignment: .topTrailing) {
                 if !draft.isEmpty && askMetrics.contentHeight > AskEditor.oneLine + 3 * 17 {
                     Button {
-                        writing = true
+                        m.writingPanel = true
                     } label: {
                         Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .medium))
                             .foregroundStyle(WorldLook.cream.opacity(0.7)).frame(width: 28, height: 28)
@@ -390,7 +383,7 @@ struct HomeView: View {
         guard m.isReady else { return }  // getting ready: the box can't send (StartupGate.swift)
         let t = draft
         draft = ""
-        writing = false
+        m.writingPanel = false
         Task { await m.send(t) }
     }
 }

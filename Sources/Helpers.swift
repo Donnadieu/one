@@ -319,22 +319,34 @@ struct ShelfPanel: View {
     @ObservedObject var m: Model
     @AppStorage(Glass.key) var solid = Glass.standard
     var collapse: () -> Void = {}
+    @State private var query = ""
+    @State private var matched: Set<UUID>?
+    @State private var olderOpen = false
     var body: some View {
         let fresh = m.shelf.filter(\.fresh).count
         VStack(alignment: .leading, spacing: 10) {
             ShelfHeader(fresh: fresh, markAll: { m.markShelfRead() }, collapse: collapse).padding(.horizontal, 4)
+            if m.shelf.count > 6 || !query.isEmpty { ShelfSearchField(text: $query).padding(.horizontal, 4) }
             StillScroll {
-                VStack(spacing: 8) {
-                    ForEach(m.shelf) { it in
-                        ShelfCardView(item: it)
-                            .onTapGesture {
-                                ShelfCopy.shared.pick(it)
-                                m.openShelf(it.id)
+                VStack(alignment: .leading, spacing: 8) {
+                    if query.isEmpty {
+                        ForEach(ShelfGroups.grouped(m.shelf), id: \.0) { day, items in
+                            if day == .older {
+                                ShelfOlderRow(count: items.count, open: $olderOpen).padding(.horizontal, 4)
+                                if olderOpen { ForEach(items) { card($0) } }
+                            } else {
+                                ShelfDayLabel(day: day)
+                                ForEach(items) { card($0) }
                             }
-                            .onDrag { NSItemProvider(contentsOf: it.url) ?? NSItemProvider() }
-                            .help("Click to open. ⌘C copies it. Drag into Mail or Messages to share.")
-                            .modifier(ShelfCopyable(item: it) { m.removeShelf(it.id) })
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                        }
+                    } else if let matched {
+                        let results = m.shelf.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
+                        if results.isEmpty {
+                            Text("No matches for “\(query)”").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.4))
+                                .padding(.horizontal, 4).padding(.top, 8)
+                        } else {
+                            ForEach(results) { card($0) }
+                        }
                     }
                 }
             }
@@ -343,11 +355,36 @@ struct ShelfPanel: View {
         .padding(.top, 14).padding(.horizontal, 12).frame(width: 260)
         .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 50) }
         .onAppear { ShelfCopy.shared.start() }
+        .onChange(of: query) { _, q in search(q) }
+        .onChange(of: m.shelf.map(\.id)) { _, _ in if !query.isEmpty { search(query) } }
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WorldLook.cream.opacity(0.04)))
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.06)))
         .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
         .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelf.map(\.id))
+    }
+    @ViewBuilder private func card(_ it: ShelfItem) -> some View {
+        ShelfCardView(item: it)
+            .onTapGesture {
+                ShelfCopy.shared.pick(it)
+                m.openShelf(it.id)
+            }
+            .onDrag { NSItemProvider(contentsOf: it.url) ?? NSItemProvider() }
+            .help("Click to open. ⌘C copies it. Drag into Mail or Messages to share.")
+            .modifier(ShelfCopyable(item: it) { m.removeShelf(it.id) })
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
+    /// Searches titles and file text off the main thread, cached, so it stays fast on hundreds of files.
+    private func search(_ q: String) {
+        guard !q.trimmingCharacters(in: .whitespaces).isEmpty else {
+            matched = nil
+            return
+        }
+        let items = m.shelf
+        Task {
+            let r = await ShelfTextIndex.shared.matches(items, query: q)
+            if query == q { matched = r }
+        }
     }
 }
 

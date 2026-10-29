@@ -107,6 +107,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() { return }
+        if SwitchAICheck.launch() { return }
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -161,8 +162,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
-        // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
-        Task.detached {
+        Task.detached {  // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
             while true {
                 Messenger.tend()
                 try? await Task.sleep(for: .seconds(10))

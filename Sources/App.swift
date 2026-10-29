@@ -36,11 +36,8 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await UpdaterCheck.run()) }
             return
         }
-        if CommandLine.arguments.contains("--test-followups") {
-            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
-            Task { @MainActor in exit(await FollowUpCheck.run()) }
-            return
-        }
+        if LocalModelsCheck.launch() { return }
+        if FollowUpCheck.launch() { return }
         if CommandLine.arguments.contains("--test-helper-done") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
             Task { @MainActor in exit(await HelperDoneCheck.run()) }
@@ -283,6 +280,7 @@ struct Entry {
             exit(ok ? 0 : 1)
         }
         RoutinesRender.cli(args)  // --render-routines <png>
+        SwitchAIPanelRender.cli(args)  // --render-switch-ai <png> [picker|waiting]
         MainActor.assumeIsolated { StarsRender.cli(args) }  // --render-stars <prefix>, --stars-cpu <seconds>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]

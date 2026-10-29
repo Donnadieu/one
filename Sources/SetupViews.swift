@@ -16,9 +16,9 @@ struct RootView: View {
     @State var started = false
     var body: some View {
         Group {
-            if m.onboarded && !m.switchingAI {
+            if m.onboarded {
                 HomeView(m: m)
-            } else if !started && m.bubbles.isEmpty && !m.onboarded {
+            } else if !started && m.bubbles.isEmpty {
                 WelcomeView { started = true }
             } else {
                 OnboardingView(m: m)
@@ -200,6 +200,7 @@ struct OnboardingView: View {
     @ObservedObject var m: Model
     @State var text = ""
     @State var paste = ""
+    @State private var localPicker = false
     var body: some View {
         Group {
             if m.step == .world {
@@ -218,13 +219,9 @@ struct OnboardingView: View {
             }
         }
         .background(Mist())
+        .onePopup($localPicker) { _ in LocalModelPicker(m: m) { localPicker = false } }
         .task {
-            if m.switchingAI {
-                m.step = .pickAI
-                await m.say("Which AI should I use?")
-            } else {
-                await m.beginOnboarding()
-            }
+            await m.beginOnboarding()
         }
     }
 
@@ -262,6 +259,20 @@ struct OnboardingView: View {
                             .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
                     }.buttonStyle(.plain).disabled(m.busy)
                 }
+                Button {
+                    localPicker = true
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "desktopcomputer").font(.system(size: 20, weight: .light)).frame(width: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Local model").font(.headline)
+                            Text("Private and free, but slower and less capable.").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }.padding(12).contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+                }.buttonStyle(.plain).disabled(m.busy)
                 if let p = m.signInProblem { Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                 if m.switchingAI {
                     Button("Never mind") {

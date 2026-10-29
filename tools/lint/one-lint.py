@@ -77,7 +77,7 @@ def r_messaging(path, lines):
 # Messenger: keeps the engine's background helper running while a phone bot is set up.
 # BrowserKeeper: starts the hidden browser again (same saved profile) when it's down; One is outside the lock.
 # Learning: a read-only sqlite3 lookup of which chat a subagent belongs to (state.db).
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck)')  # ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck|LocalModels)')  # ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight; LocalModels: probes/starts the person's own local model server on loopback only
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):

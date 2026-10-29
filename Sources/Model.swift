@@ -193,7 +193,8 @@ final class Model: ObservableObject {
     @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser"].map { _ in "" }.filter { !$0.isEmpty }
     @Published var connectOptions: [String] = ["Email", "Calendar", "News", "Files", "Browser"]
 
-    @Published var switchingAI = false
+    @Published var switchingAI = false { didSet { if switchingAI { closeOtherPanels(keep: .switchAI) } } }
+    @Published var switchWaitMessage: String?
     @Published var signInChoice: Provider?
     @Published var speaking = false
     @Published var installDone = 0

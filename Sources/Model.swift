@@ -194,6 +194,7 @@ final class Model: ObservableObject {
     @Published var connectOptions: [String] = ["Email", "Calendar", "News", "Files", "Browser"]
 
     @Published var switchingAI = false
+    @Published var signInChoice: Provider?
     @Published var speaking = false
     @Published var installDone = 0
     @Published var installLine = ""

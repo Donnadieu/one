@@ -220,7 +220,6 @@ struct OnboardingView: View {
         .background(Mist())
         .task {
             if m.switchingAI {
-                m.bubbles.removeAll()
                 m.step = .pickAI
                 await m.say("Which AI should I use?")
             } else {
@@ -274,24 +273,36 @@ struct OnboardingView: View {
             }
         case .signingIn:
             VStack(spacing: 14) {
-                if let c = m.signInCode {
-                    Text("If the page asks for a code, enter:").foregroundStyle(.secondary)
-                    Text(c).font(.system(size: 30, weight: .bold, design: .monospaced)).textSelection(.enabled)
-                }
-                if m.signInNeedsPaste {
-                    Text("Paste the code the page shows you:").foregroundStyle(.secondary)
+                if let p = m.signInChoice {
+                    Text("I need to open your browser to sign in to \(p.title). Can I show you the window?")
+                        .foregroundStyle(.secondary).multilineTextAlignment(.center)
                     HStack {
-                        TextField("Code", text: $paste).textFieldStyle(.roundedBorder).onSubmit(sendPaste)
-                        Button("Continue", action: sendPaste).buttonStyle(.borderedProminent)
-                    }.frame(maxWidth: 420)
-                }
-                if m.signInCode == nil && !m.signInNeedsPaste {
-                    HStack {
-                        ProgressView().controlSize(.small)
-                        Text("Waiting for you to sign in…").foregroundStyle(.secondary)
+                        Button("Yes, show it") { Task { await m.confirmSignIn(p) } }.buttonStyle(.borderedProminent)
+                        Button("Not now") {
+                            m.signInChoice = nil
+                            m.step = .pickAI
+                        }.buttonStyle(.bordered)
                     }
+                } else {
+                    if let c = m.signInCode {
+                        Text("If the page asks for a code, enter:").foregroundStyle(.secondary)
+                        Text(c).font(.system(size: 30, weight: .bold, design: .monospaced)).textSelection(.enabled)
+                    }
+                    if m.signInNeedsPaste {
+                        Text("Paste the code the page shows you:").foregroundStyle(.secondary)
+                        HStack {
+                            TextField("Code", text: $paste).textFieldStyle(.roundedBorder).onSubmit(sendPaste)
+                            Button("Continue", action: sendPaste).buttonStyle(.borderedProminent)
+                        }.frame(maxWidth: 420)
+                    }
+                    if m.signInCode == nil && !m.signInNeedsPaste {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text("Waiting for you to sign in…").foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("Cancel") { m.cancelSignIn() }.buttonStyle(.link)
                 }
-                Button("Cancel") { m.cancelSignIn() }.buttonStyle(.link)
             }
         case .nameAssistant:
             VStack(spacing: 12) {

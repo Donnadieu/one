@@ -364,9 +364,33 @@ final class SignIn: @unchecked Sendable {
         if cfg.contains("  acp:\n    - hermes-acp\n    - cronjob") { return }
         _ = await hermesRun(["config", "set", "platform_toolsets.acp", "[\"hermes-acp\", \"cronjob\"]"])
     }
-    static func makeDefault(_ p: Provider, model: String? = nil) async {
-        _ = await hermesRun(["config", "set", "model.provider", p.hermesID])
-        _ = await hermesRun(["config", "set", "model.default", model ?? p.defaultModel])
+    @discardableResult static func makeDefault(_ p: Provider, model: String? = nil) async -> Bool {
+        let (providerStatus, _) = await hermesRun(["config", "set", "model.provider", p.hermesID])
+        guard providerStatus == 0 else { return false }
+        let (modelStatus, _) = await hermesRun(["config", "set", "model.default", model ?? p.defaultModel])
+        return modelStatus == 0
+    }
+
+    /// Turns the engine's own words for a failed switch into something a regular person can read, and
+    /// never blames them for a limit that's on the provider's side (Oct 28: a quota-exhausted ChatGPT
+    /// account came back as a raw "error: Codex provider quota exhausted (429); retry after 16267s" line).
+    static func plainReason(_ err: String, provider: String) -> String {
+        let e = err.lowercased()
+        if e.contains("quota") || e.contains("429") || e.contains("rate limit") {
+            if let r = err.range(of: #"retry after (\d+)s"#, options: .regularExpression),
+                let n = Int(err[r].filter(\.isNumber))
+            {
+                return "\(provider) says you've used up its limit for now. It should open up again in about \(max(1, n / 3600))h."
+            }
+            return "\(provider) says you've used up its limit for now. It should open up again after a while."
+        }
+        if e.contains("credit") || e.contains("billing") || e.contains("insufficient") {
+            return "\(provider) says there's a billing problem with that account."
+        }
+        if e.contains("auth") || e.contains("credential") || e.contains("logged in") || e.contains("token") {
+            return "\(provider) isn't signed in properly on my end."
+        }
+        return "\(provider) didn't answer (\(err))."
     }
 }
 

@@ -206,15 +206,22 @@ extension Model {
 
     func choose(_ p: Provider) async {
         me(p.title)
-        providerRaw = p.rawValue
-        if signedIn[p] == true {
+        if await SignIn.isSignedIn(p) {
+            signedIn[p] = true
             await verify(p)
             return
         }
         step = .signingIn
+        signInChoice = p
         signInCode = nil
         signInNeedsPaste = false
         signInProblem = nil
+        await say("I need to open your browser to sign in to \(p.title). Can I?", voice: "signin")
+    }
+
+    func confirmSignIn(_ p: Provider) async {
+        guard step == .signingIn, signInChoice == p else { return }
+        signInChoice = nil
         await say("I'm opening \(p.title)'s sign-in page in your browser. Sign in there, then come back here.", voice: "signin")
         let s = SignIn()
         signIn = s
@@ -257,35 +264,52 @@ extension Model {
     private func verify(_ p: Provider) async {
         busy = true
         defer { busy = false }
-        await say("You're connected to \(p.title). Let me check I can think with it…", voice: "checking")
+        let config = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
+        let old = SwitchAI.currentProvider(config) ?? provider ?? .claude
+        let oldModel = MeCard.currentModel()
+        // Hermes has one process for all conversations. Let every existing turn finish on its old AI.
+        if !SwitchAI.ready(helpers, thinking: thinking) {
+            await say("I'll switch to \(p.title) once the helpers at work finish. They're staying on their current AI.")
+        }
+        while (!onboarded || switchingAI) && !SwitchAI.ready(helpers, thinking: thinking) {
+            try? await Task.sleep(for: .seconds(2))
+        }
+        guard !onboarded || switchingAI else { return }
+        await say("Let me check \(p.title) answers before I switch.", voice: "checking")
         var stop = "error: no model answered"
         let got = Box("")
+        var failure = "It didn't answer."
         for model in p.models {
-            await SignIn.makeDefault(p, model: model)
+            let changed = await SignIn.makeDefault(p, model: model)
+            guard changed else {
+                failure = "I couldn't save that AI choice."
+                break
+            }
             if let err = await Engine.shared.start() {
-                step = .pickAI
-                await say("Something went wrong: \(err)")
-                return
+                failure = SignIn.plainReason(err, provider: p.title)
+                break
             }
             got.v = ""
             Engine.shared.onText = { t in got.v += t }
             stop = await Engine.shared.prompt("Reply with exactly one word: ready")
             Engine.shared.onText = nil
-            if !stop.hasPrefix("error") && !got.v.isEmpty && !got.v.lowercased().contains("rejected") { break }
+            if SwitchAI.answered(stop: stop, reply: got.v) { break }
+            failure = stop.hasPrefix("error") ? SignIn.plainReason(String(stop.dropFirst(7)), provider: p.title) : "It didn't give a usable answer."
             got.v = ""
         }
-        if stop.hasPrefix("error") || got.v.isEmpty {
+        if !SwitchAI.answered(stop: stop, reply: got.v) {
+            _ = await SignIn.makeDefault(old, model: oldModel.isEmpty ? old.defaultModel : oldModel)
+            _ = await Engine.shared.start()
             step = .pickAI
-            await say("I signed in, but \(p.title) didn't answer (\(stop)). Try again, or pick another one.")
+            await say("I kept your old AI. \(failure) Try again when you're ready.")
             return
         }
+        providerRaw = p.rawValue
         if onboarded {
             switchingAI = false
             step = .done
-            bubbles.removeAll()
             Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
-            _ = await Engine.shared.start()
-            bubbles.append(Bubble(fromMe: false, text: "All set. I'm using \(p.title) now."))
+            await say("All set. I'm using \(p.title) now.")
             return
         }
         step = .nameAssistant

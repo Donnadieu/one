@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Message history (design B — frosted depth), approved by Omar 2026-10-29.
-/// The one ongoing conversation keeps scrolling back further: each older turn sits a little further back,
-/// more blurred and dimmer than the one below it, like looking back through frosted glass. The default home
-/// screen stays calm (collapsed) until you tap the pull tab or hit the chevron.
+/// Message history (design A — plain thread), approved by Omar 2026-10-29. Design B (frosted depth: each
+/// older turn further back, blurrier and dimmer) was rejected as still too hard to read. Option A is flat
+/// and fully legible: every revealed turn renders at full opacity, no blur, no shrink — a true scrollable
+/// list, oldest to newest, with a subtle day/time divider when the gap between two turns is worth marking.
+/// The collapse/expand trigger (chevron + "Scroll up for earlier" / "Hide earlier") is unchanged.
 struct HistoryStrip: View {
     @ObservedObject var m: Model
     let turns: [Bubble]
@@ -14,11 +15,19 @@ struct HistoryStrip: View {
     /// Renders: no hover state, no motion — matches other `--render-world` stills.
     nonisolated(unsafe) static var still = false
 
+    /// A card this tall is comfortable to scroll in the home layout without crowding the current exchange.
+    static let listHeight: CGFloat = 360
+
     var body: some View {
         VStack(spacing: 10) {
             if open {
-                ForEach(Array(turns.enumerated()), id: \.element.id) { i, b in
-                    row(b, depth: depth(of: i))
+                // ImageRenderer draws ScrollView contents blank, so `--render-world` stills skip the
+                // ScrollView and lay the same rows out directly; the live app always uses the real one.
+                if HistoryStrip.still {
+                    list
+                } else {
+                    ScrollView { list.padding(.vertical, 4) }
+                        .frame(maxHeight: HistoryStrip.listHeight)
                 }
             }
             if !turns.isEmpty {
@@ -28,19 +37,45 @@ struct HistoryStrip: View {
                     HStack(spacing: 6) {
                         Image(systemName: open ? "chevron.down" : "chevron.up").font(.system(size: 11, weight: .semibold))
                         Text(open ? "Hide earlier" : "Scroll up for earlier").font(.caption)
-                    }.foregroundStyle(.secondary)
+                    }.foregroundStyle(WorldLook.cream.opacity(0.75))
                 }.buttonStyle(.plain)
             }
         }
     }
 
-    /// 0 = just above the current exchange (sharpest), 1 = the oldest shown (softest, furthest back).
-    func depth(of i: Int) -> Double {
-        guard turns.count > 1 else { return 0 }
-        return Double(turns.count - 1 - i) / Double(turns.count - 1)
+    var list: some View {
+        VStack(spacing: 10) {
+            ForEach(Array(turns.enumerated()), id: \.element.id) { i, b in
+                if let label = dividerLabel(before: i) {
+                    HistoryDivider(label: label)
+                }
+                row(b)
+            }
+        }
     }
 
-    @ViewBuilder func row(_ b: Bubble, depth: Double) -> some View {
+    /// A divider before turn `i` when it starts a new calendar day from the one before it, or there's at
+    /// least an hour's gap between them. Never shown before the very first (oldest) turn.
+    func dividerLabel(before i: Int) -> String? {
+        guard i > 0 else { return nil }
+        let prev = turns[i - 1].date
+        let cur = turns[i].date
+        let cal = Calendar.current
+        guard !cal.isDate(prev, inSameDayAs: cur) || cur.timeIntervalSince(prev) > 3600 else { return nil }
+        let df = DateFormatter()
+        if cal.isDateInToday(cur) {
+            df.dateFormat = "h:mm a"
+        } else if cal.isDateInYesterday(cur) {
+            df.dateFormat = "'Yesterday,' h:mm a"
+        } else {
+            df.dateFormat = "MMM d, h:mm a"
+        }
+        return df.string(from: cur)
+    }
+
+    /// Every row renders the message at full legibility: no opacity/blur/scale modifier on the text itself.
+    /// The copy/resend icons may fade in on hover (same as before); that's chrome, not content.
+    @ViewBuilder func row(_ b: Bubble) -> some View {
         HStack(alignment: .top, spacing: 8) {
             ChatText(text: b.text, size: 14, plain: b.fromMe)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,18 +92,15 @@ struct HistoryStrip: View {
                     } label: {
                         Image(systemName: "arrow.uturn.up").font(.system(size: 11))
                     }
-                    .buttonStyle(.plain).help("Resend")
+                    .buttonStyle(.plain).help("Ask again")
                 }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WorldLook.cream.opacity(0.75))
             .opacity(HistoryStrip.still ? 1 : (hovered == b.id ? 1 : 0.0001))
         }
         .padding(10)
         .frame(maxWidth: 620)
-        .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial))
-        .blur(radius: HistoryStrip.still ? 0 : depth * 2.4)
-        .opacity(1 - depth * 0.55)
-        .scaleEffect(1 - depth * 0.05, anchor: .bottom)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(hex: 0x1C1C1F)))
         .onHover { hovered = $0 ? b.id : nil }
         .id(b.id)
     }
@@ -80,16 +112,33 @@ struct HistoryStrip: View {
     }
 }
 
-/// Render-only (`--render-world message-history` / `message-history-closed`): a sample conversation, several
-/// turns back, to check the frosted-depth fade. Drawn without the real ScrollView (ImageRenderer draws
-/// ScrollView contents blank), so the depth/blur can actually be seen in the still.
+/// A subtle rule + label between two turns, marking a day change or a real time gap. Never as dim as the
+/// message text next to it — it's chrome, meant to orient, not to be read closely.
+struct HistoryDivider: View {
+    let label: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(WorldLook.cream.opacity(0.12)).frame(height: 1)
+            Text(label).font(.caption2).foregroundStyle(WorldLook.cream.opacity(0.45))
+            Rectangle().fill(WorldLook.cream.opacity(0.12)).frame(height: 1)
+        }
+        .frame(maxWidth: 620)
+        .padding(.vertical, 2)
+    }
+}
+
+/// Render-only (`--render-world message-history` / `message-history-closed`): a sample conversation, a
+/// couple of turns back plus one clearly older day, to check the plain-thread list reads at full legibility
+/// with a divider. Drawn without the real ScrollView (ImageRenderer draws ScrollView contents blank), so the
+/// list is laid out directly for the still.
 enum MessageHistoryRender {
     @MainActor static func scene(open: Bool) -> AnyView {
         HistoryStrip.still = true
         let m = Model.shared
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
         let sample: [Bubble] = [
-            Bubble(fromMe: true, text: "What's my flight time on the 20th?"),
-            Bubble(fromMe: false, text: "7:40 AM out of EWR, lands in Quebec City at 10:05."),
+            Bubble(fromMe: true, text: "What's my flight time on the 20th?", date: yesterday),
+            Bubble(fromMe: false, text: "7:40 AM out of EWR, lands in Quebec City at 10:05.", date: yesterday),
             Bubble(fromMe: true, text: "And the hotel address?"),
             Bubble(fromMe: false, text: "Auberge Saint-Antoine, 8 Rue Saint-Antoine, old town, 2 nights."),
             Bubble(fromMe: true, text: "Can you also check if the rental car needs winter tires?"),

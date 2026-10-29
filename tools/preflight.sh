@@ -72,6 +72,10 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Local models"
+mkdir -p "$T/local"
+check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"
+
 echo "Blocked on a step only you can do: ask, never substitute"
 mkdir -p "$T/bl"
 check "rule in SOUL and every helper turn (first, follow-up, picked back up); One spots a robot check, asks Can I show you the window?, turns that helper orange, shows nothing by itself" bash -c "ONE_SUPPORT_DIR=$T/bl $TBIN --test-blocked | tee $T/bl/out.txt | grep -q '^blocked ok'"

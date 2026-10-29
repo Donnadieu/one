@@ -36,6 +36,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await UpdaterCheck.run()) }
             return
         }
+        if LocalModelsCheck.launch() { return }
         if CommandLine.arguments.contains("--test-followups") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
             Task { @MainActor in exit(await FollowUpCheck.run()) }

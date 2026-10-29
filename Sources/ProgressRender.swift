@@ -53,7 +53,7 @@ enum ProgressRender {
         }
         m.helpers = [a, b, c, d]
         m.openHelper = name == "progress-stuck" ? b.id : a.id
-        HomeRender.closeFirst = false
+        HomeRender.pointFirst = false
         HomeRender.png(HomeRender.scene(16, keep: true), "\(out)-\(name).png", height: 1000)  // tall: the opened thread shows whole
         m.openHelper = nil
         m.pulses = [:]

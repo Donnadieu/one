@@ -7,10 +7,11 @@ import SwiftUI
 // glass over a desktop picture too. Never run on the real One (tools/test-copy.sh gives the copy its own settings).
 
 enum PopupRender {
-    static let names = [
-        "popup-folders", "popup-connections", "popup-name", "popup-talk", "popup-stop", "popup-reader", "popup-writing", "popup-routines",
-        "popup-share",
-    ] + ProgressRender.names  // helpers' progress on the home screen (ProgressRender.swift)
+    static let names =
+        [
+            "popup-folders", "popup-connections", "popup-name", "popup-talk", "popup-stop", "popup-reader", "popup-writing", "popup-routines",
+            "popup-share",
+        ] + ProgressRender.names  // helpers' progress on the home screen (ProgressRender.swift)
     static let size = CGSize(width: 1180, height: 760)
     static let titleRow: CGFloat = 52
 

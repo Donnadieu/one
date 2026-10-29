@@ -30,6 +30,9 @@ struct Bubble: Identifiable {
     let id = UUID()
     let fromMe: Bool
     var text: String
+    /// When this turn happened. Defaults to now for every in-memory bubble created today; restored bubbles
+    /// carry their real saved time. Used only for the plain-thread history's day/time dividers.
+    var date: Date = Date()
     /// On a reply: what the person sent while it was being worked on (went into that same turn).
     var followUps: [String] = []
 }
@@ -150,13 +153,23 @@ final class Model: ObservableObject {
     static func savedBubbles() -> [Bubble] {
         guard let raw = UserDefaults.standard.array(forKey: "bubbles") as? [[String: Any]] else { return [] }
         return raw.compactMap { d in
-            (d["t"] as? String).map { Bubble(fromMe: d["me"] as? Bool ?? false, text: $0, followUps: d["f"] as? [String] ?? []) }
+            (d["t"] as? String).map {
+                Bubble(
+                    fromMe: d["me"] as? Bool ?? false, text: $0,
+                    date: (d["d"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date(),
+                    followUps: d["f"] as? [String] ?? [])
+            }
         }
     }
+    /// How many persisted bubbles to keep across a restart. Was capped at 40 (Omar: real history was being
+    /// thrown away, not just hidden); raised so "real history" survives, not only the last few turns.
+    static let maxSavedBubbles = 500
     func saveBubbles() {
         guard !thinking else { return }
         UserDefaults.standard.set(
-            bubbles.filter { !$0.text.isEmpty }.suffix(40).map { ["me": $0.fromMe, "t": $0.text, "f": $0.followUps] as [String: Any] },
+            bubbles.filter { !$0.text.isEmpty }.suffix(Model.maxSavedBubbles).map {
+                ["me": $0.fromMe, "t": $0.text, "f": $0.followUps, "d": $0.date.timeIntervalSince1970] as [String: Any]
+            },
             forKey: "bubbles")
     }
     @Published var step: Step = .pickAI

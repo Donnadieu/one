@@ -223,12 +223,19 @@ final class Model: ObservableObject {
     var helperTurnEnded: [UUID: Date] = [:]  // when each helper's last engine turn ended (checks read it)
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     var shelfScanning = false
-    @Published var openedShelf: UUID?
+    // MARK: One panel at a time (PanelCenter.swift) — every in-window overlay below, plus the separate Rooms
+    // window, funnels through `closeOtherPanels` so opening one always swaps out whatever else was showing.
+    @Published var openedShelf: UUID? { didSet { if openedShelf != nil { closeOtherPanels(keep: .shelf) } } }
     @Published var draftSeed: String?
     @Published var about: (title: String, url: URL)?
-    @Published var viewing: URL?
-    @Published var routinesOpen = false  // the Routines panel (RoutinesView.swift)
-    @Published var stopAsk: UUID?  // a long press on a working helper's orb: the "Stop this helper?" pop-up (HelperStop.swift)
+    @Published var viewing: URL? { didSet { if viewing != nil { closeOtherPanels(keep: .file) } } }
+    @Published var routinesOpen = false { didSet { if routinesOpen { closeOtherPanels(keep: .routines) } } }  // RoutinesView.swift
+    @Published var stopAsk: UUID? { didSet { if stopAsk != nil { closeOtherPanels(keep: .stopAsk) } } }  // "Stop this helper?" (HelperStop.swift)
+    @Published var meCard = false { didSet { if meCard { closeOtherPanels(keep: .meCard) } } }  // the name pill's card (MeCard.swift)
+    @Published var connectionsSheet = false { didSet { if connectionsSheet { closeOtherPanels(keep: .connections) } } }
+    @Published var talkKeySheet = false { didSet { if talkKeySheet { closeOtherPanels(keep: .talkKey) } } }
+    @Published var folderSheet = false { didSet { if folderSheet { closeOtherPanels(keep: .folders) } } }
+    @Published var writingPanel = false { didSet { if writingPanel { closeOtherPanels(keep: .writing) } } }  // the big write space (AskEditor.swift)
 
     // Tell me when I learn (ModelLearning.swift)
     var learning = Learning.load()

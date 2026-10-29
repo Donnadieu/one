@@ -138,17 +138,13 @@ struct StillScroll<Content: View>: View {
 struct HomeTitleRow: ViewModifier {
     @ObservedObject var m: Model
     @Binding var voiceOff: Bool
-    @Binding var meCard: Bool
-    @Binding var connectionsSheet: Bool
-    @Binding var talkKeySheet: Bool
-    @Binding var folderSheet: Bool
     @Binding var dropping: Bool
     func body(content: Content) -> some View {
         if HomeView.still {
             content
         } else {
             content.toolbar {
-                ToolbarItem(placement: .navigation) { NamePill(name: m.name) { meCard = true }.modifier(ReadyAside(m: m)) }.noPill()
+                ToolbarItem(placement: .navigation) { NamePill(name: m.name) { m.meCard.toggle() }.modifier(ReadyAside(m: m)) }.noPill()
                 ToolbarItem(placement: .primaryAction) {
                     TopBarButtons(
                         name: m.name, voiceOff: voiceOff, paused: m.paused,
@@ -159,15 +155,15 @@ struct HomeTitleRow: ViewModifier {
                                 Voice.shared.stop()
                             }
                         },
-                        rooms: { RoomsWindow.show(m) }, connections: { connectionsSheet = true },
-                        routines: { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen = true } }, talkKey: { talkKeySheet = true },
-                        folders: { folderSheet = true }, switchAI: { m.switchingAI = true }, stop: { m.toggleStop() }
+                        rooms: { RoomsWindow.show(m) }, connections: { m.connectionsSheet.toggle() },
+                        routines: { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen.toggle() } }, talkKey: { m.talkKeySheet.toggle() },
+                        folders: { m.folderSheet.toggle() }, switchAI: { m.switchingAI = true }, stop: { m.toggleStop() }
                     ).modifier(ReadyAside(m: m))
                 }.noPill()
             }
             .modifier(QuietTitleRow())
             .navigationTitle("")
-            .modifier(HomePopups(m: m, meCard: $meCard, connections: $connectionsSheet, talkKey: $talkKeySheet, folders: $folderSheet))
+            .modifier(HomePopups(m: m))
             .onDrop(of: [.fileURL, .image], isTargeted: $dropping) { PictureIn.drop($0) }
             .task { await m.ensureEngine() }
             .task { await ConnectionsWorld.prefetch() }  // so Connections opens already complete, with no wait while it slides in
@@ -176,26 +172,23 @@ struct HomeTitleRow: ViewModifier {
 }
 
 /// The top row's pop-ups, in the window on the pop-up glass (they were Mac sheets with no X and no click-outside).
-/// Renders use the same pieces through `PopupRender`.
+/// Renders use the same pieces through `PopupRender`. Every one of them (plus the separate Rooms window) funnels
+/// through `Model.closeOtherPanels`, so at most one of these can be visible at a time (Omar: no stacked windows).
 struct HomePopups: ViewModifier {
     @ObservedObject var m: Model
-    @Binding var meCard: Bool
-    @Binding var connections: Bool
-    @Binding var talkKey: Bool
-    @Binding var folders: Bool
     /// Under the name in the title row, like the design (a card that drops from the name, no arrow).
     var stopping: Helper? { m.stopAsk.flatMap { id in m.helpers.first { $0.id == id && $0.state == "working" } } }
     func endStop() { m.stopAsk = nil }
     static func nameInset(top: CGFloat) -> EdgeInsets { EdgeInsets(top: top, leading: 72, bottom: 0, trailing: 0) }
     func body(content: Content) -> some View {
         content
-            .onePopup($folders) { g in FolderSheet(m: m, done: { folders = false }, room: g.height) }
-            .onePopup($talkKey) { _ in TalkKeySheet { talkKey = false } }
-            .onePopup($connections) { g in
-                ConnectionsWorld(m: m) { connections = false }.frame(width: min(760, g.width - 48), height: min(680, g.height - 40))
+            .onePopup($m.folderSheet) { g in FolderSheet(m: m, done: { m.folderSheet = false }, room: g.height) }
+            .onePopup($m.talkKeySheet) { _ in TalkKeySheet { m.talkKeySheet = false } }
+            .onePopup($m.connectionsSheet) { g in
+                ConnectionsWorld(m: m) { m.connectionsSheet = false }.frame(width: min(760, g.width - 48), height: min(680, g.height - 40))
             }
-            .onePopup($meCard, align: .topLeading, inset: HomePopups.nameInset(top: 6)) { _ in
-                MeCard(m: m) { meCard = false }
+            .onePopup($m.meCard, align: .topLeading, inset: HomePopups.nameInset(top: 6)) { _ in
+                MeCard(m: m) { m.meCard = false }
             }
             .onePopup(stopping != nil, close: endStop) { _ in
                 if let h = stopping {

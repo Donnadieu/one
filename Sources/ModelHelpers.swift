@@ -1,13 +1,14 @@
 import Foundation
 
-// MARK: - A finished helper: orange until it's opened, and one "by the way" line once the current reply is over.
+// MARK: - A finished helper: orange until it's opened, and one short line from One once the current reply is over.
 // Routines (good morning / status report) instead get one combined report when all their helpers are back.
 
 @MainActor
 extension Model {
     /// A helper finished: its orb turns orange and holds the result. The assistant never relays it or asks its question;
-    /// it adds one "By the way, <title> is done" line, at the back of the one line everything it says goes through
-    /// (SayQueue.swift): never in the middle of a reply or its voice, one helper at a time, in the order they finished.
+    /// One adds one short line itself ("<title> is done. Tap it to take a look."), at the back of the one line everything
+    /// is said through (SayQueue.swift): never in the middle of a reply or its voice; helpers finishing close together
+    /// share one line ("3 helpers are done: …"). Read aloud only when they're idle.
     /// One per change of state: a helper that ends several turns the same way (picked back up, carried on after a
     /// check) gets one notice, and a notice still waiting says its newest state. None for a helper they opened.
     func queueDoneNote(_ id: UUID) {

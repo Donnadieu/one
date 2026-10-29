@@ -48,6 +48,7 @@ extension Model {
 
     func talkBegin() {
         guard !talkingInApp else { return }
+        Idle.mark()
         guard isReady else {
             talkNote = GateWords.talk
             return
@@ -131,7 +132,7 @@ extension Model {
     }
     /// They opened a finished helper: its orb stops glowing orange and shows the check mark, and no "by the way" goes out for it.
     func markSeen(_ id: UUID) {
-        if helpers.first(where: { $0.id == id })?.seen == false { update(id) { $0.seen = true } }
+        if let h = helpers.first(where: { $0.id == id }), h.seen == false || h.state == "stopped" { update(id) { $0.seen = true } }
         outbox.removeAll { $0 == .helperNews(id) }
     }
     /// "Got it" on the While you were gone card: the card goes, every orb stays (only closing one removes it).
@@ -177,8 +178,11 @@ extension Model {
         }
         pulseStart(id)
         defer { pulseEnd(id) }
+        // The helper's long rules go once per conversation and again when they change (NoteCache.swift).
+        let rules = Helpers.helperNote + BlockedAsk.note + SessionNotes.helper
+        let body = text.replacingOccurrences(of: Helpers.helperNote, with: "")  // its first brief carries it already
         let stop = await Engine.shared.promptSession(
-            sid, Helpers.forHelper(text) + SessionNotes.helper, images: images,  // the same notes as the main chat, every turn
+            sid, body + NoteCache.pack(sid, rules: rules), images: images,
             onText: { s in
                 Task { @MainActor in
                     self.helperUnderway(id)
@@ -365,6 +369,7 @@ extension Model {
 
     /// toNova: the floating orb always talks to Nova, never to an open helper.
     func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
+        if !hidden { Idle.mark() }  // they're here: notices stay quiet for a while (SayQueue.swift)
         if !isReady { gateCheck() }  // the engine may be up a moment before its news arrives
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard var c = compose(text) else { return }
@@ -425,10 +430,12 @@ extension Model {
             Task { @MainActor in self.asks.append(Ask(question: q, options: opts, answer: answer)) }
         }
         Engine.shared.onActivity = { Task { @MainActor in self.turnUnderway() } }
-        let message =
-            c.engine + recap + Helpers.note + roomNotes(c.engine) + sharedNote() + helperNews()
-            + SessionNotes.main  // their screen, what is connected and built, which One: told every turn
-            + (hidden ? "" : Learning.kindNote)
+        // The long rules (helpers, their screen, what is connected and built, which One) go once per conversation and
+        // again when they change (NoteCache.swift); what changes turn by turn (helper status, room notes) goes every turn.
+        let rules = Helpers.note + sharedNote() + SessionNotes.main
+        let deltas = roomNotes(c.engine) + helperNews() + (hidden ? "" : Learning.kindNote)
+        let sid = Engine.shared.mainSession
+        let message = c.engine + recap + NoteCache.pack(sid, rules: rules) + deltas
         learnStart(hidden: hidden)
         let gateway = GatewayGuard.recordedPID()
         turnLive = true
@@ -444,7 +451,9 @@ extension Model {
             working = "Picking that back up…"
             turnStarted = false
             let sentSoFar = followUps.filter { $0.helper == nil && $0.state == .sent }.map(\.engine)
-            stop = await Engine.shared.promptAgain(([message] + sentSoFar).joined(separator: "\n\n"), images: c.images)
+            NoteCache.forget(sid)  // the engine may not have kept the turn: the whole notes again
+            let again = c.engine + recap + rules + deltas
+            stop = await Engine.shared.promptAgain(([again] + sentSoFar).joined(separator: "\n\n"), images: c.images)
             try? await Task.sleep(for: .milliseconds(150))
         }
         await turnOver(idx, failed: stop.hasPrefix("error"))

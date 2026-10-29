@@ -43,7 +43,9 @@ struct Helper: Identifiable, Codable {
         switch state {
         case "working": .working
         case "needsYes": .needsYes
-        case "stopped": .stopped
+        // Three looks only: working, needs you (orange), done. Paused or cut off and picking back up = working;
+        // stopped by you = done; stopped on its own (couldn't finish) = needs you until it's opened.
+        case "stopped": resumeQueued == true ? .working : (stoppedByYou == true || seen == true) ? .done : .needsYes
         default: seen == false ? .needsYes : .done  // same orange pulse as "needs your yes" until it's opened
         }
     }
@@ -52,7 +54,7 @@ struct Helper: Identifiable, Codable {
 enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
-        "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here; One tells you when to add one \"By the way, <title> is done. Tap it to take a look.\" line, after you finish what you're saying. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
+        "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here, and don't announce that a helper is done: One tells them itself, in one short line. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
             + HelperStop.note + BlockedAsk.note + KeepAwake.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
@@ -83,17 +85,13 @@ enum Helpers {
         let t = text.lowercased()
         return ["good morning", "good afternoon", "good evening", "status report", "status update", "morning brief"].contains { t.contains($0) }
     }
-    /// The hidden note after a reply ends: one plain "by the way" line for the helpers that just finished, never their result.
-    static func doneNote(_ hs: [Helper], user: String) -> String {
-        let done = hs.filter { $0.state == "done" }.map { "\"\($0.title)\"" }
-        let yes = hs.filter { $0.state == "needsYes" }.map { "\"\($0.title)\"" }
-        var what: [String] = []
-        if !done.isEmpty { what.append(list(done) + (done.count == 1 ? " is done" : " are done")) }
-        if !yes.isEmpty { what.append(list(yes) + (yes.count == 1 ? " needs \(user)'s yes" : " need \(user)'s yes")) }
-        return "(One app note, not from the user: \(what.joined(separator: ", and ")). Its orb is orange and holds the whole result; "
-            + "\(user) opens it there and can talk to it there. Reply with exactly ONE short plain line, like: "
-            + "\"By the way, \(list(hs.map(\.title))) \(hs.count == 1 ? "is" : "are") done. Tap \(hs.count == 1 ? "it" : "them") to take a look.\" "
-            + "Don't repeat, summarise or hint at the result, don't ask its question, no choices line, nothing else.)"
+    /// How long a helper notice waits for others finishing at about the same time, so they share one line.
+    static var gatherSecs: Double = 3
+    /// The one quiet line One shows itself when helpers finish: one line for any number of them, never their result.
+    static func doneLine(_ hs: [Helper]) -> String {
+        let yes = hs.contains { $0.state == "needsYes" }
+        if hs.count == 1, let h = hs.first { return "\(h.title) \(yes ? "needs your yes" : "is done"). Tap it to take a look." }
+        return "\(hs.count) helpers \(yes ? "need you" : "are done"): \(list(hs.map(\.title))). Tap them to take a look."
     }
     static func list(_ v: [String]) -> String {
         v.count < 2 ? (v.first ?? "") : v.dropLast().joined(separator: ", ") + " and " + v.last!

@@ -70,7 +70,7 @@ extension HelperStress {
         if let host = live, let shot {
             Task { @MainActor in
                 while sampling && !shotTaken {
-                    if m.bubbles.contains(where: { $0.text.hasPrefix("By the way, Q3") }) {
+                    if m.bubbles.contains(where: { $0.text.hasPrefix("3 helpers") }) {
                         try? await Task.sleep(for: .milliseconds(400))  // its words faded in; it's still being said
                         shoot(host, to: shot)
                         print(
@@ -110,7 +110,7 @@ extension HelperStress {
         try? await Task.sleep(for: .milliseconds(300))
         check("nothing new went to the engine during the reply", mains().filter { $0.ev == "main-start" }.count == before && m.thinking)
 
-        let done = await wait(60) { mains().filter { $0.ev == "main-end" }.count >= 5 && m.outbox.isEmpty && !m.outboxRunning && m.sayFree }
+        let done = await wait(60) { mains().filter { $0.ev == "main-end" }.count >= 2 && m.outbox.isEmpty && !m.outboxRunning && m.sayFree }
         try? await Task.sleep(for: .milliseconds(400))
         print("   [\(at())] everything said")
         check("it all went through within a minute", done)
@@ -126,8 +126,8 @@ extension HelperStress {
         let order = starts.map { [$0.kind ?? "", $0.title ?? ""].filter { !$0.isEmpty }.joined(separator: " ") }
         print("   the engine got, in order: \(order)")
         check(
-            "in order: the reply, Q1 done, Q2 needs your yes, Q3 done, then the message",
-            order == ["long", "note Q1 done", "note Q2 needsYes", "note Q3 done", "msg PLUM"])
+            "in order: the reply, then the message (helper notices take no turn of their own)",
+            order == ["long", "msg PLUM"])
         check("no message went into the running turn (no mid-turn steer)", !ev.contains { $0.ev == "steer" })
         var overlap = false
         var spokenOver = false
@@ -145,19 +145,20 @@ extension HelperStress {
         check(
             "the reply is whole in the chat (all 10 sentences and its last words)",
             (1...10).allSatisfy { long.contains(String(format: "Sentence %02d", $0)) } && long.contains("END-OF-LONG-REPLY"))
-        let parts = others.map { Speaker.spoken($0).count }.reduce(0, +)
-        check("every part of every reply was spoken, none cut (\(sp.reached - base) of \(parts))", sp.reached - base == parts && parts > 10)
+        // The helper line is shown, not read aloud: they sent a message just now (read aloud only when idle).
+        let parts = others.filter { !$0.hasPrefix("3 helpers") }.map { Speaker.spoken($0).count }.reduce(0, +)
+        check(
+            "every part of every reply was spoken, none cut, the helper line kept quiet (\(sp.reached - base) of \(parts))",
+            sp.reached - base == parts && parts > 5)
         let shown = m.bubbles.map { ($0.fromMe ? "Omar: " : "") + $0.text.prefix(48) }
         print("   the chat: \(shown)")
         check(
-            "the chat reads: ask, whole reply, Q1, Q2, Q3, the message, its answer",
-            m.bubbles.count == 7 && m.bubbles[0].fromMe && others.count == 5
-                && others[1] == "By the way, Q1 is done. Tap it to take a look."
-                && others[2] == "By the way, Q2 needs your yes. Tap it to take a look."
-                && others[3] == "By the way, Q3 is done. Tap it to take a look."
-                && m.bubbles[5].fromMe && m.bubbles[5].text == "QUEUEMSG PLUM" && others[4] == "Got PLUM.")
-        let notices = others.filter { $0.hasPrefix("By the way") }
-        check("no notice twice (3 notices for 3 helpers)", notices.count == 3 && Set(notices).count == 3)
+            "the chat reads: ask, whole reply, ONE line for all three helpers, the message, its answer",
+            m.bubbles.count == 5 && m.bubbles[0].fromMe && others.count == 3
+                && others[1] == "3 helpers need you: Q1, Q2 and Q3. Tap them to take a look."
+                && m.bubbles[3].fromMe && m.bubbles[3].text == "QUEUEMSG PLUM" && others[2] == "Got PLUM.")
+        let notices = others.filter { $0.contains("Tap it") || $0.contains("Tap them") }
+        check("no notice twice (one line for 3 helpers)", notices.count == 1)
         check("nothing left waiting", m.followUps.isEmpty && m.outbox.isEmpty)
 
         if let host = live, let shot { shoot(host, to: shot.replacingOccurrences(of: ".png", with: " (end).png")) }

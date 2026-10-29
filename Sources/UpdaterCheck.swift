@@ -55,7 +55,7 @@ enum UpdaterCheck {
             "a partly done run says so in its own words", rs["c3"].map { Routines.missLine($0).hasPrefix("Partly done: the X post worked") } ?? false)
         check("and isn't orange", rs["c3"].map { $0.miss == .partly && !$0.needsLook } ?? false)
         check("its reason keeps which part failed", rs["c3"]?.reason?.contains("Facebook") ?? false)
-        check("any other failure still reads as didn't finish", rs["d4"].map { Routines.missWord($0) == "didn't finish" } ?? false)
+        check("any other failure reads as didn't run", rs["d4"].map { Routines.missWord($0) == "didn't run" } ?? false)
         check("and is orange", rs["d4"]?.needsLook ?? false)
         runChecks(check, now: now)
         quitChecks(check)
@@ -113,7 +113,7 @@ enum UpdaterCheck {
         let rs = Dictionary(uniqueKeysWithValues: Routines.jobs(at: cron, now: now).map { ($0.id, $0) })
         let c = rs["caught"]
         check("a run whose missed parts were made up later shows as done", c?.state == .worked && c?.caughtUpAt != nil)
-        check("with the time it was caught up", c.map { Dial.word($0).hasPrefix("caught up at ") } ?? false)
+        check("the dial just says done (its card says when)", c.map { Dial.word($0) == "done" } ?? false)
         check("and which parts were made up", c?.notes.caughtUp == ["Morning post", "Evening post"])
         let k = rs["cut"]
         check("a run cut by a restart after its post shows as partly done", k?.state == .failed && k?.miss == .partly && k?.needsLook == false)
@@ -136,7 +136,7 @@ enum UpdaterCheck {
         check("the dial draws a partly done run half filled", kinds["cut"] == .partly && kinds["half"] == .partly)
         check("a caught up run with a check, a bare one orange", kinds["caught"] == .done && kinds["bare"] == .failed)
         check(
-            "the legend names all four", Dial.legend == "Filled: done · Half: partly done · Hollow: still to come · Orange: not done"
+            "one short legend", Dial.legend == "Done · Partly · Didn't run"
         )
     }
 

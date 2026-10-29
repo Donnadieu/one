@@ -160,7 +160,7 @@ extension Model {
                 guard let sid else {
                     self.update(p.id) {
                         $0.state = "stopped"
-                        $0.line = "Couldn't pick it back up · tap to see what it did"
+                        $0.line = "Couldn't finish · tap to see why"
                     }
                     self.gateCheck()
                     return

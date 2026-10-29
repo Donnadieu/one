@@ -15,9 +15,9 @@ enum Dial {
     static let r0: CGFloat = 180  // the ring
     static let rl: CGFloat = 228  // where labels start
 
-    enum Kind { case done, partly, failed, running, next, failNext, missed, paused }
+    enum Kind { case done, partly, failed, running, next, missed, paused }
     /// The legend under the dial. Keep it in step with `mark` below.
-    static let legend = "Filled: done · Half: partly done · Hollow: still to come · Orange: not done"
+    static let legend = "Done · Partly · Didn't run"
     struct Mark: Identifiable {
         var id: String { "\(rid)-\(minute)" }
         let rid: String
@@ -101,14 +101,11 @@ enum Dial {
                     } else if let lm = lastMin, lm >= t {
                         k = .done
                         if t == lastRanSlot && r.state == .failed { k = r.miss == .partly ? .partly : .failed }
-                        sub += k == .done ? " · " + (t == lastRanSlot ? word(r) : "worked") : " · " + Routines.missWord(r)
+                        sub += " · " + (k == .done ? "done" : Routines.missWord(r))
                     } else {
                         k = .missed
                         sub += " · didn't run"
                     }
-                } else if r.needsLook {
-                    k = .failNext
-                    sub += " · didn't finish last time"
                 } else {
                     k = .next
                 }
@@ -117,7 +114,7 @@ enum Dial {
                 let th = Double(t) / 1440 * 2 * .pi
                 L.labels.append(
                     Label(
-                        rid: r.id, key: t, title: r.title, sub: sub, orange: [.failed, .failNext, .missed].contains(k), from: p,
+                        rid: r.id, key: t, title: r.title, sub: sub, orange: [.failed, .missed].contains(k), from: p,
                         at: point(Double(t), rl), right: sin(th) >= -0.01))
             }
         }
@@ -128,10 +125,10 @@ enum Dial {
 
     static func word(_ r: Routine) -> String {
         switch r.state {
-        case .worked, .finished: return r.caughtUpAt.map { "caught up at " + Routines.clock(Routines.minutes($0)) } ?? "worked"
+        case .worked, .finished: return "done"  // made up later counts as done; its card says when
         case .failed: return Routines.missWord(r)
         case .running: return "running now"
-        case .never: return "never ran yet"
+        case .never: return "not run yet"
         case .paused: return "paused"
         }
     }
@@ -222,7 +219,7 @@ enum Dial {
             tick.addLine(to: CGPoint(x: p.x - 0.7, y: p.y + 2.1))
             tick.addLine(to: CGPoint(x: p.x + 2.8, y: p.y - 1.9))
             ctx.stroke(tick, with: .color(WorldLook.bg), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-        case .failed:
+        case .failed, .missed:  // didn't run: one look
             glow(&ctx, p, orange, 0.35)
             ctx.fill(dot(p, 6), with: .color(orange))
             var x = Path()
@@ -242,10 +239,6 @@ enum Dial {
         case .running:
             glow(&ctx, p, Color(hex: 0xFFF0E0), 0.35 + 0.25 * pulse)
             ctx.fill(dot(p, 4.5), with: .color(Color(hex: 0xFFF6EC)))
-        case .failNext, .missed:
-            glow(&ctx, p, orange, 0.3)
-            ctx.fill(dot(p, 5.5), with: .color(WorldLook.bg))
-            ctx.stroke(dot(p, 5.5), with: .color(orange), lineWidth: 1.6)
         case .next:
             ctx.fill(dot(p, 5), with: .color(WorldLook.bg))
             ctx.stroke(dot(p, 5), with: .color(cream.opacity(0.65)), lineWidth: 1.3)

@@ -41,9 +41,9 @@ enum HelperEnd: Equatable {
 }
 
 extension HelperTrail {
-    static let cutLine = "Stopped · picking it back up"
-    static let busyLine = "Stopped · finishing its last step, then picking back up"
-    static let failedLine = "Stopped: couldn't finish · tap to see what it did"
+    static let cutLine = "Picking it back up…"
+    static let busyLine = "Finishing its last step…"
+    static let failedLine = "Couldn't finish · tap to see why"
     /// How long a helper may wait for its old turn to end before One gives up on it (tries × 20 s).
     static let maxBusyTries = 90
 

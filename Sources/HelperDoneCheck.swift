@@ -61,6 +61,7 @@ enum HelperDoneCheck {
         await m.send(
             "Send exactly one helper titled Magic Number with this job: use the terminal to run `sleep 3`, then reply with only: "
                 + "The magic number is 4817. Would you like another one? [choices: Yes | No]")
+        await wait(20) { m.thinking }  // the message goes through the one line first (SayQueue.swift)
         await wait(120) { !m.thinking }
         check("a helper was sent", m.helpers.count == 1)
         guard let id = m.helpers.first?.id else {
@@ -107,7 +108,7 @@ enum HelperDoneCheck {
         check("the story wasn't cut off (long, ends cleanly)", story.split(separator: " ").count > 500)
         check("the story doesn't carry the helper's result", !story.contains("4817"))
 
-        // 3. After the story: one "by the way" line, no result, no question.
+        // 3. After the story: one short line from One itself, no result, no question.
         await wait(30) { m.bubbles.count > before + 2 }
         await wait(90) { !m.thinking && m.bubbles.count > before + 2 }
         try? await Task.sleep(for: .seconds(2))
@@ -115,7 +116,7 @@ enum HelperDoneCheck {
         print("   [\(at())] after the story: \(after.map { $0.replacingOccurrences(of: "\n", with: " ") })")
         check("exactly one line came after the story", after.count == 1)
         let line = after.first ?? ""
-        check("it's a by-the-way line naming the helper", line.lowercased().contains("by the way") && line.contains("Magic Number"))
+        check("it's One's own short line naming the helper", line.hasPrefix("Magic Number") && line.hasSuffix("Tap it to take a look."))
         check("it doesn't repeat the result", !line.contains("4817"))
         check("it doesn't ask the helper's question", !line.contains("another one") && Choices.split(line).choices.isEmpty)
         check("no hidden prompt shown as a message from Omar", m.bubbles.filter(\.fromMe).count == 2)
@@ -148,6 +149,7 @@ enum HelperDoneCheck {
         await m.send(
             "Good morning! Send exactly two helpers. Helper Weather: run `sleep 5` in the terminal, then reply with only: Weather: sunny, 21C. "
                 + "Helper Calendar: run `sleep 20` in the terminal, then reply with only: Calendar: dentist at 3pm.")
+        await wait(20) { m.thinking }  // the message goes through the one line first (SayQueue.swift)
         await wait(120) { !m.thinking }
         check("two helpers went out together", m.helpers.count == 2 && Set(m.helpers.compactMap(\.routine)).count == 1)
         await wait(180) { m.helpers.allSatisfy { $0.state != "working" } }

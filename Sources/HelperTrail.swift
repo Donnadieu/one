@@ -66,7 +66,7 @@ enum HelperTrail {
             """ + brief
     }
 
-    static let stoppedLine = "Stopped by you · tap to see what it did"
+    static let stoppedLine = "Stopped by you"
     /// The person stopped this helper on purpose. It stays stopped, even after a restart.
     /// Returns true if it was working (so its conversation should be cancelled too).
     @discardableResult
@@ -87,7 +87,7 @@ enum HelperTrail {
         "\(title) was paused for \(reason ?? "the update"). I picked it back up."
     }
     static func toldMany(_ n: Int) -> String { "\(n) helpers were cut off by a restart. I picked them all back up." }
-    static func gaveUp(_ n: Int) -> String { "Stopped: cut off by a restart \(n + 1) times · tap to see what it did" }
+    static func gaveUp(_ n: Int) -> String { "Couldn't finish · tap to see why" }
 
     /// At launch: helpers that were working (or waiting to be picked back up) when One stopped are
     /// queued to resume, unless they were already picked up `maxResumes` times. Helpers the person

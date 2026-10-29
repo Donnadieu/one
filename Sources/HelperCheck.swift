@@ -80,7 +80,7 @@ enum HelperCheck {
         check("a second cut-off is picked up again", picked.count == 1 && hs[0].resumes == 2)
         hs = relaunch(hs)
         check("a third cut-off is not picked up", hs[0].resumeQueued == false && HelperTrail.pick(&hs, brief: brief).isEmpty)
-        check("it shows as stopped with a plain line", hs[0].state == "stopped" && hs[0].line.hasPrefix("Stopped: cut off by a restart 3 times"))
+        check("it shows as stopped with a plain line", hs[0].state == "stopped" && hs[0].line == HelperTrail.gaveUp(2))
 
         // Five cut off at once: all five pick back up together, none waits for a slot.
         var many = (1...5).map { Helper(title: "Job \($0)", task: "Task \($0)", sid: nil, state: "working", line: "") }
@@ -173,12 +173,36 @@ enum HelperCheck {
         check("other asks are not", !Helpers.isRoutine("Find me a flight to Quebec"))
         let a = Helper(title: "Flights", task: "", sid: nil, state: "done", line: "")
         let b = Helper(title: "Hotels", task: "", sid: nil, state: "done", line: "")
-        let one = Helpers.doneNote([a], user: "Omar")
-        check("the note asks for one by-the-way line", one.contains("\"By the way, Flights is done. Tap it to take a look.\""))
-        check("and says not to repeat the result or ask its question", one.contains("Don't repeat") && one.contains("don't ask its question"))
+        var c = Helper(title: "Tickets", task: "", sid: nil, state: "needsYes", line: "")
+        check("one helper: one plain line, no result", Helpers.doneLine([a]) == "Flights is done. Tap it to take a look.")
         check(
-            "several finished in one reply share one line",
-            Helpers.doneNote([a, b], user: "Omar").contains("By the way, Flights and Hotels are done. Tap them"))
+            "several finishing together share one line",
+            Helpers.doneLine([a, b]) == "2 helpers are done: Flights and Hotels. Tap them to take a look.")
+        check("one waiting for a yes says so", Helpers.doneLine([a, c]).hasPrefix("2 helpers need you: Flights and Tickets"))
+        c.state = "stopped"
+        c.seen = nil
+        check("stopped on its own: orange until opened", c.viewState == .needsYes)
+        c.seen = true
+        check("…then done", c.viewState == .done)
+        c.stoppedByYou = true
+        c.seen = nil
+        check("stopped by you: done, never orange", c.viewState == .done)
+        c.resumeQueued = true
+        c.stoppedByYou = nil
+        check("paused or picking back up: still working", c.viewState == .working)
+        // The long notes go once per conversation; other turns get one short line (NoteCache.swift).
+        NoteCache.reset()
+        let rules = "\n\n(One app note, not from the user: RULES)"
+        check("first turn: the whole notes", NoteCache.pack("s1", rules: rules) == rules)
+        check("next turn: one short line", NoteCache.pack("s1", rules: rules) == NoteCache.reminder)
+        check("another conversation: its own whole notes", NoteCache.pack("s2", rules: rules) == rules)
+        check("notes changed: the whole notes again", NoteCache.pack("s1", rules: rules + "x") == rules + "x")
+        for _ in 1..<NoteCache.every { _ = NoteCache.pack("s1", rules: rules + "x") }
+        check("every \(NoteCache.every) turns: the whole notes again", NoteCache.pack("s1", rules: rules + "x") == rules + "x")
+        NoteCache.forget("s1")
+        check("a dropped turn: the whole notes again", NoteCache.pack("s1", rules: rules + "x") == rules + "x")
+        check("no conversation yet: the whole notes", NoteCache.pack(nil, rules: rules) == rules)
+        NoteCache.reset()
 
         // Only a real, complete answer is "done" (Oct 28: an engine restart flipped seven half-done helpers to done).
         let half = "\n\nNow the engine plugin."
@@ -199,7 +223,7 @@ enum HelperCheck {
         cut.reply = half
         check(
             "cut off: queued to pick back up, not done", HelperTrail.notFinished(&cut, .cutOff) && cut.state == "stopped" && cut.resumeQueued == true)
-        check("it says so plainly", cut.line == HelperTrail.cutLine && !cut.waiting && cut.viewState == .stopped)
+        check("it says so plainly", cut.line == HelperTrail.cutLine && !cut.waiting && cut.viewState == .working)
         var hs2 = [cut]
         check("and it's picked back up", HelperTrail.pick(&hs2, brief: brief).count == 1)
         check("which counts as one resume", hs2[0].resumes == 1 && hs2[0].state == "working")

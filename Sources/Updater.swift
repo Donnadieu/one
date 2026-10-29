@@ -48,10 +48,18 @@ final class Updater: ObservableObject {
     static let replyWait: Double = 20
     /// Longest an update waits for a routine at work (a scheduled job mid-run) before it goes ahead.
     static var routineWait: Double = 2 * 3600
+    /// Longest an update waits for a helper mid a sensitive dev step (building, testing, pushing, releasing)
+    /// before it goes ahead: cutting that off mid-way can corrupt a build or leave a half-finished push.
+    static var sensitiveWait: Double = 20 * 60
     /// What the card says while an update waits for routines to finish.
     static func routineLine(_ names: [String]) -> String {
         let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
         return "I'll update as soon as \(n) \(names.count == 1 ? "finishes" : "finish"), so \(names.count == 1 ? "it isn't" : "they aren't") cut off."
+    }
+    /// What the card says while an update waits for a sensitive helper step to finish.
+    static func sensitiveLine(_ names: [String]) -> String {
+        let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
+        return "I'll update once \(n) \(names.count == 1 ? "finishes" : "finish") this step, so nothing's left half-done."
     }
     private var etag: String?
     private var lastList: Data?
@@ -168,6 +176,16 @@ final class Updater: ObservableObject {
             state = Updater.routineLine(busy)
             try? await Task.sleep(for: .seconds(15))
             busy = await Task.detached { Routines.inFlight() }.value
+        }
+        // Working helpers never hold an update back for long, except one mid a sensitive dev step (a build,
+        // a test run, a git push, a release): pausing there could corrupt a build or leave a half-finished
+        // push. Wait for that step to clear, up to `sensitiveWait`, then go ahead (paused like any other).
+        var sensitive = m.helpersInSensitiveStep()
+        let sensitiveUntil = Date().addingTimeInterval(Updater.sensitiveWait)
+        while !sensitive.isEmpty && Date() < sensitiveUntil {
+            state = Updater.sensitiveLine(sensitive)
+            try? await Task.sleep(for: .seconds(10))
+            sensitive = m.helpersInSensitiveStep()
         }
         state = "Downloading the new version…"
         // A test copy keeps its download in its own throwaway home, never in the person's update folder.

@@ -24,6 +24,9 @@ enum FolderWatch {
     static let maxWait: TimeInterval = 45
     /// The longest a change waits for a routine at work.
     static let routineWait: TimeInterval = 2 * 3600  // same as an update (Updater.routineWait)
+    /// The longest a change waits for a helper mid a sensitive dev step (build, test, push, release):
+    /// cutting that off mid-way can corrupt a build or leave a half-finished push. Same cap as an update.
+    static let sensitiveWait: TimeInterval = 20 * 60  // same as an update (Updater.sensitiveWait)
     /// Last time the assistant or a helper was busy: a change seen soon after came from that job.
     nonisolated(unsafe) static var lastBusy = Date.distantPast
 
@@ -72,9 +75,11 @@ enum FolderWatch {
     /// Should a changed lock restart the engine now? Right away when nothing is working; past
     /// `helperGrace` even with helpers working (they're paused and pick back up); past `maxWait` even
     /// mid-reply. Waiting for every helper to finish could wait forever: the helper that needs the folder
-    /// keeps working (retrying) until it gets it.
-    static func due(talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false) -> Bool {
+    /// keeps working (retrying) until it gets it. A helper mid a sensitive dev step (build/test/push/release)
+    /// gets its own, longer wait: pausing there mid-way could corrupt the build or leave a half-finished push.
+    static func due(talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false, sensitiveBusy: Bool = false) -> Bool {
         if routineBusy && waited < routineWait { return false }
+        if sensitiveBusy && waited < sensitiveWait { return false }
         if !talking && !helpersWorking { return true }
         if !talking && waited >= helperGrace { return true }
         return waited >= maxWait
@@ -86,7 +91,7 @@ enum FolderWatch {
     @MainActor
     static func tend(
         talking: Bool, helpersWorking: Bool, running: Bool, now: Date = Date(), routineBusy: () -> Bool = { false },
-        restart: @escaping @MainActor (Bool, Bool) async -> Void
+        sensitiveBusy: () -> Bool = { false }, restart: @escaping @MainActor (Bool, Bool) async -> Void
     ) {
         if talking || helpersWorking { lastBusy = now }
         lock.lock()
@@ -97,7 +102,8 @@ enum FolderWatch {
         if changedSince == nil { changedSince = now }
         let waited = now.timeIntervalSince(changedSince ?? now)
         lock.unlock()
-        guard due(talking: talking, helpersWorking: helpersWorking, waited: waited, routineBusy: routineBusy()) else { return }
+        guard due(talking: talking, helpersWorking: helpersWorking, waited: waited, routineBusy: routineBusy(), sensitiveBusy: sensitiveBusy())
+        else { return }
         lock.lock()
         restarting = true
         lock.unlock()

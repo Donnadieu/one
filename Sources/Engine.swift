@@ -196,6 +196,7 @@ final class Engine: @unchecked Sendable {
     private func startEngine(_ gen: Int) async -> String? {
         let previous = enginePID
         stop()
+        await LocalModels.wakeIfSelected()
         guard let hp = Env.hermesPath else { return "Hermes isn't on this Mac yet." }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: hp)

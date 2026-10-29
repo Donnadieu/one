@@ -8,7 +8,9 @@
 set -u
 cd "$(dirname "$0")/.."
 case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAIL build (run ./build.sh)"; exit 1; } ;; esac
-ID=ai.forjado.one.helpers-stress
+# Its own settings name per run: two checks at once (helpers each running preflight) once shared one and wiped
+# each other's saved helpers mid-run ("every helper is still listed (28 of 104)").
+ID=ai.forjado.one.helpers-stress-$$
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-helpers-stress.XXXXXX")
 APP=$(tools/test-copy.sh "${ID#ai.forjado.one.}" "$S") || exit 1
 defaults delete "$ID" >/dev/null 2>&1

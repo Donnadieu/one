@@ -65,7 +65,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HumanStepCheck.run()) }
             return
         }
-        if HumanCheckLive.launch() || HelperStress.launch() { return }  // --test-human-window, --test-helpers-stress (tools/*-check.sh)
+        if HumanCheckLive.launch() || HelperStress.launch() || WindowGuardCheck.launch() { return }  // -window/-stress/-guard checks
         if MessageHistoryCheck.launch() { return }  // --test-message-history (tools/message-history-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder

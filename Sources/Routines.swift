@@ -23,6 +23,12 @@ struct Routine: Identifiable, Equatable {
     /// (what it did before that is done), or partly done (its own report says which part failed).
     enum Miss: Equatable { case stopped, cut, partly }
     var miss: Miss = .stopped
+    /// What the last run really did (its report and step log). Filled in for runs that didn't finish cleanly.
+    var notes = RunNotes()
+    /// It didn't finish, but its missing part was made up later (by a later run or a catch-up).
+    var caughtUpAt: Date? { state == .worked ? notes.caughtUpAt : nil }
+    /// Didn't finish, and it did nothing it can show: this one needs a look (orange).
+    var needsLook: Bool { state == .failed && miss != .partly }
 }
 
 struct SkillStar: Identifiable, Equatable {
@@ -40,7 +46,8 @@ struct RoutinesSnapshot: Equatable {
     var routines: [Routine] = []
     var skills: [SkillStar] = []
     var now = Date()
-    var needLook: Int { routines.filter { $0.state == .failed && !$0.outside }.count }
+    var needLook: Int { routines.filter { $0.needsLook && !$0.outside }.count }
+    var partly: Int { routines.filter { $0.state == .failed && $0.miss == .partly && !$0.outside }.count }
 }
 
 enum Routines {
@@ -98,11 +105,18 @@ enum Routines {
         }
         let (often, today, every) = when(sched, now: now)
         let err = (j["last_error"] as? String) ?? ((j["last_failure"] as? [String: Any])?["detail"] as? String)
+        // A run marked failed may have done most of its work, or had its missing part made up later: read what it did.
+        var notes = RunNotes()
+        if let last, st == .failed || (st == .running && (j["last_status"] as? String) == "error") {
+            notes = lastRunNotes(j, id: id, dir: dir, last: last, next: next, now: now)
+            if st == .failed && notes.madeUp { st = .worked }
+        }
         var r = Routine(
             id: id, title: title, what: lastSaid(dir.appendingPathComponent("output/\(id)")), often: often, today: today, every: every,
             lastRun: last, next: st == .finished ? nil : next, state: st,
             reason: (st == .failed || (st == .running && (j["last_status"] as? String) == "error")) ? plainError(err) : nil)
-        r.miss = miss(err)
+        r.miss = notes.hasWork && !notes.nothing ? .partly : miss(err)
+        r.notes = notes
         return r
     }
 
@@ -127,7 +141,7 @@ enum Routines {
     static func missLine(_ r: Routine) -> String {
         switch r.miss {
         case .cut: return "Cut short when One restarted. What it did before that is done."
-        case .partly: return "Partly done last time."
+        case .partly: return r.notes.did.isEmpty ? partlyLine(r.notes) : "Partly done last time."  // the card lists what worked
         case .stopped: return "Didn't finish last time."
         }
     }
@@ -135,7 +149,7 @@ enum Routines {
     /// The short word for that run on the dial and the card.
     static func missWord(_ r: Routine) -> String {
         switch r.miss {
-        case .cut: return "cut short by a restart"
+        case .cut: return "cut short, nothing recorded"
         case .partly: return "partly done"
         case .stopped: return "didn't finish"
         }

@@ -8,7 +8,8 @@ import Foundation
 /// background helper too, which would otherwise keep the old lock), reopens the same conversation and,
 /// if the assistant was busy, tells it to carry on. It never waits on helpers for long: a helper is
 /// often the one that needs the folder, so after `helperGrace` working helpers are paused and picked
-/// back up after the restart. A reply in progress gets up to `maxWait`.
+/// back up after the restart. A reply in progress gets up to `maxWait`. A routine at work (a scheduled job mid-run) is
+/// waited for, up to `routineWait`: restarting the engine would cut its run off midway.
 enum FolderWatch {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var startedWith: String?
@@ -21,6 +22,8 @@ enum FolderWatch {
     static let helperGrace: TimeInterval = 15
     /// The longest a change waits for anything, a reply in progress included (a newly allowed folder works within a minute).
     static let maxWait: TimeInterval = 45
+    /// The longest a change waits for a routine at work.
+    static let routineWait: TimeInterval = 2 * 3600  // same as an update (Updater.routineWait)
     /// Last time the assistant or a helper was busy: a change seen soon after came from that job.
     nonisolated(unsafe) static var lastBusy = Date.distantPast
 
@@ -70,7 +73,8 @@ enum FolderWatch {
     /// `helperGrace` even with helpers working (they're paused and pick back up); past `maxWait` even
     /// mid-reply. Waiting for every helper to finish could wait forever: the helper that needs the folder
     /// keeps working (retrying) until it gets it.
-    static func due(talking: Bool, helpersWorking: Bool, waited: TimeInterval) -> Bool {
+    static func due(talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false) -> Bool {
+        if routineBusy && waited < routineWait { return false }
         if !talking && !helpersWorking { return true }
         if !talking && waited >= helperGrace { return true }
         return waited >= maxWait
@@ -81,7 +85,7 @@ enum FolderWatch {
     /// it to carry on; pauseHelpers = helpers are still working and must be paused first.
     @MainActor
     static func tend(
-        talking: Bool, helpersWorking: Bool, running: Bool, now: Date = Date(),
+        talking: Bool, helpersWorking: Bool, running: Bool, now: Date = Date(), routineBusy: () -> Bool = { false },
         restart: @escaping @MainActor (Bool, Bool) async -> Void
     ) {
         if talking || helpersWorking { lastBusy = now }
@@ -93,7 +97,7 @@ enum FolderWatch {
         if changedSince == nil { changedSince = now }
         let waited = now.timeIntervalSince(changedSince ?? now)
         lock.unlock()
-        guard due(talking: talking, helpersWorking: helpersWorking, waited: waited) else { return }
+        guard due(talking: talking, helpersWorking: helpersWorking, waited: waited, routineBusy: routineBusy()) else { return }
         lock.lock()
         restarting = true
         lock.unlock()
@@ -124,7 +128,7 @@ enum FolderWatch {
         "\n\n(One app note, not from the user: FOLDER ACCESS. You can only open One's own data, the brain and the folders on One's list. "
             + "If they agree to let you open a new folder, add it with: CUR=\"$(defaults read ai.forjado.one folders 2>/dev/null)\"; "
             + "defaults write ai.forjado.one folders -string \"$CUR\"$'\\n'\"<full path>\" (one text with one folder per line, not an array). "
-            + "Then just say you'll restart to use it and end your reply. One notices, restarts by itself within a minute (helpers that "
+            + "Then just say you'll restart to use it and end your reply. One notices, restarts by itself within a minute (or once a routine at work finishes; helpers that "
             + "are working are paused and pick back up by themselves), reopens this conversation and tells you to carry on. Never restart "
             + "or stop One, its engine or its background helper yourself, never wait in a loop for the folder to open, and never "
             + "ask them to reopen One.)"

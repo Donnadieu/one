@@ -128,7 +128,7 @@ struct RoutinesPanel: View {
     /// The legend: each of the dial's marks, drawn the same way, with its word (`Dial.legend` says the same in text).
     var legend: some View {
         let items: [(Dial.Kind, String)] = [
-            (.done, "Done"), (.partly, "Partly done"), (.next, "Still to come"), (.failed, "Not done"),
+            (.done, "Done"), (.partly, "Partly"), (.failed, "Didn't run"),
         ]
         return HStack(spacing: 14) {
             ForEach(items.indices, id: \.self) { i in

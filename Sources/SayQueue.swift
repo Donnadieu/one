@@ -19,9 +19,9 @@ enum Outgoing: Equatable {
     case message(UUID)
     /// A hidden app note for the assistant (a good-morning report, carry on after a restart, save a skill…).
     case note(String)
-    /// "By the way, <title> is done / needs your yes": built when its turn comes, from the helper's state then.
+    /// "<title> is done / needs your yes" (one line for every helper waiting): built when its turn comes, from their state then.
     case helperNews(UUID)
-    /// A line One says itself (no turn): shown as a message if `bubble` is set, and read aloud.
+    /// A line One says itself (no turn): shown as a message if `bubble` is set, and read aloud if they're idle (`Idle`).
     case line(bubble: String?, spoken: String)
 }
 
@@ -89,20 +89,43 @@ extension Model {
         case .note(let text):
             thinking = true
             await runTurn(Composed(display: "", engine: text, images: [], typed: ""), hidden: true)
-        case .helperNews(let id):
-            guard let h = helpers.first(where: { $0.id == id }), h.waiting, h.routine == nil, h.toldState != h.state else { return }
-            update(id) { $0.toldState = h.state }
+        case .helperNews(let first):
+            // Helpers finishing close together get ONE quiet line from One itself (no extra turn for the assistant):
+            // wait a moment for the others, then take every helper notice still waiting.
+            // (Never makes a message of theirs wait: with one in line, it goes now.)
+            if !outbox.contains(where: { if case .message = $0 { return true } else { return false } }) {
+                try? await Task.sleep(for: .seconds(Helpers.gatherSecs))
+            }
+            var ids = [first]
+            for o in outbox { if case .helperNews(let id) = o, !ids.contains(id) { ids.append(id) } }
+            outbox.removeAll { if case .helperNews = $0 { return true } else { return false } }
+            let hs = ids.compactMap { id in helpers.first { $0.id == id } }.filter { $0.waiting && $0.routine == nil && $0.toldState != $0.state }
+            guard !hs.isEmpty else { return }
+            for h in hs { update(h.id) { $0.toldState = h.state } }
             saveHelpers()
-            Helpers.log("notice: \(h.title) \(h.state)")
-            thinking = true
-            await runTurn(Composed(display: "", engine: Helpers.doneNote([h], user: userName), images: [], typed: ""), hidden: true)
+            for h in hs { Helpers.log("notice: \(h.title) \(h.state)") }
+            let line = Helpers.doneLine(hs)
+            bubbles.removeAll { $0.text == line }
+            bubbles.append(Bubble(fromMe: false, text: line))
+            saveBubbles()
+            if Idle.now { Speaker.shared.read(line) }  // spoken only when they're not in the middle of something (silent when muted)
         case .line(let bubble, let spoken):
             if let b = bubble {
                 bubbles.removeAll { $0.text == b }
                 bubbles.append(Bubble(fromMe: false, text: b))
                 saveBubbles()
             }
-            Speaker.shared.read(spoken)  // the line is free, so nothing is cut; silent when muted
+            // Read aloud only when they haven't sent or said anything for a while; silent when muted.
+            if !spoken.isEmpty && Idle.now { Speaker.shared.read(spoken) }
         }
     }
+}
+
+/// Have they done anything lately? A notice is read aloud only when they haven't sent or said anything for a while.
+@MainActor
+enum Idle {
+    static var last = Date.distantPast
+    static let after: TimeInterval = 90
+    static func mark() { last = Date() }
+    static var now: Bool { Date().timeIntervalSince(last) >= after }
 }

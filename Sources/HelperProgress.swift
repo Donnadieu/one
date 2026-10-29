@@ -49,7 +49,7 @@ enum HelperProgress {
     /// `short`: under the orb, where about 22 characters fit (pointing at it shows the rest).
     static func line(_ p: HelperPulse?, fallback: String, now: Date, building: Bool = false, short: Bool = false) -> String {
         guard let p, !p.step.isEmpty else { return fallback }
-        if stuck(p, now: now) { return stuckLine(p, now: now) }
+        if !short && stuck(p, now: now) { return stuckLine(p, now: now) }  // inside its thread only; under the orb, the step
         let step = bare(p.step)
         if building && step.hasPrefix("Building") && p.stepOpen { return "Waiting for another build…" }
         let ran = now.timeIntervalSince(p.stepAt)
@@ -237,9 +237,9 @@ struct HelperProgressView: View {
         let stuck = HelperProgress.stuck(p, now: now)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Circle().fill(stuck ? HelperProgress.amber : WorldLook.cream.opacity(0.7)).frame(width: 6, height: 6)
+                Circle().fill(WorldLook.cream.opacity(0.7)).frame(width: 6, height: 6)
                 Text(m.progressLine(h, now: now)).font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(stuck ? HelperProgress.amber : WorldLook.cream.opacity(0.9))
+                    .foregroundStyle(WorldLook.cream.opacity(0.9))
             }
             if !p.step.isEmpty {
                 Text(HelperProgress.detail(p, now: now)).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).padding(
@@ -275,8 +275,8 @@ struct HelperProgressView: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HelperProgress.amber.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(HelperProgress.amber.opacity(0.28)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.12)))
     }
 }
 

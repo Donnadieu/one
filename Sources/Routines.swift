@@ -149,9 +149,8 @@ enum Routines {
     /// The short word for that run on the dial and the card.
     static func missWord(_ r: Routine) -> String {
         switch r.miss {
-        case .cut: return "cut short, nothing recorded"
-        case .partly: return "partly done"
-        case .stopped: return "didn't finish"
+        case .cut, .stopped: return "didn't run"  // nothing it can show; its card says why
+        case .partly: return "partly"
         }
     }
 

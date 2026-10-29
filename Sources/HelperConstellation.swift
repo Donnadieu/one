@@ -164,7 +164,7 @@ struct HelperConstellation: View {
     func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint, now: Date) -> some View {
         let sleeping = m.asleep(h)  // being picked back up: dim, "starting again", can't be tapped (StartupGate.swift)
         let on = (hover == h.id || pointed == h.id) && !sleeping
-        let warm = (h.state == "needsYes" || h.waiting) && !sleeping
+        let warm = h.viewState == .needsYes && !sleeping
         let opened = h.state == "done" && !h.waiting
         // The real step, its time, or "No progress for 6 min" (HelperProgress.swift).
         let line = sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true)
@@ -248,7 +248,7 @@ struct HelperTag: View {
                 .foregroundStyle(warm ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(opened ? 0.62 : 1))
             Text(line).font(.system(size: look.line))
                 .foregroundStyle(
-                    warm ? Color(hex: 0xF6B46E, 0.8) : quiet ? HelperProgress.amber.opacity(0.9) : WorldLook.cream.opacity(opened ? 0.36 : 0.52))
+                    warm ? Color(hex: 0xF6B46E, 0.8) : WorldLook.cream.opacity(opened ? 0.36 : 0.52))
         }
         .lineLimit(1).truncationMode(.tail).multilineTextAlignment(.center)
         .padding(.horizontal, 7).padding(.vertical, 3)

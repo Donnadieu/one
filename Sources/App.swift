@@ -67,6 +67,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if HumanCheckLive.launch() || HelperStress.launch() { return }  // --test-human-window, --test-helpers-stress (tools/*-check.sh)
         if MessageHistoryCheck.launch() { return }  // --test-message-history (tools/message-history-check.sh)
+        if ResetCheck.launch() { return }  // --test-reset (tools/reset-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -402,8 +403,7 @@ struct Entry {
                     ("shelf-search-grouped", ShelfSearchRender.panel()), ("shelf-search-typed", ShelfSearchRender.panel(query: "routing")),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
-                    ("home-4", AnyView(EmptyView())),
-                    ("home-glass", AnyView(EmptyView())),
+                    ("home-4", AnyView(EmptyView())), ("home-glass", AnyView(EmptyView())),
                     ("home-8", AnyView(EmptyView())),
                     ("home-10", AnyView(EmptyView())),
                     ("home-15", AnyView(EmptyView())),
@@ -530,7 +530,7 @@ struct Entry {
             JobsCheck.run()
         }
         if args.contains("--reset") {
-            if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+            Model.resetOnboarding()  // onboarding keys only, never the whole domain (see Model.resetOnboarding)
             print("reset onboarding")
             exit(0)
         }

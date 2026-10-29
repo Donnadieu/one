@@ -59,9 +59,7 @@ struct HomeView: View {
                 StillScroll {
                     VStack(spacing: 12) {
                         HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
-                        if !m.isReady {
-                            GateLine(m: m).starCalm(floor: 0.2).transition(.opacity)  // getting ready (StartupGate.swift)
-                        } else if m.thinking && m.openHelper == nil {
+                        if m.isReady && m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
                                 .starCalm(floor: 0.2).transition(.opacity)
                         }
@@ -236,6 +234,11 @@ struct HomeView: View {
                     .font(.callout).padding(8).frame(maxWidth: .infinity).background(Color.red.opacity(0.15))
             }
         }
+        .overlay {
+            // Getting ready: the glass card over the whole window (ReadyLayer.swift); fades away once One opens.
+            if !m.isReady && !ReadyLayerLook.hidden { ReadyLayer(m: m).transition(.opacity) }
+        }
+        .animation(.easeOut(duration: ReadyLayerLook.fade), value: m.isReady)
         .modifier(
             HomeTitleRow(
                 m: m, voiceOff: $voiceOff, meCard: $meCard, connectionsSheet: $connectionsSheet, talkKeySheet: $talkKeySheet,

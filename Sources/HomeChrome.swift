@@ -148,7 +148,7 @@ struct HomeTitleRow: ViewModifier {
             content
         } else {
             content.toolbar {
-                ToolbarItem(placement: .navigation) { NamePill(name: m.name) { meCard = true } }.noPill()
+                ToolbarItem(placement: .navigation) { NamePill(name: m.name) { meCard = true }.modifier(ReadyAside(m: m)) }.noPill()
                 ToolbarItem(placement: .primaryAction) {
                     TopBarButtons(
                         name: m.name, voiceOff: voiceOff, paused: m.paused,
@@ -161,7 +161,8 @@ struct HomeTitleRow: ViewModifier {
                         },
                         rooms: { RoomsWindow.show(m) }, connections: { connectionsSheet = true },
                         routines: { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen = true } }, talkKey: { talkKeySheet = true },
-                        folders: { folderSheet = true }, switchAI: { m.switchingAI = true }, stop: { m.toggleStop() })
+                        folders: { folderSheet = true }, switchAI: { m.switchingAI = true }, stop: { m.toggleStop() }
+                    ).modifier(ReadyAside(m: m))
                 }.noPill()
             }
             .modifier(QuietTitleRow())

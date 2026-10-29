@@ -27,7 +27,7 @@ enum GateWords {
     static let talk = "Getting ready… you can talk once I open."
     static let helper = "starting again"
     static let failed = "I couldn't get ready."
-    static let slow = "Getting ready is taking longer than it should."
+    static let slow = "This is taking longer than usual"
     static func line(total: Int) -> String { total == 0 ? "Getting ready…" : "Getting ready… picking up \(total) helper\(total == 1 ? "" : "s")" }
     static func back(_ back: Int, of total: Int) -> String { "· \(back) of \(total) back" }
 }
@@ -71,7 +71,11 @@ extension Model {
     }
 
     func closeGate() {
-        if gate == .ready { wakingTotal = waking.count }
+        if gate == .ready {
+            wakingTotal = waking.count
+            gateRoster = []
+        }
+        noteGateRoster(helpers.filter { asleep($0) }.map(\.id))
         if gate != .gettingReady { gateSince = Date() }
         gate = .gettingReady
         if talkingInApp { talkNote = nil }  // what they're saying now still goes, after it opens
@@ -135,6 +139,7 @@ extension Model {
         guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
         let picked = HelperTrail.pick(&helpers) { Helpers.brief(assistant: self.assistantName, user: self.userName, task: $0) }
         waking.formUnion(picked.map(\.id))
+        noteGateRoster(picked.map(\.id))
         wakingTotal += picked.count
         // One line for the whole batch: 46 helpers cut off by one restart used to post 46 lines and say each out loud.
         // Said once per cut-off, not on every retry while a helper's last step finishes.
@@ -169,38 +174,7 @@ extension Model {
     }
 }
 
-// MARK: - How it looks
-
-/// Under the orb while getting ready: the plain line with the helper count, or what went wrong with Try again.
-struct GateLine: View {
-    @ObservedObject var m: Model
-    var body: some View {
-        switch m.gate {
-        case .ready:
-            EmptyView()
-        case .gettingReady:
-            let c = m.gateCounts
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(GateWords.line(total: c.total)).font(.system(size: 15)).foregroundStyle(WorldLook.cream.opacity(0.85))
-                if c.total > 0 && c.back > 0 {
-                    Text(GateWords.back(c.back, of: c.total)).font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.45))
-                        .contentTransition(.numericText())
-                }
-            }
-            .multilineTextAlignment(.center).animation(.easeOut(duration: 0.3), value: c.back)
-        case .stuck(let why):
-            HStack(spacing: 12) {
-                Text(why).font(.system(size: 15)).foregroundStyle(WorldLook.cream.opacity(0.85))
-                Button {
-                    m.tryGettingReadyAgain()
-                } label: {
-                    Text("Try again").font(.callout.weight(.semibold)).foregroundStyle(WorldLook.bg)
-                        .padding(.horizontal, 16).padding(.vertical, 7).background(Capsule().fill(WorldLook.cream))
-                }.buttonStyle(.plain)
-            }
-        }
-    }
-}
+// MARK: - How it looks (the layer over the window: ReadyLayer.swift)
 
 /// A helper being picked back up: a dim orb with a dashed edge, breathing slowly, until it's back.
 struct SleepingOrb: View {

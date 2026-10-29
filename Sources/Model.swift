@@ -244,6 +244,7 @@ final class Model: ObservableObject {
     @Published var gate: Gate = Gate.atLaunch
     @Published var waking: Set<UUID> = []  // helpers being picked back up, not re-attached yet
     @Published var wakingTotal = 0  // helpers picked back up in this get-ready (for "1 of 4 back")
+    @Published var gateRoster: [UUID] = []  // every helper that slept in this get-ready, listed on the card (ReadyLayer.swift)
     var gateSince: Date?
     var gateWatch = 0
 

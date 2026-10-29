@@ -168,15 +168,27 @@ enum ExperimentalGuard {
     }
 
     /// Writes `skills.disabled` when the set changed. Returns the list now switched off.
+    /// Skills switched off for other reasons (the person asked) stay off: only the entries this guard
+    /// added before are replaced, and nothing is written if the current list can't be read.
     @discardableResult
     static func sync() async -> [String] {
         let off = untested()
         let key = Env.selfTest ? "experimentalOffTest" : "experimentalOff"
         if UserDefaults.standard.stringArray(forKey: key) == off { return off }
-        let yaml = "[" + off.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
+        let mine = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        let (got, out) = await hermesRun(["config", "get", "skills.disabled"])
+        guard got == 0 else { return off }
+        let keep = listed(out).filter { !mine.contains($0) && !off.contains($0) }
+        let yaml = "[" + (off + keep).map { "\"\($0)\"" }.joined(separator: ", ") + "]"
         let (code, _) = await hermesRun(["config", "set", "skills.disabled", yaml, "--force"])
         if code == 0 { UserDefaults.standard.set(off, forKey: key) }
         return off
+    }
+
+    /// The names in `hermes config get` output for a list (`  - name` lines).
+    static func listed(_ out: String) -> [String] {
+        out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("- ") }
+            .map { String($0.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: " \"'")) }.filter { !$0.isEmpty }
     }
 }
 

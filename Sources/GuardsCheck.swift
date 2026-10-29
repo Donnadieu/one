@@ -77,6 +77,9 @@ enum GuardsCheck {
         try? "[{\"id\":\"News\",\"with\":\"Feedly\",\"skill\":\"my-connections/feedly\"}]".write(
             to: ConnectionsWorld.customFile, atomically: true, encoding: .utf8)
         check("listed without a test date is still off", ExperimentalGuard.untested().contains("my-connections/feedly"))
+        check(
+            "skills the person switched off are read back",
+            ExperimentalGuard.listed("hermes: note\n  - godmode\n  - \"axolotl\"\n⚠ warning") == ["godmode", "axolotl"])
 
         // Friction log.
         check("\"that annoyed me\" is caught", FrictionLog.matches("Ugh, that annoyed me, it asked twice"))

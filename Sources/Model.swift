@@ -54,6 +54,14 @@ final class Model: ObservableObject {
     @AppStorage("interviewOffered") var interviewOffered = false
     @Published var roomInvites: [URL] = []
     var clashes: [String] = []
+
+    /// `--reset` (devs only): clears ONLY onboarding/setup so the next launch runs the welcome flow again.
+    /// NEVER call `UserDefaults.standard.removePersistentDomain` for this: that drops everything saved under
+    /// the bundle id at once, helpers (`helpers`), chat history (`bubbles`), the shelf (`shelf`) and every other
+    /// key included, with nothing in a diff or a log to show it happened. Add new onboarding-only keys to this
+    /// list by name; never widen it back to a whole-domain wipe.
+    static let onboardingKeys = ["onboarded", "assistantName", "userName", "interviewOffered"]
+    static func resetOnboarding() { onboardingKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
     /// Routines (scheduled jobs) finish into hermes/cron/output/<job>/<time>.md. Read each new result
     /// out loud, wherever the person is, unless the voice is muted. Silent runs say nothing.
     private var routineSeen: Set<String> = []

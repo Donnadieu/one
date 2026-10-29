@@ -470,6 +470,9 @@ extension Model {
         // "[done-helper: …]" (or the older "[close-helper: …]"): asked to take an orb off the screen. The only way besides
         // Got it in its thread. After the stops, so "stop it and clear it" in one reply works.
         for s in tags.closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
+        // "[tell-helper: Title | message]": passes a message into that helper's thread, just as typing in its orb
+        // would. After the stops/closes, so a helper stopped or cleared in the same reply is never told anything.
+        for (name, msg) in tags.tells { if let miss = tellHelpers(named: name, message: msg) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
         Helpers.logSkipped(skipped)
         if !all.isEmpty {

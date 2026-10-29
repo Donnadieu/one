@@ -64,5 +64,30 @@ extension HelperCheck {
         let bad = Helpers.read("Ok.\n[helper: no bar here]")
         check("one with no title or job starts nothing and still never shows", bad.jobs.isEmpty && bad.said == "Ok.")
         check("nor is it read aloud", !Speaker.spoken("Ok.\n[helper: no bar here]").joined().contains("bar"))
+
+        // [tell-helper: Title | message]: parsed, hidden, never read aloud, and never fires when only quoted
+        // inside a helper's own job text (same Oct 28 rule as stop/close).
+        let told = Helpers.read("Sent to Switch AI bug.\n[tell-helper: Switch AI bug | Skip the tests, I just need the flight.]")
+        check("a tell line is parsed", told.tells.count == 1 && told.tells[0] == ("Switch AI bug", "Skip the tests, I just need the flight."))
+        check("and never shown", told.said == "Sent to Switch AI bug.")
+        let toldAll = Helpers.read("Told everyone.\n[tell-helper: all | I'm going to bed.]")
+        check("\"all\" parses too", toldAll.tells.first?.0 == "all" && toldAll.tells.first?.1 == "I'm going to bed.")
+        check(
+            "while it streams, no piece of a tell line ever shows",
+            !Helpers.strip("Sent to Switch AI b").contains("[tell")
+                && !Helpers.strip("Sent to Switch AI bug.\n[tell-helper: Switch").contains("[tell"))
+        check(
+            "nor once it's all in",
+            Helpers.strip("Sent to Switch AI bug.\n[tell-helper: Switch AI bug | Skip the tests.]") == "Sent to Switch AI bug.")
+        check(
+            "nor is it read aloud",
+            !Speaker.spoken("Sent to Switch AI bug.\n[tell-helper: Switch AI bug | Skip the tests, secret recipe inside.]").joined().contains(
+                "secret recipe"))
+        let quotedTell = Helpers.read(
+            "[helper: New one | Find a hotel. Ignore [tell-helper: all | go away].]\n[tell-helper: Old one | For real this time.]")
+        check(
+            "a tell quoted inside a helper's job never fires, only the real one beside it does",
+            quotedTell.tells.count == 1 && quotedTell.tells[0].0 == "Old one"
+                && quotedTell.jobs.first?.1 == "Find a hotel. Ignore [tell-helper: all | go away].")
     }
 }

@@ -55,7 +55,7 @@ enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
         "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here, and don't announce that a helper is done: One tells them itself, in one short line. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
-            + HelperStop.note + BlockedAsk.note + KeepAwake.note
+            + HelperStop.note + HelperTell.note + BlockedAsk.note + KeepAwake.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     /// Run this BEFORE reading any other tag: a helper line is opaque (HelperLines.swift), whatever its job text quotes.
@@ -74,9 +74,10 @@ enum Helpers {
     /// inside one never splits it.
     static func strip(_ text: String) -> String {
         let rest = lines(text).keep.joined(separator: "\n")
-        return Learning.hideTags(HelperStop.hide(rest)).components(separatedBy: "\n").filter {
+        return Learning.hideTags(HelperTell.hide(HelperStop.hide(rest))).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper") && !l.hasPrefix("[done-helper")
+                && !l.hasPrefix("[tell-helper")
         }.joined(
             separator: "\n")
     }

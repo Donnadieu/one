@@ -69,7 +69,7 @@ struct RoutinesPanel: View {
             header(s)
             outsideColumn(L.outside)
             laterColumn(L.later, now: s.now)
-            Text("\(s.skills.count) skills · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
+            Text("What I know how to do · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
                 .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + 84)
             starHits(stars, skills: s.skills)
             legend.starCalm(floor: 0.15).offset(x: 24, y: 644)
@@ -179,7 +179,7 @@ struct RoutinesPanel: View {
         return VStack(alignment: .leading, spacing: 4) {
             Text("Routines").font(.system(size: 21, weight: .semibold))
             HStack(spacing: 0) {
-                Text("\(mine) routine\(mine == 1 ? "" : "s") · \(s.skills.count) skills").foregroundStyle(WorldLook.cream.opacity(0.5))
+                Text("\(mine) routine\(mine == 1 ? "" : "s")").foregroundStyle(WorldLook.cream.opacity(0.5))
                 if s.needLook > 0 {
                     Text(" · ").foregroundStyle(WorldLook.cream.opacity(0.5))
                         + Text("\(s.needLook) need a look").foregroundStyle(Color(hex: 0xF6B46E))
@@ -268,7 +268,7 @@ struct RoutinesPanel: View {
     func starTip(_ s: SkillStar, at p: CGPoint) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(s.title).font(.system(size: 12, weight: .semibold))
-            Text(s.name + (s.room.map { " · " + $0 } ?? "")).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5))
+            Text(s.room ?? "Everywhere").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5))
         }
         .fixedSize().padding(.horizontal, 11).padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: 0x202024, 0.97)))

@@ -378,6 +378,12 @@ final class Engine: @unchecked Sendable {
         return sid
     }
 
+    /// Picks the brain for one conversation (ACP session/set_model), before its first prompt. False if the engine said no.
+    func setModel(_ sid: String, _ model: String, timeout: TimeInterval = 8) async -> Bool {
+        let r = await call("session/set_model", ["sessionId": sid, "modelId": model], timeout: timeout)
+        return r["error"] == nil && r["result"] != nil
+    }
+
     /// A copy of a conversation (ACP session/fork): checks talk to the copy, never the original.
     func forkSession(_ sid: String) async -> String? {
         if await ensureStarted() != nil { return nil }

@@ -87,6 +87,8 @@ grep "✗" "$T/ka2/out.txt" 2>/dev/null | sed 's/^/    /'
 echo "Tell me when I learn (decisions on a made-up skill log)"
 mkdir -p "$T/lrn"
 check "new skill told once, fixes silent, the remember question once and never after a no; shared rooms left out" bash -c "ONE_SUPPORT_DIR=$T/lrn $TBIN --test-learning | tee $T/lrn/out.txt | grep -q '^learning ok'"
+mkdir -p "$T/rt"
+check "smart routing: recipes, rooms, the yes gate, the brain, never Nyx" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-routing | tee $T/rt/out.txt | grep -q '^routing ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Engine helper is never stopped by a second One"

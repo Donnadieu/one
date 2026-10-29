@@ -208,6 +208,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         Floater.shared.openMain()
         return true
     }
+    func applicationShouldTerminate(_ s: NSApplication) -> NSApplication.TerminateReply { MainActor.assumeIsolated { QuitHold.reply() } }
     func applicationWillTerminate(_ notification: Notification) {
         let previous = Engine.shared.enginePID
         Engine.shared.stop()

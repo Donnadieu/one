@@ -75,6 +75,8 @@
 | PopupRender.swift | dev only | `popup-*` renders: each pop-up on the glass over the home scene (`ONE_DESK=<png>` for the desktop under home) |
 | HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |
 | Routines.swift | service | Routines panel data, read only: the engine's scheduled jobs (`hermes/cron/jobs.json` + last result), skills (engine + each room's `skills/learned`), jobs a Hermes outside One runs; cron schedules in plain words |
+| RoutineRuns.swift | service | what a routine's last run really did, from its report ("Partly done:") and step log (`hermes/cron/steps/<id>.jsonl`): done, caught up later, partly done, or not done |
+| QuitHold.swift | service | a quit (⌘Q, Dock) while a routine is mid-run tucks into the orb and quits once it's done; logout/shutdown, a second quit and an update's own quit go straight through |
 | RoutinesDial.swift | UI | the 24-hour day dial (Claude Design "Routines View Options", B): marks, bands, labels pushed apart, skills as stars; `One --render-routines <png>` |
 | RoutinesView.swift | UI | the Routines panel (top row › Routines): dial around the assistant's orb, header counts, "Not on today's dial", runs outside One, star hover; closes with X, a click outside, Esc |
 | RoutinesCard.swift | UI | the panel's floating card (Run now / Pause / Turn back on via `hermes cron`, Ask), the "want me to save how I did …?" question by the orb, the fading "I learned something new" notice |

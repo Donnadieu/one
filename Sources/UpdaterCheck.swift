@@ -51,9 +51,113 @@ enum UpdaterCheck {
         let rs = Dictionary(uniqueKeysWithValues: Routines.jobs(at: cron, now: now).map { ($0.id, $0) })
         check("a run cut by a restart reads as cut short, not failed", rs["b2"].map { Routines.missLine($0).hasPrefix("Cut short") } ?? false)
         check("its reason names the restart", rs["b2"]?.reason?.contains("One restarted") ?? false)
-        check("a partly done run says so", rs["c3"].map { Routines.missLine($0) == "Partly done last time." } ?? false)
+        check(
+            "a partly done run says so in its own words", rs["c3"].map { Routines.missLine($0).hasPrefix("Partly done: the X post worked") } ?? false)
+        check("and isn't orange", rs["c3"].map { $0.miss == .partly && !$0.needsLook } ?? false)
         check("its reason keeps which part failed", rs["c3"]?.reason?.contains("Facebook") ?? false)
         check("any other failure still reads as didn't finish", rs["d4"].map { Routines.missWord($0) == "didn't finish" } ?? false)
+        check("and is orange", rs["d4"]?.needsLook ?? false)
+        runChecks(check, now: now)
+        quitChecks(check)
+    }
+
+    /// A run's real outcome from its report and step log (RoutineRuns.swift): caught up later shows as done, a run that
+    /// did some of its work shows as partly done (not orange), one that did nothing stays orange.
+    static func runChecks(_ check: (String, Bool) -> Void, now _: Date) {
+        // A fixed clock (6 PM today, runs at 1 PM) so the dial's marks don't depend on when the check runs.
+        let now = Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: Date()) ?? Date()
+        let iso = ISO8601DateFormatter()
+        let cron = Routines.cron
+        let fm = FileManager.default
+        try? fm.createDirectory(at: cron.appendingPathComponent("steps"), withIntermediateDirectories: true)
+        let start = now.addingTimeInterval(-5 * 3600)
+        func at(_ m: Double) -> String { iso.string(from: start.addingTimeInterval(m * 60)) }
+        let ran = iso.string(from: start.addingTimeInterval(60 * 60))
+        let disp: [String: Any] = ["scheduled_at": iso.string(from: start), "dispatched_at": iso.string(from: start)]
+        func job(_ id: String, _ err: String) -> [String: Any] {
+            [
+                "id": id, "name": id, "enabled": true, "state": "scheduled", "schedule": ["kind": "cron", "expr": "0 13 * * *"],
+                "last_run_at": ran, "last_status": "error", "last_error": err, "last_dispatch": disp,
+                "next_run_at": iso.string(from: now.addingTimeInterval(3600)),
+            ]
+        }
+        func steps(_ id: String, _ rows: [[String: Any]]) {
+            let text = rows.compactMap { try? JSONSerialization.data(withJSONObject: $0) }.compactMap { String(data: $0, encoding: .utf8) }
+            try? (text.joined(separator: "\n") + "\n").write(to: Routines.stepsFile(cron, id), atomically: true, encoding: .utf8)
+        }
+        let cut = "Gateway shutdown (post-interrupt) killed the job's tool subprocess before the run finished."
+        let jobs: [[String: Any]] = [
+            job("caught", "The evening post didn't go out: signed out."), job("cut", cut), job("bare", cut), job("half", "Signed out."),
+            job("stale", "Signed out."),
+        ]
+        // caught: two parts failed, both made up later by catch-ups.
+        steps(
+            "caught",
+            [
+                ["at": at(5), "step": "Morning post", "ok": false], ["at": at(5), "step": "Replies", "ok": true],
+                ["at": at(6), "step": "Evening post", "ok": false, "why": "signed out"],
+                ["at": at(20), "step": "Morning post", "ok": true, "catch_up": true],
+                ["at": at(180), "step": "Evening post", "ok": true, "catch_up": true],
+            ])
+        // cut: a post went out, then One restarted.
+        steps("cut", [["at": at(3), "step": "Morning post", "ok": true], ["at": at(30), "step": "4 of 12 rounds", "ok": true]])
+        // half: one part worked, one didn't and was never made up.
+        steps("half", [["at": at(3), "step": "Morning post", "ok": true], ["at": at(4), "step": "Evening post", "ok": false]])
+        // stale: only lines from the day before, which belong to an earlier run.
+        steps("stale", [["at": iso.string(from: start.addingTimeInterval(-20 * 3600)), "step": "Morning post", "ok": true]])
+        try? JSONSerialization.data(withJSONObject: ["jobs": jobs]).write(to: cron.appendingPathComponent("jobs.json"))
+        defer {
+            try? fm.removeItem(at: cron.appendingPathComponent("jobs.json"))
+            try? fm.removeItem(at: cron.appendingPathComponent("steps"))
+        }
+        let rs = Dictionary(uniqueKeysWithValues: Routines.jobs(at: cron, now: now).map { ($0.id, $0) })
+        let c = rs["caught"]
+        check("a run whose missed parts were made up later shows as done", c?.state == .worked && c?.caughtUpAt != nil)
+        check("with the time it was caught up", c.map { Dial.word($0).hasPrefix("caught up at ") } ?? false)
+        check("and which parts were made up", c?.notes.caughtUp == ["Morning post", "Evening post"])
+        let k = rs["cut"]
+        check("a run cut by a restart after its post shows as partly done", k?.state == .failed && k?.miss == .partly && k?.needsLook == false)
+        check(
+            "its line says what worked and that the rest was cut",
+            k.map {
+                Routines.partlyLine($0.notes) == "Partly done: Morning post and 4 of 12 rounds worked. The rest was cut short when One restarted."
+            }
+                ?? false)
+        check("and the card says partly done, then lists what worked", k.map { Routines.missLine($0) == "Partly done last time." } ?? false)
+        check("a run cut with nothing recorded stays orange", rs["bare"].map { $0.needsLook && $0.miss == .cut } ?? false)
+        let h = rs["half"]
+        check("a part that never worked is named", h?.notes.didnt == ["Evening post"] && h?.notes.did == ["Morning post"])
+        check("and that run is partly done, not orange", h?.miss == .partly && h?.needsLook == false)
+        check("steps from an earlier run don't count", rs["stale"].map { $0.needsLook && $0.notes.did.isEmpty } ?? false)
+        let snap = RoutinesSnapshot(routines: Array(rs.values), skills: [], now: now)
+        check("the header counts need a look and partly done apart", snap.needLook == 2 && snap.partly == 2)
+        let L = Dial.layout(snap)
+        let kinds = Dictionary(L.marks.map { ($0.rid, $0.kind) }) { a, _ in a }
+        check("the dial draws a partly done run half filled", kinds["cut"] == .partly && kinds["half"] == .partly)
+        check("a caught up run with a check, a bare one orange", kinds["caught"] == .done && kinds["bare"] == .failed)
+        check(
+            "the legend names all four", Dial.legend == "Filled: done · Half: partly done · Hollow: still to come · Orange: not done"
+        )
+    }
+
+    /// Quitting while a routine is at work waits for it; logout, a second quit, an update's own quit and test copies don't.
+    static func quitChecks(_ check: (String, Bool) -> Void) {
+        let busy = ["Morning run"]
+        check(
+            "a quit with a routine at work waits for it",
+            QuitHold.shouldHold(busy: busy, waiting: false, bypass: false, system: false, testCopy: false))
+        check("nothing at work: quits right away", !QuitHold.shouldHold(busy: [], waiting: false, bypass: false, system: false, testCopy: false))
+        check(
+            "quitting again while it waits quits now", !QuitHold.shouldHold(busy: busy, waiting: true, bypass: false, system: false, testCopy: false))
+        check(
+            "logging out or shutting down never waits", !QuitHold.shouldHold(busy: busy, waiting: false, bypass: false, system: true, testCopy: false)
+        )
+        check(
+            "an update's own quit (it already waited) goes through",
+            !QuitHold.shouldHold(busy: busy, waiting: false, bypass: true, system: false, testCopy: false))
+        check("a test copy never waits", !QuitHold.shouldHold(busy: busy, waiting: false, bypass: false, system: false, testCopy: true))
+        check("it says so plainly", QuitHold.line(busy) == "Morning run is still working. I'll quit as soon as it's done. Quit again to stop it now.")
+        check("the shutdown reasons are the real codes", QuitHold.systemReasons.contains(0x7368_7574) && QuitHold.fourCC("why?") == 0x7768_793F)
     }
 
     static func run() async -> Int32 {

@@ -34,11 +34,17 @@ struct RoutinesPanel: View {
             while !Task.isCancelled {
                 let fresh = await Task.detached { Routines.load() }.value
                 snap = fresh
-                if !picked { sel = fresh.routines.first { $0.state == .failed && !$0.outside }?.id }
+                if !picked { sel = RoutinesPanel.firstPick(fresh) }
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
             }
         }
-        .onAppear { if let f = fixed, !picked { sel = f.routines.first { $0.state == .failed }?.id } }
+        .onAppear { if let f = fixed, !picked { sel = RoutinesPanel.firstPick(f) } }
+    }
+
+    /// The card open at first: one that needs a look, else one partly done.
+    static func firstPick(_ s: RoutinesSnapshot) -> String? {
+        let mine = s.routines.filter { !$0.outside }
+        return (mine.first { $0.needsLook } ?? mine.first { $0.state == .failed })?.id
     }
 
     func close() { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen = false } }
@@ -66,8 +72,7 @@ struct RoutinesPanel: View {
             Text("\(s.skills.count) skills · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
                 .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + 84)
             starHits(stars, skills: s.skills)
-            Text("Filled: done · Hollow: still to come · Orange: didn't finish").font(.system(size: 11, weight: .medium))
-                .foregroundStyle(WorldLook.cream.opacity(0.36)).fixedSize().starCalm(floor: 0.15).offset(x: 24, y: 648)
+            legend.starCalm(floor: 0.15).offset(x: 24, y: 644)
             learnedNotice(s)
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
@@ -120,6 +125,27 @@ struct RoutinesPanel: View {
         }
     }
 
+    /// The legend: each of the dial's marks, drawn the same way, with its word (`Dial.legend` says the same in text).
+    var legend: some View {
+        let items: [(Dial.Kind, String)] = [
+            (.done, "Done"), (.partly, "Partly done"), (.next, "Still to come"), (.failed, "Not done"),
+        ]
+        return HStack(spacing: 14) {
+            ForEach(items.indices, id: \.self) { i in
+                HStack(spacing: 6) {
+                    Canvas { ctx, sz in
+                        Dial.mark(
+                            &ctx, Dial.Mark(rid: "legend", minute: 0, kind: items[i].0, at: CGPoint(x: sz.width / 2, y: sz.height / 2)), pulse: 0)
+                    }
+                    .frame(width: 16, height: 16)
+                    Text(items[i].1)
+                }
+            }
+        }
+        .font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42)).fixedSize()
+        .accessibilityLabel(Dial.legend)
+    }
+
     func nowTag(_ L: Dial.Layout) -> some View {
         let p = Dial.point(Double(L.nowMinute), 132)
         return Text("Now " + Routines.clock(L.nowMinute)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(hex: 0xFFF4E8, 0.85))
@@ -158,6 +184,7 @@ struct RoutinesPanel: View {
                     Text(" · ").foregroundStyle(WorldLook.cream.opacity(0.5))
                         + Text("\(s.needLook) need a look").foregroundStyle(Color(hex: 0xF6B46E))
                 }
+                if s.partly > 0 { Text(" · \(s.partly) partly done").foregroundStyle(WorldLook.cream.opacity(0.75)) }
                 if asks > 0 { Text(" · \(asks) waiting for your yes").foregroundStyle(WorldLook.cream.opacity(0.75)) }
             }
             .font(.system(size: 12))
@@ -166,7 +193,7 @@ struct RoutinesPanel: View {
     }
 
     func smallOrb(_ r: Routine, size: CGFloat = 18) -> some View {
-        let col: Color = r.state == .failed ? Dial.orange : WorldLook.cream
+        let col: Color = r.needsLook ? Dial.orange : WorldLook.cream
         return Circle().fill(RadialGradient(colors: [col.opacity(0.75), col.opacity(0.15)], center: .center, startRadius: 0, endRadius: size / 2))
             .overlay(Circle().strokeBorder(col.opacity(0.45), lineWidth: 1)).frame(width: size, height: size)
             .opacity(r.state == .never || r.state == .paused ? 0.5 : 1)

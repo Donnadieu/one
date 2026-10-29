@@ -223,6 +223,7 @@ final class Updater: ObservableObject {
         m.pauseHelpersForUpdate()  // after this, nothing they did is lost: each picks back up after the restart
         Engine.shared.stop()
         try? await Task.sleep(for: .milliseconds(400))
+        QuitHold.bypass = true  // it already waited for routines at work
         NSApp.terminate(nil)
     }
     func later() {

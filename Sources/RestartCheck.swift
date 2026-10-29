@@ -84,6 +84,12 @@ enum RestartCheck {
             "and says helpers pick back up",
             FolderWatch.restartingLine([c], helpers: true).hasSuffix("Your helpers will pick up where they left off."))
         check("within a minute", FolderWatch.helperGrace < 60 && FolderWatch.maxWait < 60)
+        check(
+            "a routine at work holds the restart (it would cut its run off)",
+            !FolderWatch.due(talking: false, helpersWorking: false, waited: 600, routineBusy: true))
+        check(
+            "but not for longer than an update would wait",
+            FolderWatch.due(talking: false, helpersWorking: false, waited: FolderWatch.routineWait, routineBusy: true))
 
         // A reply that never ends doesn't hold it forever either.
         let d = scratch + "/allowed-d"

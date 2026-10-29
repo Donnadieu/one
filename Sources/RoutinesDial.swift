@@ -3,8 +3,9 @@ import Foundation
 import SwiftUI
 
 // MARK: - The day dial (Claude Design "Routines View Options", B): a 24-hour ring around the assistant's orb.
-// Midnight at the top, noon at the bottom, a "now" hand. Each run today is a mark at its time (filled = done,
-// hollow = still to come, orange = didn't finish), the every-few-minutes routines are dotted bands, and every
+// Midnight at the top, noon at the bottom, a "now" hand. Each run today is a mark at its time (filled = done, or made up
+// later; half filled = partly done; hollow = still to come; orange = didn't run or did nothing it can show; see
+// RoutineRuns.swift for how a run's real outcome is read), the every-few-minutes routines are dotted bands, and every
 // mark has a label pushed apart so none overlap. Pure layout, in design points (1152 × 676), so renders and
 // the live panel draw the same thing.
 
@@ -14,7 +15,9 @@ enum Dial {
     static let r0: CGFloat = 180  // the ring
     static let rl: CGFloat = 228  // where labels start
 
-    enum Kind { case done, failed, running, next, failNext, missed, paused }
+    enum Kind { case done, partly, failed, running, next, failNext, missed, paused }
+    /// The legend under the dial. Keep it in step with `mark` below.
+    static let legend = "Filled: done · Half: partly done · Hollow: still to come · Orange: not done"
     struct Mark: Identifiable {
         var id: String { "\(rid)-\(minute)" }
         let rid: String
@@ -68,14 +71,14 @@ enum Dial {
                 let deg = 28.0 + 16 * Double(bandIndex)
                 let rad = r0 + 10 + 7 * CGFloat(bandIndex)
                 bandIndex += 1
-                L.bands.append(Band(rid: r.id, radius: rad, every: every, failed: r.state == .failed))
+                L.bands.append(Band(rid: r.id, radius: rad, every: every, failed: r.needsLook))
                 let m = deg / 360 * 1440
                 var sub = Routines.every(every).replacingOccurrences(of: "Every ", with: "Every ").replacingOccurrences(of: " minutes", with: " min")
                 if let l = r.lastRun { sub += " · " + Routines.clock(Routines.minutes(l)) }
                 sub += " " + word(r)
                 L.labels.append(
                     Label(
-                        rid: r.id, key: -1, title: r.title, sub: sub, orange: r.state == .failed, from: point(m, rad), at: point(m, rl), right: true))
+                        rid: r.id, key: -1, title: r.title, sub: sub, orange: r.needsLook, from: point(m, rad), at: point(m, rl), right: true))
                 continue
             }
             if r.today.isEmpty {
@@ -96,13 +99,14 @@ enum Dial {
                         k = .running
                         sub += " · running now"
                     } else if let lm = lastMin, lm >= t {
-                        k = (t == lastRanSlot && r.state == .failed) ? .failed : .done
-                        sub += k == .failed ? " · " + Routines.missWord(r) : " · worked"
+                        k = .done
+                        if t == lastRanSlot && r.state == .failed { k = r.miss == .partly ? .partly : .failed }
+                        sub += k == .done ? " · " + (t == lastRanSlot ? word(r) : "worked") : " · " + Routines.missWord(r)
                     } else {
                         k = .missed
                         sub += " · didn't run"
                     }
-                } else if r.state == .failed {
+                } else if r.needsLook {
                     k = .failNext
                     sub += " · didn't finish last time"
                 } else {
@@ -124,7 +128,7 @@ enum Dial {
 
     static func word(_ r: Routine) -> String {
         switch r.state {
-        case .worked, .finished: return "worked"
+        case .worked, .finished: return r.caughtUpAt.map { "caught up at " + Routines.clock(Routines.minutes($0)) } ?? "worked"
         case .failed: return Routines.missWord(r)
         case .running: return "running now"
         case .never: return "never ran yet"
@@ -227,6 +231,14 @@ enum Dial {
             x.move(to: CGPoint(x: p.x + 2, y: p.y - 2))
             x.addLine(to: CGPoint(x: p.x - 2, y: p.y + 2))
             ctx.stroke(x, with: .color(WorldLook.bg), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        case .partly:
+            // Half filled, calm cream (not orange): some of it worked.
+            ctx.fill(dot(p, 6), with: .color(WorldLook.bg))
+            var half = Path()
+            half.addArc(center: p, radius: 6, startAngle: .degrees(90), endAngle: .degrees(270), clockwise: false)
+            half.closeSubpath()
+            ctx.fill(half, with: .color(cream))
+            ctx.stroke(dot(p, 5.4), with: .color(cream.opacity(0.9)), lineWidth: 1.2)
         case .running:
             glow(&ctx, p, Color(hex: 0xFFF0E0), 0.35 + 0.25 * pulse)
             ctx.fill(dot(p, 4.5), with: .color(Color(hex: 0xFFF6EC)))
@@ -289,7 +301,9 @@ enum RoutinesRender {
         var s = RoutinesSnapshot(now: Date())
         s.routines = Routines.jobs(at: real, now: s.now)
         s.skills = Routines.skills()
-        let v = RoutinesPanel(m: m, fixed: s).frame(width: 1200, height: 740).background(WorldLook.bg)
+        // ONE_RENDER_PICK=<title>: open that routine's card instead of the first one that needs a look.
+        let pick = ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t }?.id }
+        let v = RoutinesPanel(m: m, fixed: s, sel: pick, picked: pick != nil).frame(width: 1200, height: 740).background(WorldLook.bg)
         let r = ImageRenderer(content: v)
         r.scale = 2
         if let img = r.nsImage, let t = img.tiffRepresentation, let rep = NSBitmapImageRep(data: t),

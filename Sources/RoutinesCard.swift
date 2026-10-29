@@ -1,6 +1,26 @@
 import AppKit
 import SwiftUI
 
+/// Puts the card at its usual height, and lifts a tall one (a run that lists what worked and what didn't) so its bottom
+/// never runs off the panel.
+struct CardSlot: Layout {
+    let top: CGFloat
+    var bottom: CGFloat = Dial.size.height - 14
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: subviews.first?.sizeThatFits(.unspecified).width ?? 0, height: Dial.size.height)
+    }
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let v = subviews.first else { return }
+        let s = v.sizeThatFits(ProposedViewSize(width: b.width, height: nil))
+        let y = max(b.minY + 70, min(b.minY + top, b.minY + bottom - s.height))
+        v.place(at: CGPoint(x: b.minX, y: y), proposal: ProposedViewSize(width: b.width, height: s.height))
+    }
+    struct Place: ViewModifier {
+        let top: CGFloat
+        func body(content: Content) -> some View { CardSlot(top: top) { content }.offset(x: 890) }
+    }
+}
+
 // MARK: - The routines panel's floating pieces: the card for a tapped routine or skill (Run now, Pause, Ask),
 // the "want me to save how I did …?" question by the orb, and the fading "I learned something new" notice.
 
@@ -19,7 +39,8 @@ extension RoutinesPanel {
                     routineCard(r, now: s.now)
                 }
             }
-            .frame(width: 250).starCalm().offset(x: 890, y: top).transition(.opacity)
+            .frame(width: 250).starCalm().transition(.opacity)
+            .modifier(CardSlot.Place(top: top))
         }
     }
 
@@ -71,7 +92,8 @@ extension RoutinesPanel {
     }
 
     func routineCard(_ r: Routine, now: Date) -> some View {
-        let failed = r.state == .failed
+        let failed = r.needsLook  // orange only when it did nothing it can show
+        let partly = r.state == .failed && r.miss == .partly
         var last = "Never ran yet"
         if let l = r.lastRun { last = Routines.stamp(l, now: now) + " · " + Dial.word(r) }
         if r.state == .running, let l = r.lastRun { last = "Running now. Before that: " + Routines.stamp(l, now: now) }
@@ -81,14 +103,18 @@ extension RoutinesPanel {
                 (r.outside ? "Runs outside One" : "Scheduled job") + (r.state == .paused ? " · paused" : ""),
                 dot: failed ? Dial.orange : r.state == .never || r.state == .paused ? WorldLook.cream.opacity(0.4) : WorldLook.cream)
             Text(r.title).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
-            Text(failed ? Routines.missLine(r) : r.what).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(
-                .top, 4
-            ).lineLimit(4)
+            Text(r.state == .failed ? Routines.missLine(r) : r.caughtUpAt != nil ? Routines.caughtUpLine(r) : r.what).font(.system(size: 11.5))
+                .foregroundStyle(WorldLook.cream.opacity(0.6)).padding(
+                    .top, 4
+                ).lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
             VStack(alignment: .leading, spacing: 8) {
                 fact("How often", r.often)
-                fact("Last run", last, color: failed ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.85), sub: r.reason)
+                fact(
+                    "Last run", last, color: failed ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.85),
+                    sub: partly && !r.notes.did.isEmpty ? nil : r.reason)
+                if partly || r.caughtUpAt != nil { outcomeFacts(r) }
                 fact(failed ? "Next try" : "Next", next)
             }
             HStack(spacing: 6) {
@@ -116,6 +142,25 @@ extension RoutinesPanel {
             if let note {
                 Text(note).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 8).fixedSize(
                     horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// What worked and what didn't, plainly, from the run's own report and step log.
+    @ViewBuilder func outcomeFacts(_ r: Routine) -> some View {
+        let n = r.notes
+        let worked = n.did.filter { !n.caughtUp.contains($0) }
+        if !worked.isEmpty { fact("Worked", Routines.names(worked).capitalizingFirst) }
+        if !n.caughtUp.isEmpty {
+            let at = n.caughtUpAt.map { " (" + Routines.clock(Routines.minutes($0)) + ")" } ?? ""
+            fact("Made up", Routines.names(n.caughtUp).capitalizingFirst + " later" + at)
+        }
+        if r.state == .failed {
+            if !n.didnt.isEmpty {
+                fact("Didn't", Routines.names(n.didnt).capitalizingFirst, color: Color(hex: 0xF6B46E))
+            } else if n.cut {
+                let at = n.cutAt.map { " at " + Routines.clock(Routines.minutes($0)) } ?? ""
+                fact("Didn't", "The rest: One restarted\(at)", color: WorldLook.cream.opacity(0.85))
             }
         }
     }

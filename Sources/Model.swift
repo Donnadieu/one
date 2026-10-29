@@ -87,9 +87,10 @@ final class Model: ObservableObject {
     /// Working helpers don't hold it up for long (FolderWatch.due): they're paused and pick back up.
     func tendFolders() {
         guard onboarded, !Env.commandLine else { return }
-        FolderWatch.tend(talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running) {
-            resume, pause in await self.restartForFolders(resume: resume, pauseHelpers: pause)
-        }
+        FolderWatch.tend(
+            talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running,
+            routineBusy: { !Routines.inFlight().isEmpty },
+            restart: { resume, pause in await self.restartForFolders(resume: resume, pauseHelpers: pause) })
     }
 
     func restartForFolders(resume: Bool, pauseHelpers: Bool) async {

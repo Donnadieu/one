@@ -66,6 +66,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if HumanCheckLive.launch() || HelperStress.launch() { return }  // --test-human-window, --test-helpers-stress (tools/*-check.sh)
+        if MessageHistoryCheck.launch() { return }  // --test-message-history (tools/message-history-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -421,6 +422,7 @@ struct Entry {
                     ),
                     ("long-start", AnyView(EmptyView())), ("long-middle", AnyView(EmptyView())), ("long-end", AnyView(EmptyView())),
                     ("long-panel", AnyView(EmptyView())),
+                    ("message-history", MessageHistoryRender.scene(open: true)), ("message-history-closed", MessageHistoryRender.scene(open: false)),
                 ]
                 for (name, v) in views + HelperStopScene.renders {
                     if name.hasPrefix("rooms-") {

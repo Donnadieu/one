@@ -91,6 +91,21 @@ enum RestartCheck {
             "but not for longer than an update would wait",
             FolderWatch.due(talking: false, helpersWorking: false, waited: FolderWatch.routineWait, routineBusy: true))
 
+        // A helper mid a build/test/push/release holds the restart too, with its own (shorter) cap.
+        check(
+            "a helper mid a sensitive dev step holds the restart",
+            !FolderWatch.due(talking: false, helpersWorking: true, waited: 60, sensitiveBusy: true))
+        check(
+            "but only up to its own cap, not forever",
+            FolderWatch.due(talking: false, helpersWorking: true, waited: FolderWatch.sensitiveWait, sensitiveBusy: true))
+        check("building is sensitive", Plain.sensitive("Building One…"))
+        check("packaging is sensitive", Plain.sensitive("Packaging One…"))
+        check("running tests is sensitive", Plain.sensitive("Running tests…"))
+        check("pushing to GitHub is sensitive", Plain.sensitive("Pushing to GitHub…"))
+        check("publishing a release is sensitive", Plain.sensitive("Publishing a release…"))
+        check("plain browsing is never sensitive", !Plain.sensitive("Searching the web for “flights”…"))
+        check("reading a file is never sensitive", !Plain.sensitive("Reading a file…"))
+
         // A reply that never ends doesn't hold it forever either.
         let d = scratch + "/allowed-d"
         Access.override = [a, b, c, d]

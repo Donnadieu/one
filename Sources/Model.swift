@@ -26,7 +26,7 @@ enum Choices {
     }
 }
 
-struct Bubble: Identifiable {
+struct Bubble: Identifiable, Equatable {
     let id = UUID()
     let fromMe: Bool
     var text: String

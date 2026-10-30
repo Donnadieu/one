@@ -66,7 +66,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if HumanCheckLive.launch() || HelperStress.launch() || WindowGuardCheck.launch() { return }  // -window/-stress/-guard checks
-        if MessageHistoryCheck.launch() { return }  // --test-message-history (tools/message-history-check.sh)
+        if MessageHistoryCheck.launch() || MessageHistoryClickCheck.launch() || MessageTypingPerfCheck.launch() { return }  // --test-message-* checks
         if ResetCheck.launch() { return }  // --test-reset (tools/reset-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder

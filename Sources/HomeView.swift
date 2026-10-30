@@ -59,6 +59,13 @@ struct HomeView: View {
                     .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
                 StillScroll {
                     VStack(spacing: 12) {
+                        // Extra room above the orb only: its own halo/aura is bigger than its component frame
+                        // (by design, elsewhere in the app too), and this is the one place the halo can sit at
+                        // the very top of a scrolling column. Without this gap the ScrollView's own clip
+                        // boundary cuts a flat edge straight through the circular halo the moment there's
+                        // nothing above it to scroll past (Omar, 2026-10-29: "we cannot desecrate the halo").
+                        // The orb/HelperConstellation themselves are untouched — this is only breathing room.
+                        Color.clear.frame(height: 64)
                         HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                         if m.isReady && m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)

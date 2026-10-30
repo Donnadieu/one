@@ -45,22 +45,25 @@ enum MessageHistoryCheck {
         check("oldest first, current exchange excluded", older.first?.text == "What's my flight time on the 20th?")
         check("newest-of-the-old last", older.last?.text == "Auberge Saint-Antoine.")
 
-        // Design A is a true flat list: no blur/fade/shrink numeric calculation left in the view at all.
-        // (Design B had a `depth(of:)` 0...1 calculation driving `.blur()`/`.opacity()`/`.scaleEffect()`;
-        // Option A must remove that calculation, not just zero its output.)
+        // Design C (marked trail) is still a true flat list underneath its thread/dot chrome: no blur/fade/
+        // shrink numeric calculation on the message text itself. (Design B had a `depth(of:)` 0...1
+        // calculation driving `.blur()`/`.opacity()`/`.scaleEffect()`; that must stay gone, not just zeroed.)
         let siblingDir = (#filePath as NSString).deletingLastPathComponent
         let src = (try? String(contentsOfFile: siblingDir + "/MessageHistory.swift", encoding: .utf8)) ?? ""
         check("source file was found to scan", !src.isEmpty)
         check("no leftover `depth` fade/blur calculation", !src.contains("func depth("))
         check("no `.blur(` on any history row", !src.contains(".blur("))
         check("no `.scaleEffect(` (shrink/recede) on any history row", !src.contains(".scaleEffect("))
-        // The only `.opacity(` calls left are: the toggle label (0.75), icon hover-reveal (0.0001/1), and
-        // the divider rule/label (0.12/0.45) — none of them dim the message text itself below 0.9.
+        // The only `.opacity(` calls left are chrome: the toggle label, icon hover-reveal, the divider rule/
+        // label, the distance pill and the thread line/dot — none of them dim the message text itself.
         check(
             "row() applies no `.opacity(` to the message text",
             !src.contains(
-                "ChatText(text: b.text, size: 14, plain: b.fromMe)\n                .frame(maxWidth: .infinity, alignment: .leading)\n                .opacity"
+                "ChatText(text: b.text, size: 14, plain: b.fromMe)\n                    .frame(maxWidth: .infinity, alignment: .leading)\n                    .opacity"
             ))
+        // No background box behind a row: the thread (for your own questions) is the only chrome now,
+        // not a filled rounded rectangle card like the old design.
+        check("no filled background box on a history row", !src.contains(".background(RoundedRectangle(cornerRadius: 14).fill("))
 
         // history readable past 40 messages: the persisted cap is raised well beyond the old 40-bubble limit.
         UserDefaults.standard.removeObject(forKey: "bubbles")
@@ -91,6 +94,27 @@ enum MessageHistoryCheck {
         // Day/time divider: never shown before the very first (oldest) turn, whatever its age.
         let strip = HistoryStrip(m: m, turns: [], open: .constant(true))
         check("no divider before the very first turn", strip.dividerLabel(before: 0) == nil)
+
+        // Halo not clipped: the orb's own rendered halo is bigger than its component frame (Orb wraps a
+        // 280×280 Presence in a 184×184 frame at size 92, so the halo overflows ~37pt past its own frame;
+        // HelperConstellation's empty-state frame is only 150pt tall, overflowing another ~17pt), and the
+        // orb sits at the very top of this same scrolling column. Without a real gap above it, the
+        // ScrollView's own clip boundary cuts a flat edge straight through the circular halo — "a
+        // rectangular box clips its aura" (Omar, 2026-10-29). A fixed, generous gap right before
+        // `HelperConstellation(` in HomeView.swift is the fix; this proves it's still there and still big
+        // enough, without touching the orb's own files.
+        let homeSrc = (try? String(contentsOfFile: siblingDir + "/HomeView.swift", encoding: .utf8)) ?? ""
+        check("HomeView source was found to scan", !homeSrc.isEmpty)
+        let haloGap: Int? = {
+            guard let r = homeSrc.range(of: "HelperConstellation(m: m,") else { return nil }
+            let before = homeSrc[..<r.lowerBound]
+            guard let spacerRange = before.range(of: "Color.clear.frame(height: ", options: .backwards) else { return nil }
+            let after = before[spacerRange.upperBound...]
+            let digits = after.prefix(while: { $0.isNumber })
+            return Int(digits)
+        }()
+        check("a real gap sits above the orb, right before HelperConstellation", haloGap != nil)
+        check("that gap is at least 60pt — enough to clear the halo's overflow", (haloGap ?? 0) >= 60)
 
         UserDefaults.standard.removeObject(forKey: "bubbles")
         m.bubbles = []

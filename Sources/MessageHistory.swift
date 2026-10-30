@@ -13,12 +13,9 @@ struct HistoryStrip: View {
     let turns: [Bubble]
     @Binding var open: Bool
     @State var hovered: UUID?
-
     /// Renders: no hover state, no motion — matches other `--render-world` stills.
     nonisolated(unsafe) static var still = false
 
-    /// A card this tall is comfortable to scroll in the home layout without crowding the current exchange.
-    static let listHeight: CGFloat = 360
     /// Width of the thread's own gutter (line + dot), left of the text column.
     static let threadGutter: CGFloat = 22
 
@@ -36,12 +33,16 @@ struct HistoryStrip: View {
                 }
                 // ImageRenderer draws ScrollView contents blank, so `--render-world` stills skip the
                 // ScrollView and lay the same rows out directly; the live app always uses the real one.
-                if HistoryStrip.still {
-                    list
-                } else {
-                    ScrollView { list.padding(.vertical, 4) }
-                        .frame(maxHeight: HistoryStrip.listHeight)
-                }
+                //
+                // FIX (Omar, 2026-10-29: can't click copy/resend icons): this used to be its own
+                // ScrollView, nested inside the home page's own outer ScrollView (same axis, both
+                // vertical). A real on-screen click test (`--test-message-click`) proved that nested
+                // same-axis ScrollView made the icon buttons genuinely unreachable — not just a small hit
+                // area, absent from hit-testing AND the Accessibility tree entirely, with the icons at
+                // full opacity. The page already scrolls (`StillScroll`/`ScrollView` in HomeView); this
+                // list doesn't need its own separate scroll container, so it draws the same way stills do.
+                list
+
             }
             if !turns.isEmpty {
                 Button {
@@ -136,6 +137,7 @@ struct HistoryStrip: View {
                     Image(systemName: "doc.on.doc").font(.system(size: 11))
                 }
                 .buttonStyle(.plain).help("Copy")
+                .frame(width: 28, height: 28).contentShape(Rectangle())
                 if b.fromMe {
                     Button {
                         m.draftSeed = b.text
@@ -143,6 +145,7 @@ struct HistoryStrip: View {
                         Image(systemName: "arrow.uturn.up").font(.system(size: 11))
                     }
                     .buttonStyle(.plain).help("Ask again")
+                    .frame(width: 28, height: 28).contentShape(Rectangle())
                 }
             }
             .foregroundStyle(WorldLook.cream.opacity(0.75))
@@ -164,6 +167,18 @@ struct HistoryStrip: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+    }
+}
+
+/// Lets HomeView wrap `HistoryStrip(...)` in `.equatable()`: skips re-running this view's whole body (and
+/// the real AppKit text layout/markdown work every row does) on every keystroke in the ask box, since
+/// typing changes `HomeView`'s own `draft` state but never touches `turns`/`open` (Omar, 2026-10-29:
+/// "typing in the chat box lags"). `m` is always the one `Model.shared` singleton and `hovered` is
+/// transient hover UI state, neither affects what should be drawn for a given `turns`/`open`, so both are
+/// left out of equality on purpose — leaving them in would make this always report "changed".
+extension HistoryStrip: Equatable {
+    static func == (l: HistoryStrip, r: HistoryStrip) -> Bool {
+        l.turns == r.turns && l.open == r.open
     }
 }
 

@@ -130,7 +130,7 @@ struct HomeView: View {
                             FollowUpList(m: m, helper: h.id).starCalm()
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
-                                HistoryStrip(m: m, turns: olderTurns, open: $historyOpen)
+                                HistoryStrip(m: m, turns: olderTurns, open: $historyOpen).equatable()
                                 ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".

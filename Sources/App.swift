@@ -59,6 +59,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HelperSelfCheck.run()) }
             return
         }
+        if RoutingLiveCheck.launch() || RoutingCheck.launch() { return }  // --test-routing-live (tools/routing-live-check.sh), --test-routing
         if HelperNotesCheck.launch() { return }  // --test-helper-notes (tools/helper-notes-check.sh)
         if CommandLine.arguments.contains("--test-human-step") {
             TestWorld.enter()  // throwaway folder and a test Chrome (tools/handoff-check.sh); never the shared browser

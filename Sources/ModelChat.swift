@@ -158,7 +158,8 @@ extension Model {
                 return
             }
             self.update(id) { $0.sid = sid }
-            await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: task), images: [])
+            let routed = await self.routeHelper(id, sid: sid, title: title, task: task)  // RoutingHelpers.swift; "" = as before
+            await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: task) + routed, images: [])
         }
     }
 
@@ -433,7 +434,8 @@ extension Model {
         // The long rules (helpers, their screen, what is connected and built, which One) go once per conversation and
         // again when they change (NoteCache.swift); what changes turn by turn (helper status, room notes) goes every turn.
         let rules = Helpers.note + sharedNote() + SessionNotes.main
-        let deltas = roomNotes(c.engine) + helperNews() + (hidden ? "" : Learning.kindNote)
+        // routeMain (RoutingHelpers.swift): one short line about the room or their yes, or nothing.
+        let deltas = roomNotes(c.engine) + helperNews() + (hidden ? "" : Learning.kindNote + routeMain(c.engine))
         let sid = Engine.shared.mainSession
         let message = c.engine + recap + NoteCache.pack(sid, rules: rules) + deltas
         learnStart(hidden: hidden)

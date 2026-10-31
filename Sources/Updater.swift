@@ -100,6 +100,12 @@ final class Updater: ObservableObject {
     var announced: [String] { Updater.store.stringArray(forKey: "updateAnnounced") ?? [] }
 
     /// The newest release above `current` that has One.zip attached.
+    /// Defense in depth: only a `browser_download_url` on github.com (or its githubusercontent.com asset
+    /// host) is ever downloaded, in case the releases JSON response is ever tampered with or spoofed.
+    static func trustedDownloadHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "github.com" || host.hasSuffix(".githubusercontent.com")
+    }
     static func pick(_ list: [[String: Any]], current: String) -> (String, String, URL)? {
         var best: (String, String, URL)?
         for r in list where (r["draft"] as? Bool) != true {
@@ -109,6 +115,12 @@ final class Updater: ObservableObject {
                     as? String,
                 let zu = URL(string: zip)
             else { continue }
+            guard Updater.trustedDownloadHost(zu) else {
+                print(
+                    "Update aborted: release \(tag) points at an unexpected download host (\(zu.host ?? "unknown")), not github.com/*.githubusercontent.com. Skipping it."
+                )
+                continue
+            }
             best = (tag, (r["body"] as? String) ?? "", zu)
         }
         return best

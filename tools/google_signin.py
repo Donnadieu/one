@@ -24,6 +24,7 @@ creds = flow.run_local_server(port=0, open_browser=True, timeout_seconds=600,
                               success_message="You're signed in. You can close this tab and go back to One.")
 email = build("gmail", "v1", credentials=creds, cache_discovery=False).users().getProfile(userId="me").execute()["emailAddress"].lower()
 os.makedirs(os.path.join(home, "google_tokens"), exist_ok=True)
+os.chmod(os.path.join(home, "google_tokens"), 0o700)
 for path in (os.path.join(home, "google_tokens", f"{email}.json"),) + ((os.path.join(home, "google_token.json"),) if not os.path.exists(os.path.join(home, "google_token.json")) else ()):
     with open(path, "w") as f:
         f.write(creds.to_json())

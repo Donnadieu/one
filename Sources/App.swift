@@ -501,7 +501,7 @@ struct Entry {
                     Env.hermesPath != nil
                     ? nil : await Installer.run { n, line in if line.hasPrefix("Install") || n % 5 == 0 { print("  [\(n)] \(line)") } }
                 if let k = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] {
-                    try? "OPENROUTER_API_KEY=\(k)\n".write(to: Env.hermesHome.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+                    Env.writeSecretEnv("OPENROUTER_API_KEY=\(k)\n", to: Env.hermesHome.appendingPathComponent(".env"))
                 }
                 print("install:", err ?? "ok", "in \(Int(Date().timeIntervalSince(t0)))s", "hermes:", Env.hermesPath ?? "missing")
                 guard err == nil else { return }

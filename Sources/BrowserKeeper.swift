@@ -66,8 +66,8 @@ enum BrowserKeeper {
         // Hidden no matter what the plan says: no browser window on their screen without their yes.
         var a = ["-g", "-n", "-a", app, "--args", "--headless=new"]
         a += [
-            "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--no-first-run", "--no-default-browser-check",
-            "--window-size=1440,900", "--disable-blink-features=AutomationControlled",
+            "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--remote-debugging-address=127.0.0.1",
+            "--no-first-run", "--no-default-browser-check", "--window-size=1440,900", "--disable-blink-features=AutomationControlled",
         ]
         // Headless Chrome says "HeadlessChrome" in its user agent, and Cloudflare refuses that outright (the
         // "verify you are human" loop). Send what the same Chrome sends in a window; its client hints already match.

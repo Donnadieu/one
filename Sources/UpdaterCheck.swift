@@ -260,9 +260,12 @@ enum UpdaterCheck {
         func runSwap(newApp: URL, target: URL) -> Bool {
             let dir = base.appendingPathComponent("dir-\(UUID().uuidString)")
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            // waitPID: a pid that's already gone, so the script's "wait for the caller to quit" loop falls
+            // through right away (the real caller is the live test process, never meant to exit here).
+            // enginePID: a fake, already-dead pid — never nil, which would make the script try `kill 0`
+            // (the whole process group) when there's really no engine pid to kill.
             let script = Updater.swapScript(
-                newApp: newApp.path, target: target.path, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
-                enginePID: nil, noReopen: true)
+                newApp: newApp.path, target: target.path, dir: dir.path, waitPID: 999_999, enginePID: 999_998, noReopen: true)
             let sh = dir.appendingPathComponent("swap.sh")
             try? script.write(to: sh, atomically: true, encoding: .utf8)
             let p = Process()

@@ -72,7 +72,7 @@ final class Updater: ObservableObject {
         while kill -0 \(waitPID) 2>/dev/null; do sleep 0.5; done
         if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
         pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
-        else kill \(enginePID.map(String.init) ?? "0") 2>/dev/null; fi
+        else \(enginePID.map { "kill \($0)" } ?? ": # no engine pid to kill (never \"kill 0\" — that signals the whole process group)") 2>/dev/null; fi
         if ! /usr/bin/codesign --verify --deep --strict "\(newApp)" 2>/dev/null; then
         echo "Update aborted: the downloaded app's code signature did not verify. The current version was kept." >&2
         rm -rf "\(dir)"

@@ -19,8 +19,19 @@ person's own Mac, not about a server One's team operates.
   - `Updater.pick` only considers a release's `browser_download_url` when its
     host is `github.com` or a `*.githubusercontent.com` asset host (defense
     in depth against a tampered or spoofed releases response).
+  - Before the swap script replaces the installed bundle, the downloaded
+    app's code signature must verify (`codesign --verify --deep --strict`)
+    **and** its signing team must match the running app's; a tampered or
+    unsigned download is left on disk untouched and the currently-installed
+    app is never replaced (`Sources/Updater.swift`, proven by fixture
+    bundles in `UpdaterCheck.swift`: unsigned and signed-then-tampered
+    bundles are both rejected before anything is touched).
   - The swap script waits for the running app's PID to exit before replacing
-    the bundle, so a user is never left with half-old/half-new binaries.
+    the bundle, so a user is never left with half-old/half-new binaries. It
+    never sends `kill 0` (the whole process group, including the script's
+    own) when no engine PID is known — it skips the kill in that case
+    instead, a bug fixed in 0.9.80 that could otherwise kill the swap
+    script mid-swap.
   - A failed/timed-out download or swap must leave the currently-installed
     app runnable, not inconsistent (checked by `UpdaterCheck.swift`,
     `One --test-updates`).
@@ -39,6 +50,7 @@ person's own Mac, not about a server One's team operates.
 |---|---|
 | Startup never stuck | `StartupGate`/`ReadyLayer` timeouts + retry; `StartupRender` renders checked by hand |
 | Update only from a trusted host | `Updater.trustedDownloadHost` + `UpdaterCheck.swift` (`One --test-updates`, run by preflight) |
+| Update swap only installs a genuinely-signed, matching-team build | `Updater.swift` codesign/team-ID verify before swap; `UpdaterCheck.swift` signing-check fixtures |
 | Update swap is atomic (no half-swapped app) | swap script waits on the running PID before replacing the bundle; `UpdaterCheck.swift` |
 | A dropped engine turn is retried, not lost | `GatewayGuard` + retry-once in `Engine` |
 | Stale (not healthy) gateways only are stopped | `GatewayGuard`; preflight `GatewayCheck`/`RestartCheck` |
@@ -62,6 +74,11 @@ person's own Mac, not about a server One's team operates.
   load after a restart (the restart itself kills and re-wakes the gateway);
   giving up after one try used to open a blank chat on every restart — fixed
   with a 15×3s retry.
+- A routine's `fire_claim` left with no `at` timestamp by a dead run (e.g.
+  the update-swap script killing the engine mid-routine) used to read as
+  "still running" forever, silently blocking that routine from ever firing
+  again; `Routines.inFlight` (0.9.80) now matches the engine's own claim
+  TTL instead of treating a missing `at` as live.
 
 A requirement with no row above, or a row saying NOT YET ENFORCED, is a real
 gap: file it in `docs/exec-plans/tech-debt-tracker.md` rather than assuming

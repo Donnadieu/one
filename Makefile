@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: identity build format format-check lint check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
+.PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -10,11 +10,14 @@ format-check:     ## fail if anything isn't formatted
 lint:             ## One's own rules (tools/lint/one-lint.py) + the baseline may only shrink
 	python3 tools/lint/one-lint.py
 	tools/lint/check-baseline.sh
+docdrift:         ## sensitive code changed without its matching doc (docs/SECURITY.md etc) touched
+	git fetch -q origin main 2>/dev/null || true
+	python3 tools/doc-drift-check.py origin/main
 identity:         ## commits here are only Donnadieu <donnadieu.86@gmail.com>, signed ABAFD67086BDA7E0 (never donnadieu-andela)
 	tools/check-identity.sh
 	git fetch -q origin main 2>/dev/null || true
 	tools/check-identity.sh --range origin/main..HEAD
-check: identity format-check lint preflight   ## the whole gate
+check: identity format-check lint docdrift preflight   ## the whole gate
 preflight:        ## build + bundle + KeePass + folder lock + updater + renders (~1 min)
 	tools/preflight.sh
 full:             ## preflight plus a fresh install into an empty folder (~3 min)

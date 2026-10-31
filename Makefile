@@ -13,11 +13,13 @@ lint:             ## One's own rules (tools/lint/one-lint.py) + the baseline may
 docdrift:         ## sensitive code changed without its matching doc (docs/SECURITY.md etc) touched
 	git fetch -q origin main 2>/dev/null || true
 	python3 tools/doc-drift-check.py origin/main
+knowledgebase:    ## mandated docs exist, docs/INDEX.md has no broken/orphaned entries, AGENTS.md stays short
+	tools/knowledge-base-check.sh
 identity:         ## commits here are only Donnadieu <donnadieu.86@gmail.com>, signed ABAFD67086BDA7E0 (never donnadieu-andela)
 	tools/check-identity.sh
 	git fetch -q origin main 2>/dev/null || true
 	tools/check-identity.sh --range origin/main..HEAD
-check: identity format-check lint docdrift preflight   ## the whole gate
+check: identity format-check lint docdrift knowledgebase preflight   ## the whole gate
 preflight:        ## build + bundle + KeePass + folder lock + updater + renders (~1 min)
 	tools/preflight.sh
 full:             ## preflight plus a fresh install into an empty folder (~3 min)

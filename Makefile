@@ -1,5 +1,4 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-# (comment-only: test PR proving the auto-approve-owner-prs workflow end to end)
 .PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check learning
 
 build:            ## build build/app.noindex/One.app

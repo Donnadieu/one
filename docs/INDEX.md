@@ -15,5 +15,10 @@
   docs/INDEX.md (this file) reaches every doc under docs/, and that the doc-drift mapping above
   doesn't point at a missing file; `--fix` repairs unambiguous moved-file links and opens a small
   PR when it changes anything. See `.agents/skills/doc-gardening/SKILL.md` to run it by hand.
+- `tools/knowledge-base-check.sh`: knowledge-base integrity test (part of `make check` as
+  `make knowledgebase`) — every doc this repo's harness mandates exists, `doc-gardening.py --check`
+  is clean (delegated to, never duplicated), and AGENTS.md stays a table of contents (≤200 lines).
 - [QUALITY_SCORE.md](QUALITY_SCORE.md): per-area grading
 - [exec-plans/README.md](exec-plans/README.md): active and completed plans, tech debt
+- [first-time-user-test.md](first-time-user-test.md): the kit for watching one non-technical
+  friend install and use One with no help, and filing every stuck moment into the friction log

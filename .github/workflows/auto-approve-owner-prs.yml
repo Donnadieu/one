@@ -1,0 +1,65 @@
+name: Auto-approve owner PRs once CI is green
+# Goal: Omar (github account "Donnadieu") is the only person who opens and
+# merges PRs here, so branch protection's "1 approving review" requirement
+# forces a `gh pr merge --admin` override on every single PR of his own.
+# This workflow removes that override WITHOUT weakening what the review
+# requirement protects: it only ever approves a PR whose author is
+# "Donnadieu", and only after that PR's head commit has a green run of the
+# `check` workflow (preflight.yml). An external contributor's PR is never
+# touched here and still needs a real human review from a CODEOWNER
+# (.github/CODEOWNERS lists Donnadieu and donnadieu-andela).
+#
+# Trigger shape: `workflow_run` of `check` completing, not `pull_request`
+# directly. Two reasons:
+#   1. It fires strictly AFTER CI has concluded, so "CI passed" is a fact,
+#      not a race.
+#   2. GitHub refuses to let the identity that triggered a `pull_request`
+#      run's GITHUB_TOKEN approve that same PR in some trigger shapes, and
+#      more fundamentally GitHub never lets an author approve their own PR
+#      via the API no matter which token submits it. The approval here is
+#      submitted by a second GitHub account that belongs to Omar
+#      (donnadieu-andela, also a repo CODEOWNER) via a PAT stored as the
+#      `ANDELA_APPROVE_TOKEN` secret — a different account than the PR
+#      author, so it is a real, API-legal review, not a self-approval.
+on:
+  workflow_run:
+    workflows: ["check"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  approve:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the PR for this run and check its author
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # workflow_run doesn't hand us the PR number directly; look it up
+          # by the head SHA of the run that just finished.
+          pr_json=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            -H "Accept: application/vnd.github.groot-preview+json")
+          number=$(echo "$pr_json" | jq -r '[.[] | select(.state=="open")][0].number // empty')
+          author=$(echo "$pr_json" | jq -r '[.[] | select(.state=="open")][0].user.login // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "author=$author" >> "$GITHUB_OUTPUT"
+          echo "Found PR #$number by $author"
+
+      - name: Approve, only for Donnadieu's own PRs
+        if: steps.pr.outputs.number != '' && steps.pr.outputs.author == 'Donnadieu'
+        env:
+          GH_TOKEN: ${{ secrets.ANDELA_APPROVE_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          gh pr review "$PR" --repo "$REPO" --approve \
+            --body "Auto-approved: author is the repo owner (Donnadieu) and the \`check\` workflow passed on this PR's head commit."

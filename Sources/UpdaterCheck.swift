@@ -6,10 +6,12 @@ import Foundation
 @MainActor
 enum UpdaterCheck {
     static func release(_ tag: String, zip: Bool) -> [String: Any] {
+        // A real release asset host (github.com / *.githubusercontent.com): Updater.pick now refuses
+        // anything else (defense in depth against a tampered/spoofed releases response).
         let assets: [[String: Any]] =
             zip
-            ? [["name": "One.zip", "browser_download_url": "https://example.invalid/\(tag)/One.zip"]]
-            : [["name": "One.dmg", "browser_download_url": "https://example.invalid/\(tag)/One.dmg"]]
+            ? [["name": "One.zip", "browser_download_url": "https://github.com/Donnadieu/one/releases/download/v\(tag)/One.zip"]]
+            : [["name": "One.dmg", "browser_download_url": "https://github.com/Donnadieu/one/releases/download/v\(tag)/One.dmg"]]
         return ["tag_name": "v\(tag)", "draft": false, "body": "- Test release \(tag)\n- more", "assets": assets]
     }
     /// An update never cuts a routine off: it sees which routines are mid-run (a fake jobs.json in the test home)

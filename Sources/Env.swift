@@ -82,6 +82,13 @@ enum Env {
         if !selfTest { e.removeValue(forKey: "OPENROUTER_API_KEY") }
         return e
     }
+    /// Writes a secret into `hermes/.env` (API keys, bot tokens) and hardens its permissions to owner-only
+    /// (0600) on every write, so a copy created before this fix — or by any future code path — is
+    /// self-healing rather than staying group/other-readable.
+    static func writeSecretEnv(_ text: String, to url: URL) {
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
 }
 
 final class Box<T>: @unchecked Sendable {
@@ -129,7 +136,11 @@ enum Access {
             "(subpath \"" + p.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\")"
         }
         // GitHub and git logins the person already has on this Mac (so "connect my GitHub" just works).
-        let logins = ["\(h)/.config/gh", "\(h)/.gitconfig", "\(h)/.config/git", "\(h)/.ssh", "\(h)/.git-credentials"]
+        // NEVER add `.ssh` or `.git-credentials` back here: gh's HTTPS auth lives in the macOS keychain
+        // (Library/Keychains, allowed below) and needs no raw key/credential files. Allow-listing them
+        // would let any helper or skill running inside this sandbox read private SSH keys / stored git
+        // passwords and exfiltrate them over the network (the sandbox's base policy is `allow default`).
+        let logins = ["\(h)/.config/gh", "\(h)/.gitconfig", "\(h)/.config/git"]
         let rw = [Env.support.path, Brain.root.path, "\(h)/.cache", "\(h)/Library/Caches", "\(h)/.config/gh"] + folders + Shared.paths
         // The GitHub login token itself sits in the macOS keychain.
         var ro = ["\(h)/.local", "\(h)/Library/Keychains"] + logins

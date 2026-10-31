@@ -26,7 +26,17 @@ enum UpdaterCheck {
             return j
         }
         let jobs: [[String: Any]] = [
-            job("a1", "Afternoon run", ["fire_claim": ["owner": "x"], "last_run_at": iso.string(from: now.addingTimeInterval(-86400))]),
+            job(
+                "a1", "Afternoon run",
+                [
+                    "fire_claim": ["owner": "x", "at": iso.string(from: now.addingTimeInterval(-10))],
+                    "last_run_at": iso.string(from: now.addingTimeInterval(-86400)),
+                ]),
+            // A claim with no `at` at all is left by an engine that died mid-fire (crash, force quit, the
+            // update-swap script's kill): it must read as stale, not running, even though it's still in jobs.json.
+            job(
+                "a0", "Stale-claim run",
+                ["fire_claim": ["owner": "x"], "last_run_at": iso.string(from: now.addingTimeInterval(-86400))]),
             job(
                 "b2", "Morning run",
                 [
@@ -46,6 +56,7 @@ enum UpdaterCheck {
         try? JSONSerialization.data(withJSONObject: ["jobs": jobs]).write(to: cron.appendingPathComponent("jobs.json"))
         defer { try? FileManager.default.removeItem(at: cron.appendingPathComponent("jobs.json")) }
         check("an update sees the routine at work", Routines.inFlight(now: now) == ["Afternoon run"])
+        check("a claim with no `at` at all reads as stale, not running", !Routines.inFlight(now: now).contains("Stale-claim run"))
         let line = Updater.routineLine(Routines.inFlight(now: now))
         check("and says it waits for it", line.contains("Afternoon run") && line.contains("as soon as") && line.contains("finishes"))
         let rs = Dictionary(uniqueKeysWithValues: Routines.jobs(at: cron, now: now).map { ($0.id, $0) })
@@ -214,7 +225,82 @@ enum UpdaterCheck {
         await u.check(current: cur)
         check("backs off after an error", u.wait > 15 * 60)
         routineChecks(check)
+        signingChecks(check)
         print(fails == 0 ? "updates ok" : "updates FAILED (\(fails))")
         return fails == 0 ? 0 : 1
+    }
+
+    /// Proves the swap script really refuses a bundle whose signature doesn't verify, with fixture app
+    /// bundles (never the real /Applications/One.app): a corrupted/unsigned "update" is rejected before
+    /// anything is touched (the old app stays exactly as it was), while a properly verified bundle swaps in.
+    static func signingChecks(_ check: (String, Bool) -> Void) {
+        let fm = FileManager.default
+        let base = Env.support.appendingPathComponent("signing-check", isDirectory: true)
+        try? fm.removeItem(at: base)
+        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        func makeApp(_ name: String, sign: Bool, corruptAfterSigning: Bool = false) -> URL {
+            let app = base.appendingPathComponent(name)
+            let mac = app.appendingPathComponent("Contents/MacOS")
+            try? fm.createDirectory(at: mac, withIntermediateDirectories: true)
+            try? fm.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: mac.appendingPathComponent(name))
+            if sign {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+                p.arguments = ["-fs", "-", app.path]  // ad-hoc: the running test binary is ad-hoc too in dev/CI
+                p.standardOutput = FileHandle.nullDevice
+                p.standardError = FileHandle.nullDevice
+                try? p.run()
+                p.waitUntilExit()
+            }
+            // Models a tampered zip: looks signed, but the signature no longer matches the bundle's contents.
+            if corruptAfterSigning { try? "tampered".write(to: mac.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+            return app
+        }
+        func runSwap(newApp: URL, target: URL) -> Bool {
+            let dir = base.appendingPathComponent("dir-\(UUID().uuidString)")
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let script = Updater.swapScript(
+                newApp: newApp.path, target: target.path, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
+                enginePID: nil, noReopen: true)
+            let sh = dir.appendingPathComponent("swap.sh")
+            try? script.write(to: sh, atomically: true, encoding: .utf8)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [sh.path]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        }
+        // Rejected case: unsigned update.
+        do {
+            let running = makeApp("running1", sign: true)
+            let unsigned = makeApp("unsigned-update", sign: false)
+            let ok = runSwap(newApp: unsigned, target: running)
+            check(
+                "an unsigned update is rejected and the old app is left exactly in place",
+                !ok && fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/running1").path))
+        }
+        // Rejected case: signed, but tampered after signing (signature no longer verifies).
+        do {
+            let running = makeApp("running2", sign: true)
+            let tampered = makeApp("tampered-update", sign: true, corruptAfterSigning: true)
+            let ok = runSwap(newApp: tampered, target: running)
+            check(
+                "a tampered (signed-then-modified) update fails verification and is rejected",
+                !ok && fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/running2").path))
+        }
+        // Accepted case: a properly signed, unmodified update with a verifying signature swaps in.
+        do {
+            let running = makeApp("running3", sign: true)
+            let good = makeApp("good-update", sign: true)
+            let ok = runSwap(newApp: good, target: running)
+            check(
+                "a verified update with a matching signing team swaps in",
+                ok && fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/good-update").path)
+                    && !fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/running3").path))
+        }
     }
 }

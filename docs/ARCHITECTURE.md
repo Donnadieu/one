@@ -130,6 +130,18 @@
 3. Running another program (`Process`) only happens in services (enforced: `process-area`).
 4. Anything the engine can reach must be listed in `Access.profile()`; never widen it to all of home.
 5. New area = new file; keep each under 600 lines (enforced: `file-length`).
+6. **Dependency direction (enforced: `dependency-direction`).** Dependencies point one way, down the
+   diagram at the top of this file: UI → `Model` → services → `Env`/foundation. A file tagged
+   `foundation` or `service` in the table above must never reference `Model.shared` (the state layer
+   above it) or declare a SwiftUI `View`. Reaching back up — a service calling into `Model` instead of
+   returning a value or taking a closure/delegate — is the one direction this file calls out as
+   disallowed; it quietly turns a one-way dependency graph into a cycle, which is exactly what makes a
+   codebase hard for an agent (or a human) to hold in their head. `tools/lint/one-lint.py` enforces this
+   one check mechanically (pattern-matching `Model.shared` / `: View` references, since Swift has no
+   per-file `import` statement between files in the same module to parse); any existing violation is
+   grandfathered in `tools/lint/baseline.json` as debt, not silently allowed going forward. A rule this
+   lint can't check reliably (e.g. an indirect reverse dependency through a protocol or a closure
+   captured across files) is a stated skip, not something it guesses at.
 
 ## Extending
 - New connection: a node in `worldNodes` or a `connections.json` entry, a `connect()` branch, and the

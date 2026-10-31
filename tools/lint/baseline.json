@@ -1,1 +1,5 @@
-{}
+{
+ "dependency-direction|Sources/Helpers.swift": 5,
+ "dependency-direction|Sources/Pictures.swift": 4,
+ "dependency-direction|Sources/Updater.swift": 4
+}

@@ -209,6 +209,10 @@ final class Model: ObservableObject {
     @Published var asks: [Ask] = []
     /// Steps only the person can do (a code, a passkey…), shown with Done / I'm not at the Mac (HumanStep.swift).
     @Published var humanSteps: [HumanStepAsk] = []
+    /// A new folder the assistant asked for in chat, waiting on Yes/No (FolderApprovals.swift, ACP only).
+    @Published var folderAsks: [FolderAsk] = []
+    /// Folders already flagged this run as missing a ledger entry, so the warning bubble shows once.
+    var folderLedgerFlagged: Set<String> = []
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
     @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser"].map { _ in "" }.filter { !$0.isEmpty }

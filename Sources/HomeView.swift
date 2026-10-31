@@ -118,6 +118,7 @@ struct HomeView: View {
                             AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                         }
                         ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
+                        ForEach(m.folderAsks) { a in FolderAskCard(a: a) { m.answerFolderAsk(a.id, approved: $0) }.starCalm() }
                         if !m.asks.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)

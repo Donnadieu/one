@@ -31,6 +31,7 @@ extension Model {
                 ))
         }
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
+        FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
@@ -388,6 +389,7 @@ extension Model {
         }
         guard var c = compose(text) else { return }
         if !hidden { c.engine += blockedYes(text, helper: nil) }
+        if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),
@@ -481,6 +483,7 @@ extension Model {
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }
         full = learnFinish(full, stop: stop, idx: idx)  // [job-kind:] / [learned:] read and hidden; the job recorded
+        detectFolderAsk(full)  // "I don't have access to <path>. Want me to add it?" -> a card, ACP only
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }

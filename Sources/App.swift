@@ -106,7 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
-        if SwitchAICheck.launch() { return }
+        if SwitchAICheck.launch() || FolderApprovalCheck.launch() { return }  // --test-folder-approval (tools/preflight.sh)
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())

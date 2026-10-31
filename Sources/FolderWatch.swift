@@ -132,11 +132,10 @@ enum FolderWatch {
     /// Told to the assistant every turn.
     static var note: String {
         "\n\n(One app note, not from the user: FOLDER ACCESS. You can only open One's own data, the brain and the folders on One's list. "
-            + "If they agree to let you open a new folder, add it with: CUR=\"$(defaults read ai.forjado.one folders 2>/dev/null)\"; "
-            + "defaults write ai.forjado.one folders -string \"$CUR\"$'\\n'\"<full path>\" (one text with one folder per line, not an array). "
-            + "Then just say you'll restart to use it and end your reply. One notices, restarts by itself within a minute (or once a routine at work finishes; helpers that "
+            + "Never add one yourself: see the Folders note below for the ask-in-chat-first rule. If a folder was just added "
+            + "(their yes, then `One --grant-folder`), just say you'll restart to use it and end your reply. One notices, restarts by itself within a minute (or once a routine at work finishes; helpers that "
             + "are working are paused and pick back up by themselves), reopens this conversation and tells you to carry on. Never restart "
             + "or stop One, its engine or its background helper yourself, never wait in a loop for the folder to open, and never "
-            + "ask them to reopen One.)"
+            + "ask them to reopen One.)" + FolderApprovals.note
     }
 }

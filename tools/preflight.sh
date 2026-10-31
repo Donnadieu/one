@@ -98,6 +98,11 @@ mkdir -p "$T/lrn"
 check "new skill told once, fixes silent, the remember question once and never after a no; shared rooms left out" bash -c "ONE_SUPPORT_DIR=$T/lrn $TBIN --test-learning | tee $T/lrn/out.txt | grep -q '^learning ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Folder approval ledger (every new grant needs a yes in the conversation first)"
+mkdir -p "$T/fa"
+check "existing folders never dropped, migration grandfathers them once, chat ask+yes grants and logs, a denied/bare-write path stays unlogged" bash -c "ONE_SUPPORT_DIR=$T/fa $TBIN --test-folder-approval | tee $T/fa/out.txt | grep -q '^PASS folder approval'"
+grep "✗" "$T/fa/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Engine helper is never stopped by a second One"
 mkdir -p "$T/gw"
 check "a second engine start or test copy leaves a healthy one alone" bash -c "ONE_SUPPORT_DIR=$T/gw $TBIN --test-gateway | tee $T/gw/out.txt | grep -q '^gateway ok'"

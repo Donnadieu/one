@@ -61,6 +61,35 @@ final class Updater: ObservableObject {
         let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
         return "I'll update once \(n) \(names.count == 1 ? "finishes" : "finish") this step, so nothing's left half-done."
     }
+    /// The script that waits for One to quit, then swaps the downloaded app into place. Before the swap: the new
+    /// bundle's code signature must verify (`codesign --verify --deep --strict`) AND its signing team must match
+    /// the one running right now — a tampered zip (unsigned, altered, or re-signed by someone else) is left
+    /// untouched on disk and the old app stays in place, never installed. Static + parameterized so a test can run
+    /// it against fixture bundles without touching the real app.
+    static func swapScript(newApp: String, target: String, dir: String, waitPID: Int32, enginePID: Int32?, noReopen: Bool) -> String {
+        """
+        #!/bin/bash
+        while kill -0 \(waitPID) 2>/dev/null; do sleep 0.5; done
+        if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
+        pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
+        else \(enginePID.map { "kill \($0)" } ?? ": # no engine pid to kill (never \"kill 0\" — that signals the whole process group)") 2>/dev/null; fi
+        if ! /usr/bin/codesign --verify --deep --strict "\(newApp)" 2>/dev/null; then
+        echo "Update aborted: the downloaded app's code signature did not verify. The current version was kept." >&2
+        rm -rf "\(dir)"
+        exit 1
+        fi
+        NEWTEAM=$(/usr/bin/codesign -dvv "\(newApp)" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+        RUNTEAM=$(/usr/bin/codesign -dvv "\(target)" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+        if [ "$NEWTEAM" != "$RUNTEAM" ]; then
+        echo "Update aborted: signing team mismatch (update=$NEWTEAM, running=$RUNTEAM). The current version was kept." >&2
+        rm -rf "\(dir)"
+        exit 1
+        fi
+        xattr -dr com.apple.quarantine "\(newApp)" 2>/dev/null
+        rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
+        \(noReopen ? "echo done > \"\(dir)/swapped\"" : "open \"\(target)\"")
+        """
+    }
     private var etag: String?
     private var lastList: Data?
     private var lastCheck = Date.distantPast
@@ -215,17 +244,9 @@ final class Updater: ObservableObject {
             return
         }
         let target = Bundle.main.bundlePath
-        // A test copy only stops its own engine (the person's running One shares the engine folder).
-        let script = """
-            #!/bin/bash
-            while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.5; done
-            if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
-            pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
-            else kill \(Engine.shared.enginePID.map(String.init) ?? "0") 2>/dev/null; fi
-            xattr -dr com.apple.quarantine "\(newApp.path)" 2>/dev/null
-            rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp.path)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
-            \(ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1" ? "echo done > \"\(dir.path)/swapped\"" : "open \"\(target)\"")
-            """
+        let script = Updater.swapScript(
+            newApp: newApp.path, target: target, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
+            enginePID: Engine.shared.enginePID, noReopen: ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1")
         let sh = dir.appendingPathComponent("swap.sh")
         try? script.write(to: sh, atomically: true, encoding: .utf8)
         let p = Process()

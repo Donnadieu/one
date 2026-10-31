@@ -52,6 +52,10 @@ struct RoutinesSnapshot: Equatable {
 
 enum Routines {
     static var cron: URL { Env.hermesHome.appendingPathComponent("cron") }
+    /// How long a `fire_claim` is trusted as live — must match the engine's own TTL
+    /// (cron/jobs.py FIRE_CLAIM_TTL_SECONDS), so a claim left by a dead run (crash, force quit,
+    /// the update-swap script's kill) stops reading as "running" the moment the engine itself would drop it.
+    static let claimTTL: TimeInterval = 300
 
     /// Everything, read fresh. Call off the main thread.
     static func load(now: Date = Date()) -> RoutinesSnapshot {
@@ -90,7 +94,11 @@ enum Routines {
         let enabled = j["enabled"] as? Bool ?? true
         let jobState = j["state"] as? String ?? ""
         let dispatched = date((j["last_dispatch"] as? [String: Any])?["dispatched_at"])
-        let claimed = j["fire_claim"] != nil && !(j["fire_claim"] is NSNull)
+        // A claim with no `at` (or one older than the engine's own TTL) is left over from a dead run
+        // (a crash, a force quit, the update-swap script's kill) and must read as stale, not running:
+        // Hermes itself (cron/jobs.py `_claim_is_live`) only trusts a claim for `claimTTL`.
+        let claimAt = date((j["fire_claim"] as? [String: Any])?["at"])
+        let claimed = claimAt.map { now.timeIntervalSince($0) < Routines.claimTTL } ?? false
         var st: Routine.State
         if !enabled && jobState == "completed" {
             st = .finished

@@ -36,8 +36,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await UpdaterCheck.run()) }
             return
         }
-        if LocalModelsCheck.launch() { return }
-        if FollowUpCheck.launch() { return }
+        if LocalModelsCheck.launch() || FollowUpCheck.launch() { return }
         if CommandLine.arguments.contains("--test-helper-done") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
             Task { @MainActor in exit(await HelperDoneCheck.run()) }
@@ -201,6 +200,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             TalkKeys.shared.apply()
             Listener.shared.warm()
             Model.shared.syncName()
+            Pulse.launch()
         }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

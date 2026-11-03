@@ -96,6 +96,28 @@ final class Box<T>: @unchecked Sendable {
     init(_ v: T) { self.v = v }
 }
 
+/// A value one thread writes while another reads it (the engine's reader thread and the main thread). A Swift
+/// closure, string or array torn by two threads at once frees memory twice, which corrupts the heap and kills
+/// One much later, somewhere unrelated (the crashes of 0.9.32 to 0.9.84). Every read and write takes the lock.
+@propertyWrapper
+final class Guarded<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T
+    init(wrappedValue: T) { value = wrappedValue }
+    var wrappedValue: T {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+        set {
+            lock.lock()
+            value = newValue
+            lock.unlock()
+        }
+    }
+}
+
 // MARK: - Folder access (macOS sandbox around the engine)
 
 enum Access {

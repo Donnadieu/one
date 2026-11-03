@@ -44,6 +44,8 @@
 | HelperLinesCheck.swift | dev only | part of `One --test-helpers`: three helper lines quoting close, stop and choices tags all start whole, nothing stopped, closed, shown (also mid-stream) or spoken; odd helper lines recovered or hidden |
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
 | VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; helper sound rules; stand-in voice), run by preflight |
+| VoiceStress.swift | dev only | `One --test-voice-stress [secs]`: the REAL audio line under load (replies read and hushed, chimes, rebuilds, `sayNow` from a background task, the orb reading it 60×/s) at volume 0, no window; `make sanitize` runs it in thread- and address-sanitizer builds |
+| Diagnostics.swift | dev only | the command-line checks run before the app starts (`--test-glass`, `--test-voice-stress`, `--crash-line <pid>`: the one-line crash summary `Pulse` logs after a crash) |
 | ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | ShelfRead.swift | UI | the shelf's title row (`ShelfHeader`) and "Mark all read" (`Model.markShelfRead`: every card read in one save, their helpers seen); renders `shelf-read-new` / `shelf-read-done` |
 | Pictures.swift | service | images and files attached to a message |

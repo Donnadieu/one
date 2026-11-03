@@ -31,6 +31,9 @@ swiftc "${OPT[@]}" -parse-as-library -target arm64-apple-macosx14.0 \
   Sources/*.swift -o "$APP/Contents/MacOS/One"
 if [ -n "$LOCK" ]; then rm -rf "$LOCK"; trap - EXIT; fi  # the compile is the slow, shared part; the rest runs side by side
 VERSION=$(tr -d ' \n' < VERSION)
+# LSEnvironment MallocProbGuard=1: macOS's sampling guard (a few allocations on guard pages, small cost). One has
+# crashed on heap corruption detected long after the bad write (0.9.32 to 0.9.84); with it on, a sampled bad write
+# crashes right where it happens, so the next crash report names the code that did it (Pulse logs that report).
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -49,6 +52,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSCalendarsFullAccessUsageDescription</key><string>So your assistant can see your days, warn you about clashes and add things you ask for.</string>
   <key>NSAppleEventsUsageDescription</key><string>So your assistant can read your email in Mail and open drafts for you to send.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>So what you say turns into words for your assistant, on this Mac.</string>
+  <key>LSEnvironment</key><dict><key>MallocProbGuard</key><string>1</string></dict>
 </dict></plist>
 PLIST
 cp voice/*.mp3 "$APP/Contents/Resources/"

@@ -98,7 +98,10 @@ final class Speaker: @unchecked Sendable {
             audio.prepare()
             try? audio.start()
         }
-        if !node.isPlaying { node.play() }
+        // play() on a line that didn't start raises "player started when engine not running" and kills One
+        // (0.9.83, Nov 2 04:37Z: hush → wakeAudio). A line that's down stays quiet until the next wake or rebuild.
+        if audio.isRunning, !node.isPlaying { node.play() }
+        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
         routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
     }
     private var routeRate: Double = 0
@@ -122,7 +125,8 @@ final class Speaker: @unchecked Sendable {
         endsAt = .distantPast
         audio.prepare()
         try? audio.start()
-        node.play()
+        if audio.isRunning { node.play() }
+        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
         routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
     }
     /// Main thread. Before speaking: if the output changed under us (headset mode, new device), rebuild.
@@ -160,7 +164,7 @@ final class Speaker: @unchecked Sendable {
     @discardableResult
     func enqueue(_ url: URL) -> Double {
         if Date() >= endsAt { ensureRoute() } else { wakeAudio() }
-        guard let b = buffer(url) else { return 0 }
+        guard audio.isRunning || stand != nil, let b = buffer(url) else { return 0 }
         let d = Double(b.frameLength) / fmt.sampleRate
         let starts = max(endsAt, Date())
         node.scheduleBuffer(b, completionHandler: nil)
@@ -170,7 +174,7 @@ final class Speaker: @unchecked Sendable {
     }
     /// Main thread. Silences now but keeps the line awake.
     func hush() {
-        guard stand == nil else {  // self-tests never touch the audio line
+        guard stand == nil || standPlays else {  // self-tests never touch the audio line (unless standPlays)
             endsAt = .distantPast
             return
         }
@@ -241,13 +245,13 @@ final class Speaker: @unchecked Sendable {
             let id = UUID().uuidString
             self.waiting[id] = done
             let msg = (try? JSONSerialization.data(withJSONObject: ["id": id, "text": text])) ?? Data()
-            input.write(msg + Data("\n".utf8))
+            try? input.write(contentsOf: msg + Data("\n".utf8))  // throws (never raises) if the voice process just died
         }
     }
     /// Says a line now and returns its length in seconds (0 if the live voice isn't ready).
     func sayNow(_ text: String) async -> Double {
         guard ready, !Speaker.prefs.bool(forKey: "voiceMuted") else { return 0 }
-        stop()
+        await MainActor.run { self.stop() }  // the playback state belongs to the main thread (see `stop`)
         let (url, dur): (URL?, Double) = await withCheckedContinuation { c in render(text) { c.resume(returning: ($0, $1)) } }
         guard let url else { return 0 }
         await MainActor.run { _ = self.enqueue(url) }
@@ -303,7 +307,7 @@ final class Speaker: @unchecked Sendable {
             reached += 1
             outstanding = max(0, outstanding - 1)
             lastStep = Date()
-            if let url, stand == nil { enqueue(url) }
+            if let url, stand == nil || standPlays { enqueue(url) }
             if stand != nil, standSecs > 0 { endsAt = max(endsAt, Date()).addingTimeInterval(standSecs) }  // self-tests: "plays" this long
             if let f = onFirst {
                 onFirst = nil
@@ -331,6 +335,12 @@ final class Speaker: @unchecked Sendable {
     static var prefs: UserDefaults { Env.selfTest ? (UserDefaults(suiteName: "ai.forjado.one.voice-test") ?? .standard) : .standard }
     /// Self-tests only: stands in for the voice process (no Kokoro, no sound).
     var stand: ((String) -> URL?)?
+    /// Self-tests only (`--test-voice-stress`): the stand-in's sounds really play on the audio line.
+    var standPlays = false
+    /// Self-tests only: the line's volume (0 = runs and renders, heard by nobody).
+    var testVolume: Float?
+    /// Self-tests only: act as if the live voice were up (the stand-in makes the sentences), so `sayNow` runs.
+    func pretendReady() { q.sync { ready = true } }
     /// Sentences that reached the audio line so far (self-tests count them).
     private(set) var reached = 0
     static var voiceID: String { UserDefaults.standard.string(forKey: "voiceID") ?? "af_heart" }
@@ -353,7 +363,11 @@ final class Speaker: @unchecked Sendable {
             }
         }
     }
+    /// Main thread, like everything that touches the reply being read (`gen`, `pending`, `queue`, `onFirst`).
+    /// `sayNow` used to call this from a background task, racing the main thread on those arrays (found by
+    /// `--test-voice-stress` under the thread sanitizer). A call from anywhere else now hops to main first.
     func stop() {
+        guard Thread.isMainThread else { return DispatchQueue.main.async { self.stop() } }
         gen += 1
         pending = []
         queue = []

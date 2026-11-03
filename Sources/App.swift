@@ -243,7 +243,7 @@ struct Entry {
         if let code = MyChrome.cli(args) { exit(code) }
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
-        GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
+        Diagnostics.main(args)  // `--test-glass`, `--test-voice-stress`, `--crash-line <pid>` (Diagnostics.swift)
         if let k = args.firstIndex(of: "--test-connections-open") {
             TestWorld.enter()  // a test copy only: one window, the Connections sheet opened in it
             MainActor.assumeIsolated {

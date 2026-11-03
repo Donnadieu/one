@@ -122,7 +122,7 @@ enum BrowserKeeper {
     }
 
     nonisolated(unsafe) static var lastStart: Date?
-    nonisolated(unsafe) static var lastNote = ""
+    @Guarded static var lastNote = ""  // written from the keeper loop and the Chrome-connect loop at once
     nonisolated(unsafe) static var lastHealth: Date?
 
     static func log(_ s: String) {

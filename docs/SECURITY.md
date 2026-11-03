@@ -160,6 +160,14 @@ each enforced in code rather than by convention:
   mid-swap. `docs/RELIABILITY.md` covers this as a reliability property;
   listed here too because it was found during the same security pass.
 
+## Memory safety across threads (0.9.85)
+
+- State one thread writes while another reads (the engine's reader thread vs the main thread, two background
+  loops) goes through `Guarded` (Env.swift, a lock around every read and write): the engine's callbacks
+  (`Engine.onText` and friends) and `BrowserKeeper.lastNote`. The voice's playback state is main-thread only.
+  Nothing granted or enforced changes; this closes heap corruption that crashed One (0.9.32 to 0.9.84).
+  `make sanitize` runs the audio line under the thread and address sanitizers.
+
 ## Known findings / open items (current state of `main`, checked today)
 
 - **No automated knowledge-base-integrity test**: unlike repos hardened with

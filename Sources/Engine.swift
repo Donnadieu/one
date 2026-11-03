@@ -26,10 +26,11 @@ final class Engine: @unchecked Sendable {
     private let wlock = NSLock()
     static var workDir: String { (Brain.exists ? Brain.root : Env.support).path }
 
-    var onText: (@Sendable (String) -> Void)?
-    var onTool: (@Sendable (String) -> Void)?
+    // Set on the main thread (every turn), read on the engine's reader thread: guarded (see `Guarded`).
+    @Guarded var onText: (@Sendable (String) -> Void)? = nil
+    @Guarded var onTool: (@Sendable (String) -> Void)? = nil
     /// (question, options[(id, label)], answer)
-    var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)?
+    @Guarded var onPermission: (@Sendable (String, [(String, String)], @escaping @Sendable (String?) -> Void) -> Void)? = nil
 
     /// Hermes keeps a background helper (gateway) per home. Restart it only when it's stale: orphaned,
     /// or left by the engine this process just replaced. A healthy one serving another engine (the
@@ -177,7 +178,7 @@ final class Engine: @unchecked Sendable {
         case failed(String)
         case gone
     }
-    var onPhase: (@Sendable (Phase) -> Void)?
+    @Guarded var onPhase: (@Sendable (Phase) -> Void)? = nil
 
     /// Every start goes through here (launch, a folder change, a new model, a crash), so One always knows
     /// when it's getting ready and when it's ready again.
@@ -440,9 +441,9 @@ final class Engine: @unchecked Sendable {
     static let steerAck = "⏩ Steer queued for the active turn"
     private var steerAcks: [String: Int] = [:]
     /// Anything at all came back on the main conversation (words, thoughts, steps): its turn is under way.
-    var onActivity: (@Sendable () -> Void)?
+    @Guarded var onActivity: (@Sendable () -> Void)? = nil
     /// Every step event on any conversation (which one, what kind, the step's id and status): helpers' progress.
-    var onPulse: (@Sendable (_ sid: String, _ kind: String, _ call: String?, _ status: String?) -> Void)?
+    @Guarded var onPulse: (@Sendable (_ sid: String, _ kind: String, _ call: String?, _ status: String?) -> Void)? = nil
 
     /// Hands a message to the turn running on a session, without stopping it or starting a second one:
     /// the engine's own mid-turn steer, which puts it right after the latest step ("[OUT-OF-BAND USER

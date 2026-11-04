@@ -38,6 +38,7 @@ extension Model {
         clearOffers(helper: id)
     }
     func learnHelperStep(_ id: UUID, _ title: String) {
+        RouteStore.saw(id, title)
         guard learnHelperTurns[id]?.active == true else { return }
         learnHelperTurns[id]?.steps += 1
         if title.hasPrefix("skill_view") { learnHelperTurns[id]?.usedSkill = true }
@@ -70,6 +71,7 @@ extension Model {
     func learnHelperFinished(_ id: UUID, stop: String) {
         guard let t = learnHelperTurns[id], t.active, let h = helpers.first(where: { $0.id == id }), let sid = h.sid else { return }
         learnHelperTurns[id]?.active = false
+        RouteStore.finished(id, ok: !stop.hasPrefix("error"))
         let job = LearnJob(
             session: sid, helper: id, kind: h.title, started: t.started, ended: Date(), steps: t.steps, usedSkill: t.usedSkill,
             failed: stop.hasPrefix("error"))
@@ -90,6 +92,7 @@ extension Model {
 
     func tendLearning() {
         guard onboarded || Env.selfTest else { return }
+        routeTend()
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {
             learning.started = true  // no log yet: nothing old to skip, so the very first line counts

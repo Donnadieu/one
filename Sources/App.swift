@@ -196,7 +196,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         MainActor.assumeIsolated {
             Floater.shared.setup()
-            PictureIn.installPaste()
+            LongPaste.install()  // ⌘V: pictures and files attach (PictureIn), long text asks as a file or as text
             TalkKeys.shared.apply()
             Listener.shared.warm()
             Model.shared.syncName()

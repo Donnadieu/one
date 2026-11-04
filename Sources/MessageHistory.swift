@@ -127,7 +127,7 @@ struct HistoryStrip: View {
                 if b.fromMe {
                     Text(timeLabel(b.date)).font(.caption2).foregroundStyle(WorldLook.cream.opacity(0.4))
                 }
-                ChatText(text: b.text, size: 14, plain: b.fromMe)
+                LongFoldText(text: b.text, key: LongFold.key(b), size: 14, plain: b.fromMe)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(spacing: 6) {

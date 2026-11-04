@@ -50,7 +50,11 @@
 | SoakCheck.swift | dev only | `One --test-soak [minutes]`: the whole app under load (home screen live off screen, stand-in engine replies and helpers, every reply read aloud on the real line at volume 0, rebuilds; `ONE_SOAK_ROUTE=1` also switches the Mac speakers' format like a headset going into call mode); `make soak` runs it under Apple's sampling guard at full rate, or a sanitizer |
 | ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | ShelfRead.swift | UI | the shelf's title row (`ShelfHeader`) and "Mark all read" (`Model.markShelfRead`: every card read in one save, their helpers seen); renders `shelf-read-new` / `shelf-read-done` |
-| Pictures.swift | service | images and files attached to a message |
+| Pictures.swift | service | images and files attached to a message; `SharedFile.fromText` keeps a long paste as "Pasted text, N lines" |
+| LongPaste.swift | UI | ⌘V of long text (over 30 lines or 2,000 characters) into an ask box asks "Paste as a file or as text?" (Claude Design "Long Paste", option 1 · Fold): As a file = a chip whose file the assistant reads, As text = pasted as before; X, a click outside or Esc close it, Return = As a file, never sends |
+| LongText.swift | UI | `LongFoldText`: a message over 12 lines (under the orb, in Message history, a helper's ask) shows 4 lines with a fade and "Show all (N lines)"; open, Hide at its top and end; open state remembered per message (UserDefaults `longOpen`); the reply being written never folds |
+| LongPasteCheck.swift | check | `One --test-long-paste` (in preflight, real window; started from `MessageHistoryCheck.launch`): real ⌘V/Esc/Return and clicks: short pastes and pictures unchanged, a long paste asks, each way out, the file holds the exact text, the sent message carries its path; folding rules and saved bubbles |
+| LongRender.swift | dev only | `One --render-long <prefix>` (from a test copy): folded, open, a long reply, Message history, the paste question, the chip, sent with the chip, each at 1180 × 760 and 620 × 700 |
 | Model.swift | state | `Model.shared`: stored state, bubbles, `Choices`, `Plain` step words |
 | ModelSetup.swift | state | `extension Model`: onboarding, tour, sign-in, naming, routines, shared-room tending |
 | ModelChat.swift | state | `extension Model`: sending, talking in the window, helpers, shelf, per-prompt notes, reveal |

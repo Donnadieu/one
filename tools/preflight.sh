@@ -168,6 +168,13 @@ if [ $CI = 0 ]; then  # needs a real window on screen
   grep "FAIL" "$T/gl/out.txt" 2>/dev/null | sed 's/^/    /'
 fi
 
+echo "Long messages and pastes"
+if [ $CI = 0 ]; then  # needs a real window on screen
+  mkdir -p "$T/lp"
+  check "long messages fold and stay open once opened; a long paste asks as a file or as text (Esc, click outside, Return), the file holds the exact text, short pastes and pictures unchanged" bash -c "ONE_SUPPORT_DIR=$T/lp perl -e 'alarm 120; exec @ARGV' $TBIN --test-long-paste | tee $T/lp/out.txt | grep -q '^long paste: all checks passed'"
+  grep "✗" "$T/lp/out.txt" 2>/dev/null | sed 's/^/    /'
+fi
+
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"

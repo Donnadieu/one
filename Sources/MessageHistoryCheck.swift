@@ -13,6 +13,7 @@ import Foundation
 enum MessageHistoryCheck {
     /// `--test-message-history`: throwaway UserDefaults and the real pasteboard, from a copy with its own settings.
     static func launch() -> Bool {
+        if LongPasteCheck.launch() { return true }  // --test-long-paste, --render-long (long messages, LongText.swift)
         guard CommandLine.arguments.contains("--test-message-history") else { return false }
         TestWorld.enter()
         guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -51,6 +52,7 @@ enum MessageHistoryCheck {
         let siblingDir = (#filePath as NSString).deletingLastPathComponent
         let src = (try? String(contentsOfFile: siblingDir + "/MessageHistory.swift", encoding: .utf8)) ?? ""
         check("source file was found to scan", !src.isEmpty)
+        check("each history row folds when long (LongFoldText)", src.contains("LongFoldText(text: b.text, key: LongFold.key(b)"))
         check("no leftover `depth` fade/blur calculation", !src.contains("func depth("))
         check("no `.blur(` on any history row", !src.contains(".blur("))
         check("no `.scaleEffect(` (shrink/recede) on any history row", !src.contains(".scaleEffect("))
@@ -59,7 +61,7 @@ enum MessageHistoryCheck {
         check(
             "row() applies no `.opacity(` to the message text",
             !src.contains(
-                "ChatText(text: b.text, size: 14, plain: b.fromMe)\n                    .frame(maxWidth: .infinity, alignment: .leading)\n                    .opacity"
+                "LongFoldText(text: b.text, key: LongFold.key(b), size: 14, plain: b.fromMe)\n                    .frame(maxWidth: .infinity, alignment: .leading)\n                    .opacity"
             ))
         // No background box behind a row: the thread (for your own questions) is the only chrome now,
         // not a filled rounded rectangle card like the old design.

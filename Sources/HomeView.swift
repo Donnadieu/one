@@ -33,7 +33,11 @@ struct HomeView: View {
     @State var micLatched = false
     @State var dropping = false
     @State var typing = false
-    @State var historyOpen = false
+    @State var historyOpen = HomeView.stillHistory
+    /// Renders only: Message history shown open.
+    nonisolated(unsafe) static var stillHistory = false
+    /// Renders only: the page shown scrolled to its end (the newest messages), not its top.
+    nonisolated(unsafe) static var stillBottom = false
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
@@ -57,7 +61,7 @@ struct HomeView: View {
                 // Pinned above the scrolling part, so the greeting can never slide up under the title row.
                 Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
                     .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
-                StillScroll {
+                StillScroll(bottom: HomeView.stillBottom) {
                     VStack(spacing: 12) {
                         // Extra room above the orb only: its own halo/aura is bigger than its component frame
                         // (by design, elsewhere in the app too), and this is the one place the halo can sit at
@@ -132,7 +136,7 @@ struct HomeView: View {
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
                                 HistoryStrip(m: m, turns: olderTurns, open: $historyOpen).equatable()
-                                ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
+                                LongFoldText(text: ask.text, key: LongFold.key(ask), size: ChatText.callout, plain: true, center: true).opacity(0.55)
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
                                 FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
@@ -140,7 +144,8 @@ struct HomeView: View {
                                     let parts = Choices.split(Helpers.strip(r.text))
                                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                                         MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                                        ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
+                                        LongFoldText(text: parts.body, key: LongFold.key(r), size: 15, live: m.thinking && r.id == lastReply?.id)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .frame(maxWidth: 620).padding(.horizontal, 4)
                                     .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
@@ -195,6 +200,7 @@ struct HomeView: View {
             }
         }
         .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
+        .pasteAsk(m)  // a long paste: as a file or as text? (LongPaste.swift)
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
             if m.writingPanel || (HomeView.still && HomeView.stillWriting) {

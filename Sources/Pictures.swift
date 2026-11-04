@@ -61,16 +61,31 @@ struct SharedFile: Identifiable {
     let name: String
     let copy: URL
     let textCopy: URL?
+    /// Pasted text kept as a file: its first line, shown under the name on the chip.
+    var preview: String? = nil
     static let maxBytes = 200 * 1024 * 1024
+
+    /// A new folder of its own under One's "Shared with me/<day>/".
+    static func folder() -> URL {
+        let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+        let dir = Env.support.appendingPathComponent("Shared with me/\(day)/\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Long pasted text kept as a file ("Paste as a file"): saved as "Pasted text.txt", named on the chip by its length.
+    static func fromText(_ text: String, lines: Int) -> SharedFile? {
+        let dest = folder().appendingPathComponent("Pasted text.txt")
+        guard (try? text.write(to: dest, atomically: true, encoding: .utf8)) != nil else { return nil }
+        let first = text.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return SharedFile(name: "Pasted text, \(lines) lines", copy: dest, textCopy: nil, preview: first.isEmpty ? nil : String(first.prefix(80)))
+    }
 
     static func from(url: URL) -> SharedFile? {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
         if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > maxBytes { return nil }
-        let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
-        let dir = Env.support.appendingPathComponent("Shared with me/\(day)/\(UUID().uuidString.prefix(6))")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent(url.lastPathComponent)
+        let dest = folder().appendingPathComponent(url.lastPathComponent)
         guard (try? FileManager.default.copyItem(at: url, to: dest)) != nil else { return nil }
         var txt: URL? = nil
         if url.pathExtension.lowercased() == "pdf", let doc = PDFDocument(url: dest), let text = doc.string,
@@ -186,7 +201,10 @@ struct PictureStrip: View {
                 ForEach(m.files) { f in
                     HStack(spacing: 6) {
                         Image(nsImage: f.icon).resizable().frame(width: 26, height: 26)
-                        Text(f.name).font(.callout).lineLimit(1).truncationMode(.middle).frame(maxWidth: 140, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.name).font(.callout).lineLimit(1).truncationMode(.middle)
+                            if let p = f.preview { Text(p).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail) }
+                        }.frame(maxWidth: f.preview == nil ? 140 : 190, alignment: .leading)
                         Button {
                             m.files.removeAll { $0.id == f.id }
                         } label: {

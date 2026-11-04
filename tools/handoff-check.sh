@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # A step only the person can do, end to end, on a local test page (never a real account, never the shared
 # browser on 9223). Starts a throwaway headless Chrome and a local page server, runs the engine half
 # (browser_vault enter_code with One's overlay, tests/handoff/e2e_engine.py) and One's half

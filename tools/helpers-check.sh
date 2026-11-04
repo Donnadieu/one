@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # `make helpers-check` (and part of preflight): 100 helpers at once, then the engine is killed, One is killed and an
 # update restarts it, all mid-run; then the one line everything the assistant says goes through (QueueCheck.swift). Proves every helper stays listed and on screen, none starts or runs twice, none is
 # shown done without its real final reply, every cut-off one picks back up and finishes, every result has its file,

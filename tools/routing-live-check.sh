@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Smart routing with One's real engine in a throwaway home (two short helper turns on the Claude subscription One
 # already uses): a helper starts with the fitting recipe in hand, a lookup steps down to the balanced brain, and with
 # routing off nothing is added. A copy of the app with its own bundle id runs it, so the person's chat, settings and

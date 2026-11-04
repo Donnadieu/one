@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Sending while busy, end to end, with One's real engine in a throwaway home (a short turn or two on the
 # Claude subscription One already uses). A copy of the app with its own bundle id runs it, so the person's
 # chat, settings and running One are never touched. See Sources/FollowUpCheck.swift.

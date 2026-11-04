@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # One preflight: must pass before every release.
 #   tools/preflight.sh           quick checks (about 1 minute, no login, no network except the updater check)
 #   tools/preflight.sh --full    also a fresh engine install into an empty folder (about 2 minutes)
@@ -166,6 +167,13 @@ if [ $CI = 0 ]; then  # needs a real window on screen
   mkdir -p "$T/gl"
   check "only the blur is left under the tint (design: blur 40, saturate 1.4), also after focus, resize, appearance" bash -c "ONE_SUPPORT_DIR=$T/gl $TBIN --test-glass | tee $T/gl/out.txt | grep -q '^glass ok'"
   grep "FAIL" "$T/gl/out.txt" 2>/dev/null | sed 's/^/    /'
+fi
+
+echo "Long messages and pastes"
+if true; then  # a real window on the CI runner's own screen
+  mkdir -p "$T/lp"
+  check "long messages fold and stay open once opened; a long paste asks as a file or as text (Esc, click outside, Return), the file holds the exact text, short pastes and pictures unchanged" bash -c "ONE_SUPPORT_DIR=$T/lp perl -e 'alarm 120; exec @ARGV' $TBIN --test-long-paste | tee $T/lp/out.txt | grep -q '^long paste: all checks passed'"
+  grep "✗" "$T/lp/out.txt" 2>/dev/null | sed 's/^/    /'
 fi
 
 echo "Folder lock"

@@ -237,6 +237,8 @@ final class Model: ObservableObject {
     /// Pictures waiting to go with the next message (dragged, pasted, picked or dropped on the orb).
     @Published var pictures: [Picture] = []
     @Published var files: [SharedFile] = []
+    /// A long paste waiting on "Paste as a file or as text?" (LongPaste.swift).
+    @Published var pasteOffer: PasteOffer?
     /// Talking inside One's window (mic button, or the talk key while One is in front).
     @Published var talkingInApp = false
     @Published var talkNote: String?

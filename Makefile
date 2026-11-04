@@ -1,4 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
+# Hard rule: tests (preflight and every *-check) run in CI only, never on the person's Mac (tools/ci-only.sh).
 .PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check sanitize soak learning
 
 build:            ## build build/app.noindex/One.app
@@ -19,12 +20,12 @@ identity:         ## commits here are only Donnadieu <donnadieu.86@gmail.com>, s
 	tools/check-identity.sh
 	git fetch -q origin main 2>/dev/null || true
 	tools/check-identity.sh --range origin/main..HEAD
-check: identity format-check lint docdrift knowledgebase preflight   ## the whole gate
+check: identity format-check lint docdrift knowledgebase   ## the local gate: no tests here; preflight runs in CI on every push
 preflight:        ## build + bundle + KeePass + folder lock + updater + renders (~1 min)
 	tools/preflight.sh
 full:             ## preflight plus a fresh install into an empty folder (~3 min)
 	tools/preflight.sh --full
-release-check: format-check lint full
+release-check: format-check lint   ## plus the CI check on the release commit
 jobs:             ## three core jobs end to end with the real engine (OpenRouter, ~10 min, costs a little)
 	tools/jobs-check.sh
 followups:        ## sending while busy, end to end with the real engine (one or two short Claude turns)

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # The human-check window, end to end, on a real robot-check page (Sources/HumanCheckLive.swift).
 # VISIBLE: it opens a real Chrome window. Only run it after the person said yes to that window.
 # Never the shared browser: a throwaway hidden Chrome on its own port, on a copy of the saved profile

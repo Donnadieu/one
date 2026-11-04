@@ -120,12 +120,19 @@ extension ToolbarContent {
 
 /// A scroll view, except in renders (ImageRenderer draws scroll views blank): there the content is drawn as is.
 struct StillScroll<Content: View>: View {
+    /// Renders only: draw the page scrolled to its end (home's chat column under `HomeView.stillBottom`).
+    var bottom = false
     @ViewBuilder var content: Content
     var body: some View {
         if HomeView.still {
-            VStack(spacing: 0) {
-                content
-                Spacer(minLength: 0)
+            if bottom {
+                // At its end: the page at its full height, bottom edge in view (the rest is clipped, as if scrolled).
+                Color.clear.overlay(alignment: .bottom) { content.fixedSize(horizontal: false, vertical: true) }
+            } else {
+                VStack(spacing: 0) {
+                    content
+                    Spacer(minLength: 0)
+                }
             }
         } else {
             ScrollView { content }

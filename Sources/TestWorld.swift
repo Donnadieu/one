@@ -22,6 +22,13 @@ enum TestWorld {
     static func enter() {
         Env.selfTest = true
         let mode = CommandLine.arguments.dropFirst().first { $0.hasPrefix("--") } ?? "this test"
+        // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac. They open windows, take the
+        // focus and stop him working. They run in CI (GitHub) only.
+        guard inCI else {
+            print("refusing: \(mode) is a test, and tests run in CI (GitHub), never on this Mac.")
+            print("FIX: push the branch and read the check on the pull request.")
+            exit(2)
+        }
         if Bundle.main.bundleIdentifier == productionID {
             print("refusing: \(mode) is a test and never runs as your real One (your files and settings are left alone).")
             print("FIX: run it from a test copy: APP=$(tools/test-copy.sh) && \"$APP/Contents/MacOS/One\" \(mode)")
@@ -39,6 +46,9 @@ enum TestWorld {
             exit(2)
         }
     }
+
+    /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), the only place tests may run.
+    static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
 
     /// The real One folder, for reading fixtures only (never written by a test).
     static var realSupport: URL {

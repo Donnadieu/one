@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Three core jobs, end to end, with One's real engine in a throwaway home (costs a little OpenRouter money):
 #   1. sort my files   2. handle my inbox (draft only)   3. watch a price, buy only with an OK
 # Usage: tools/jobs-check.sh [--no-build] [--helpers]   (ONE_JOBS_PROVIDER=openrouter to use the OpenRouter key instead)

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # `make sanitize`: builds One twice with Apple's sanitizers (thread, then address) and drives the real audio line
 # under load (`One --test-voice-stress`). Thread finds two threads touching the same memory without a lock (the
 # kind of bug that corrupted the heap in 0.9.32 to 0.9.84); address finds use-after-free and overruns at the bad

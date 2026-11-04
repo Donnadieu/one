@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Proves the top row (name pill, Voice, Rooms, Connections, Routines, Push to talk, Folders, Switch AI, Stop —
 # all living in the window's titlebar/toolbar, Sources/HomeChrome.swift HomeTitleRow) stays reachable after a
 # bad restored window frame (Sources/WindowGuard.swift, Sources/WindowGuardCheck.swift). Real NSWindows only;

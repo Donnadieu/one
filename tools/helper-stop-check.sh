@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Stopping a helper and updating with helpers at work, end to end, with One's real engine in a throwaway home
 # (a few short turns on the Claude subscription One already uses). See Sources/HelperStopCheck.swift.
 #   1. --test-helper-stop: Stop button and the [stop-helper: …] line end that helper's turn only; it stays stopped.

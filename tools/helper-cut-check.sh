@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Helpers cut off by an engine restart are never shown done: they show stopped, pick back up by themselves and are done
 # only with their real answer. One's real engine in a throwaway home (two short turns on the Claude subscription One
 # already uses). See Sources/HelperCutCheck.swift. A copy with its own bundle id runs it: never your real One.

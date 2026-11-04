@@ -27,6 +27,9 @@ Swift 6 toolchain (language mode 5) / SwiftUI + AppKit / macOS 14+, Apple Silico
 - [docs/exec-plans/](docs/exec-plans/README.md): plans in progress and done
 
 ## Rules that bite
+- **Tests never run on the person's Mac.** They open windows, take the focus and stop Omar working (hard rule, Nov 4 2026).
+  Preflight, every `tools/*-check.sh` and every `--test-*` mode run only in CI (GitHub Actions); locally they refuse
+  (`tools/ci-only.sh`, `TestWorld.enter()`). Locally: `make check` (format, lint, identity, docs) and renders only.
 - Every rule in `tools/lint/one-lint.py` prints a `FIX:`; follow it. List them: `tools/lint/one-lint.py --list`.
 - Old debt is in `tools/lint/baseline.json`. It may only shrink (`--update` after paying it down). Never add to it.
 - Max 600 lines per file. Split by area (see ARCHITECTURE.md); don't create a "Misc" file.

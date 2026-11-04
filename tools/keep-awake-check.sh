@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Keep the Mac awake while One works (KeepAwake.swift), seen from the outside with `pmset -g assertions`:
 #   before: no "One is finishing" assertion from the test copy
 #   during: a fake helper works → one PreventUserIdleSystemSleep assertion, plain-words name, test copy's pid

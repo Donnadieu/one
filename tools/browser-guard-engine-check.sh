@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Proves the REAL engine loads One's browser guard and blocks a visible browser launch, in a scratch home.
 # Nothing is started: the guard reads the command and answers; the person's own One home is never changed.
 #   tools/browser-guard-engine-check.sh     prints "engine guard ok" when it passes

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Finished helpers, end to end, with One's real engine in a throwaway home (a few short turns on the Claude
 # subscription One already uses): orange until opened, one "by the way" line after the reply in progress, never
 # the result again; a good morning gets one combined report. A copy of the app with its own bundle id runs it,

@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # `make soak`: the whole app under load for minutes (`One --test-soak`): home screen live off screen, the stand-in
 # engine streaming replies and helpers, every reply read aloud on the real audio line (volume 0), the line rebuilt.
 #   tools/soak-check.sh [minutes, default 10] [guard|thread|address]

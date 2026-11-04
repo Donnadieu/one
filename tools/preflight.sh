@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # One preflight: must pass before every release.
 #   tools/preflight.sh           quick checks (about 1 minute, no login, no network except the updater check)
 #   tools/preflight.sh --full    also a fresh engine install into an empty folder (about 2 minutes)
@@ -169,7 +170,7 @@ if [ $CI = 0 ]; then  # needs a real window on screen
 fi
 
 echo "Long messages and pastes"
-if [ $CI = 0 ]; then  # needs a real window on screen
+if true; then  # a real window on the CI runner's own screen
   mkdir -p "$T/lp"
   check "long messages fold and stay open once opened; a long paste asks as a file or as text (Esc, click outside, Return), the file holds the exact text, short pastes and pictures unchanged" bash -c "ONE_SUPPORT_DIR=$T/lp perl -e 'alarm 120; exec @ARGV' $TBIN --test-long-paste | tee $T/lp/out.txt | grep -q '^long paste: all checks passed'"
   grep "✗" "$T/lp/out.txt" 2>/dev/null | sed 's/^/    /'

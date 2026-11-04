@@ -1,4 +1,5 @@
 #!/bin/bash
+. "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # A helper someone opens and talks to started on an older One still knows today's screen and what's built (Connections › Browser / Passwords, never a Settings screen), with One's real
 # engine in a throwaway home (three short turns on the Claude subscription One already uses). A copy of the app with
 # its own bundle id runs it, so the person's chat, settings and running One are never touched.

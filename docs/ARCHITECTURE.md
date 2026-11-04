@@ -19,7 +19,8 @@
 | ProductionCheck.swift | dev only | `One --test-production`: a test copy keeps to its own world; the Oct 27 shelf move replayed on fakes |
 | Installer.swift | service | install Hermes (pinned commit), KeePass overlay, provider sign-in, tools Python |
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |
-| Voice.swift | service | Kokoro voice process, speaking, listening (push to talk) |
+| Voice.swift | service | Kokoro voice process, speaking, the always-on audio line (rebuilt once after a route change, `rebuildSoon`), `VoiceLine` log (`hermes/logs/one-voice-line.log`) |
+| Listener.swift | service | listening (push to talk): mic → on-device speech → text |
 | HelperSound.swift | service | the organ swell when a helper's orb turns orange (done / needs your yes): on the voice line, after any sentence, never muted or during push to talk, one for several (`sounds/`, made by `sounds/make_sounds.py`) |
 | Updater.swift | service | check GitHub releases every 15 min (ETag, back-off), announce a new version once (notification, orb note, spoken line), download, swap the app |
 | VersionNote.swift | service | the hidden note on every prompt (assistant and helpers): running version, newer release if any, read the code at that tag before saying how One works |
@@ -45,7 +46,8 @@
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
 | VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; helper sound rules; stand-in voice), run by preflight |
 | VoiceStress.swift | dev only | `One --test-voice-stress [secs]`: the REAL audio line under load (replies read and hushed, chimes, rebuilds, `sayNow` from a background task, the orb reading it 60×/s) at volume 0, no window; `make sanitize` runs it in thread- and address-sanitizer builds |
-| Diagnostics.swift | dev only | the command-line checks run before the app starts (`--test-glass`, `--test-voice-stress`, `--crash-line <pid>`: the one-line crash summary `Pulse` logs after a crash) |
+| Diagnostics.swift | dev only | the command-line checks run before the app starts (`--test-glass`, `--test-voice-stress`, `--test-soak`, `--crash-line <pid>`: the one-line crash summary `Pulse` logs after a crash) |
+| SoakCheck.swift | dev only | `One --test-soak [minutes]`: the whole app under load (home screen live off screen, stand-in engine replies and helpers, every reply read aloud on the real line at volume 0, rebuilds; `ONE_SOAK_ROUTE=1` also switches the Mac speakers' format like a headset going into call mode); `make soak` runs it under Apple's sampling guard at full rate, or a sanitizer |
 | ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | ShelfRead.swift | UI | the shelf's title row (`ShelfHeader`) and "Mark all read" (`Model.markShelfRead`: every card read in one save, their helpers seen); renders `shelf-read-new` / `shelf-read-done` |
 | Pictures.swift | service | images and files attached to a message |

@@ -1,5 +1,5 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
-.PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check sanitize learning
+.PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check sanitize soak learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -43,6 +43,8 @@ helpers-check:    ## 100 helpers at once, engine killed, One killed, an update, 
 	tools/helpers-check.sh
 sanitize:         ## thread + address sanitizer builds drive the real audio line under load (`--test-voice-stress`, ~10 min)
 	tools/sanitizer-check.sh
+soak:             ## the whole app under load, a write to freed memory crashes AT the write (`--test-soak`; MIN=10 MODE=guard|thread|address; ROUTE=1 only with no real One open)
+	ONE_SOAK_ROUTE=$${ROUTE:-0} tools/soak-check.sh $${MIN:-10} $${MODE:-guard}
 handoff:          ## a code step handed to the person, end to end on a local test page (no real account, no cost)
 	tools/handoff-check.sh
 learning:         ## tell me when I learn: new skill line + Undo, fixes silent, the remember question (real engine, ~10 min)

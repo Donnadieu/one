@@ -77,7 +77,7 @@ def r_messaging(path, lines):
 # Messenger: keeps the engine's background helper running while a phone bot is set up.
 # BrowserKeeper: starts the hidden browser again (same saved profile) when it's down; One is outside the lock.
 # Learning: a read-only sqlite3 lookup of which chat a subagent belongs to (state.db).
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck)')  # ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck|LocalModels)')  # ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight; LocalModels: probes/starts the person's own local model server on loopback only
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):
@@ -135,6 +135,29 @@ def r_live_view_show(path, lines):
         if re.search(r'HumanStep\.windows\[[^\]]*\]\??\.show\(\)', code) and not inside:
             yield i, "shows the live view directly"
 
+# docs/ARCHITECTURE.md rule 6: dependencies point one way, UI -> Model -> services -> Env/foundation.
+# A foundation or service file reaching back up to Model.shared (or declaring a SwiftUI View) turns
+# that one-way graph into a cycle. Swift has no per-file `import` to parse, so this pattern-matches the
+# two concrete, reliable signals named in ARCHITECTURE.md rather than trying to model the whole type
+# graph (a stated skip on anything indirect, e.g. a closure/protocol carrying the reverse dependency).
+FOUNDATION_FILES = {"Sources/Env.swift", "Sources/TestWorld.swift"}
+SERVICE_FILES = {
+    "Sources/Installer.swift", "Sources/Engine.swift", "Sources/Voice.swift", "Sources/HelperSound.swift",
+    "Sources/Updater.swift", "Sources/VersionNote.swift", "Sources/Brain.swift", "Sources/Helpers.swift",
+    "Sources/HelperTrail.swift", "Sources/Pictures.swift", "Sources/Routines.swift", "Sources/RoutineRuns.swift",
+    "Sources/QuitHold.swift", "Sources/SharedRooms.swift", "Sources/BundledSkills.swift", "Sources/Learning.swift",
+    "Sources/Guards.swift", "Sources/BrowserKeeper.swift", "Sources/HumanCheck.swift", "Sources/MyChrome.swift",
+    "Sources/ChromeCheck.swift", "Sources/ChromeBridge.swift", "Sources/BrowserGuard.swift",
+    "Sources/GatewayGuard.swift", "Sources/FolderWatch.swift",
+}
+REVERSE_DEP = re.compile(r'\bModel\.shared\b|:\s*View\b')
+def r_dependency_direction(path, lines):
+    if path not in FOUNDATION_FILES and path not in SERVICE_FILES: return
+    for i, l in enumerate(lines, 1):
+        code = l.split("//", 1)[0]
+        if REVERSE_DEP.search(code):
+            yield i, "reaches back up to Model.shared / declares a View from a foundation-or-service file (docs/ARCHITECTURE.md rule 6)"
+
 RULES = {
     "file-length":   (r_file_length,   "Big files are hard to read and to edit safely.",
                       "Move whole declarations into a new file in Sources/ for that area (see docs/ARCHITECTURE.md)."),
@@ -160,6 +183,8 @@ RULES = {
                       "Call Model.shared.showHumanStep(a); it opens the real window and falls back to the live view itself."),
     "popup-glass":   (r_popup_glass,   "Every pop-up wears the same glass and closes with its X, a click outside and Esc.",
                       "Use PopupStage(close:) { size in … } or .onePopup(shown, close:) { size in … } (Sources/PopupGlass.swift); no .sheet/.popover/.alert or own dim."),
+    "dependency-direction": (r_dependency_direction, "Dependencies point one way: UI -> Model -> services -> Env/foundation (docs/ARCHITECTURE.md rule 6).",
+                      "Return a value or take a closure/delegate instead of calling Model.shared from a foundation/service file; move a View out of a service file into Sources UI."),
 }
 
 SHELL_RULES = {"test-copy"}

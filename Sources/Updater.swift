@@ -48,10 +48,47 @@ final class Updater: ObservableObject {
     static let replyWait: Double = 20
     /// Longest an update waits for a routine at work (a scheduled job mid-run) before it goes ahead.
     static var routineWait: Double = 2 * 3600
+    /// Longest an update waits for a helper mid a sensitive dev step (building, testing, pushing, releasing)
+    /// before it goes ahead: cutting that off mid-way can corrupt a build or leave a half-finished push.
+    static var sensitiveWait: Double = 20 * 60
     /// What the card says while an update waits for routines to finish.
     static func routineLine(_ names: [String]) -> String {
         let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
         return "I'll update as soon as \(n) \(names.count == 1 ? "finishes" : "finish"), so \(names.count == 1 ? "it isn't" : "they aren't") cut off."
+    }
+    /// What the card says while an update waits for a sensitive helper step to finish.
+    static func sensitiveLine(_ names: [String]) -> String {
+        let n = Routines.list(names.map { "\u{201C}\($0)\u{201D}" })
+        return "I'll update once \(n) \(names.count == 1 ? "finishes" : "finish") this step, so nothing's left half-done."
+    }
+    /// The script that waits for One to quit, then swaps the downloaded app into place. Before the swap: the new
+    /// bundle's code signature must verify (`codesign --verify --deep --strict`) AND its signing team must match
+    /// the one running right now — a tampered zip (unsigned, altered, or re-signed by someone else) is left
+    /// untouched on disk and the old app stays in place, never installed. Static + parameterized so a test can run
+    /// it against fixture bundles without touching the real app.
+    static func swapScript(newApp: String, target: String, dir: String, waitPID: Int32, enginePID: Int32?, noReopen: Bool) -> String {
+        """
+        #!/bin/bash
+        while kill -0 \(waitPID) 2>/dev/null; do sleep 0.5; done
+        if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
+        pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
+        else \(enginePID.map { "kill \($0)" } ?? ": # no engine pid to kill (never \"kill 0\" — that signals the whole process group)") 2>/dev/null; fi
+        if ! /usr/bin/codesign --verify --deep --strict "\(newApp)" 2>/dev/null; then
+        echo "Update aborted: the downloaded app's code signature did not verify. The current version was kept." >&2
+        rm -rf "\(dir)"
+        exit 1
+        fi
+        NEWTEAM=$(/usr/bin/codesign -dvv "\(newApp)" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+        RUNTEAM=$(/usr/bin/codesign -dvv "\(target)" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+        if [ "$NEWTEAM" != "$RUNTEAM" ]; then
+        echo "Update aborted: signing team mismatch (update=$NEWTEAM, running=$RUNTEAM). The current version was kept." >&2
+        rm -rf "\(dir)"
+        exit 1
+        fi
+        xattr -dr com.apple.quarantine "\(newApp)" 2>/dev/null
+        rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
+        \(noReopen ? "echo done > \"\(dir)/swapped\"" : "open \"\(target)\"")
+        """
     }
     private var etag: String?
     private var lastList: Data?
@@ -63,6 +100,12 @@ final class Updater: ObservableObject {
     var announced: [String] { Updater.store.stringArray(forKey: "updateAnnounced") ?? [] }
 
     /// The newest release above `current` that has One.zip attached.
+    /// Defense in depth: only a `browser_download_url` on github.com (or its githubusercontent.com asset
+    /// host) is ever downloaded, in case the releases JSON response is ever tampered with or spoofed.
+    static func trustedDownloadHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "github.com" || host.hasSuffix(".githubusercontent.com")
+    }
     static func pick(_ list: [[String: Any]], current: String) -> (String, String, URL)? {
         var best: (String, String, URL)?
         for r in list where (r["draft"] as? Bool) != true {
@@ -72,6 +115,12 @@ final class Updater: ObservableObject {
                     as? String,
                 let zu = URL(string: zip)
             else { continue }
+            guard Updater.trustedDownloadHost(zu) else {
+                print(
+                    "Update aborted: release \(tag) points at an unexpected download host (\(zu.host ?? "unknown")), not github.com/*.githubusercontent.com. Skipping it."
+                )
+                continue
+            }
             best = (tag, (r["body"] as? String) ?? "", zu)
         }
         return best
@@ -169,6 +218,16 @@ final class Updater: ObservableObject {
             try? await Task.sleep(for: .seconds(15))
             busy = await Task.detached { Routines.inFlight() }.value
         }
+        // Working helpers never hold an update back for long, except one mid a sensitive dev step (a build,
+        // a test run, a git push, a release): pausing there could corrupt a build or leave a half-finished
+        // push. Wait for that step to clear, up to `sensitiveWait`, then go ahead (paused like any other).
+        var sensitive = m.helpersInSensitiveStep()
+        let sensitiveUntil = Date().addingTimeInterval(Updater.sensitiveWait)
+        while !sensitive.isEmpty && Date() < sensitiveUntil {
+            state = Updater.sensitiveLine(sensitive)
+            try? await Task.sleep(for: .seconds(10))
+            sensitive = m.helpersInSensitiveStep()
+        }
         state = "Downloading the new version…"
         // A test copy keeps its download in its own throwaway home, never in the person's update folder.
         let dir = (Env.selfTest ? Env.hermesHome : Env.support).appendingPathComponent("update", isDirectory: true)
@@ -197,17 +256,9 @@ final class Updater: ObservableObject {
             return
         }
         let target = Bundle.main.bundlePath
-        // A test copy only stops its own engine (the person's running One shares the engine folder).
-        let script = """
-            #!/bin/bash
-            while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.5; done
-            if [ \(Env.selfTest ? 1 : 0) = 0 ]; then
-            pkill -f "\(Env.engineDir.path)" 2>/dev/null; pkill -f "\(Env.support.path)/voice" 2>/dev/null
-            else kill \(Engine.shared.enginePID.map(String.init) ?? "0") 2>/dev/null; fi
-            xattr -dr com.apple.quarantine "\(newApp.path)" 2>/dev/null
-            rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp.path)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
-            \(ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1" ? "echo done > \"\(dir.path)/swapped\"" : "open \"\(target)\"")
-            """
+        let script = Updater.swapScript(
+            newApp: newApp.path, target: target, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
+            enginePID: Engine.shared.enginePID, noReopen: ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1")
         let sh = dir.appendingPathComponent("swap.sh")
         try? script.write(to: sh, atomically: true, encoding: .utf8)
         let p = Process()

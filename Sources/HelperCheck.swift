@@ -143,6 +143,14 @@ enum HelperCheck {
         check("it's picked back up", resumed.count == 1 && back[0].state == "working")
         check("and the update didn't count toward the restart limit", back[0].resumes == HelperTrail.maxResumes && back[0].updatePaused == nil)
         check("the person is told it was paused for the update", back[0].restartNews == HelperTrail.toldUpdate("Long job"))
+
+        // A helper mid a sensitive dev step is named so an update/folder restart can wait for it specifically.
+        Model.shared.helpers = [
+            Helper(title: "Ship it", task: "Ship it.", sid: "s-sens", state: "working", line: "Pushing to GitHub…"),
+            Helper(title: "Flight prices", task: "Find a flight.", sid: "s-plain", state: "working", line: "Searching the web…"),
+        ]
+        check("only the sensitive one is named", Model.shared.helpersInSensitiveStep() == ["Ship it"])
+        Model.shared.helpers = []
         // A newly allowed folder restarts the engine even while helpers work: they're paused the same way.
         var fol = Helper(title: "Ledger run", task: "Post.", sid: "s-10", state: "working", line: "")
         fol.resumes = HelperTrail.maxResumes

@@ -72,6 +72,15 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Local models"
+mkdir -p "$T/local"
+check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"
+
+echo "Switch AI: every provider offered, a stuck wait always has a message, the title never duplicates"
+mkdir -p "$T/switchai"
+check "switch AI decisions, wait message and no duplicate title bubble" bash -c "ONE_SUPPORT_DIR=$T/switchai $TBIN --test-switch-ai | tee $T/switchai/out.txt | grep -q '✓'; ! grep -q '✗' $T/switchai/out.txt"
+grep "✗" "$T/switchai/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Blocked on a step only you can do: ask, never substitute"
 mkdir -p "$T/bl"
 check "rule in SOUL and every helper turn (first, follow-up, picked back up); One spots a robot check, asks Can I show you the window?, turns that helper orange, shows nothing by itself" bash -c "ONE_SUPPORT_DIR=$T/bl $TBIN --test-blocked | tee $T/bl/out.txt | grep -q '^blocked ok'"
@@ -90,6 +99,11 @@ check "new skill told once, fixes silent, the remember question once and never a
 mkdir -p "$T/rt"
 check "smart routing: recipes, rooms, the yes gate, the brain, never Nyx" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-routing | tee $T/rt/out.txt | grep -q '^routing ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Folder approval ledger (every new grant needs a yes in the conversation first)"
+mkdir -p "$T/fa"
+check "existing folders never dropped, migration grandfathers them once, chat ask+yes grants and logs, a denied/bare-write path stays unlogged" bash -c "ONE_SUPPORT_DIR=$T/fa $TBIN --test-folder-approval | tee $T/fa/out.txt | grep -q '^PASS folder approval'"
+grep "✗" "$T/fa/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Engine helper is never stopped by a second One"
 mkdir -p "$T/gw"

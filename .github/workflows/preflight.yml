@@ -47,6 +47,9 @@ jobs:
         run: python3 tools/lint/one-lint.py
       - name: Lint baseline only shrinks
         run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+      - name: Doc drift (sensitive code changed without its matching doc)
+        if: github.event_name == 'pull_request'
+        run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
       - name: Preflight (no login needed)
         env:
           ONE_FAST_BUILD: '1'

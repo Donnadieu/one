@@ -1,0 +1,62 @@
+name: doc-gardening
+# Goal: pay documentation debt down continuously, not only when a human
+# happens to run a harness-engineering pass (see tools/doc-gardening.py for
+# the full rationale — this is the right-sized, Swift-repo equivalent of
+# Forge's harness-engineering skill's "doc-gardening" artifact).
+#
+# Runs --fix on a schedule, and opens a small PR only when the tree
+# actually changed. Never auto-merges: Omar is this repo's single
+# maintainer and wants to see what a bot changed before it lands, same as
+# any other PR.
+on:
+  schedule:
+    - cron: '17 13 * * 1'  # Monday mornings (9:17am New York / 13:17 UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  garden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run doc-gardening --fix
+        id: fix
+        run: |
+          set +e
+          python3 tools/doc-gardening.py --fix > /tmp/doc-gardening-report.txt 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/doc-gardening-report.txt
+
+      - name: Check whether anything changed
+        id: diff
+        run: |
+          if git status --porcelain | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open a PR with the mechanical fixes
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "doc-gardening: automated fixes"
+          title: "doc-gardening: automated fixes"
+          body-path: /tmp/doc-gardening-report.txt
+          branch: doc-gardening/automated-fixes
+          delete-branch: true
+          add-paths: |
+            docs/**
+            AGENTS.md
+            README.md
+
+      - name: Report findings left for a human, even with no file changes
+        if: steps.diff.outputs.changed == 'false' && steps.fix.outputs.exit_code != '0'
+        run: |
+          echo "doc-gardening found judgment-call issues that need a human look (no mechanical fix was possible — nothing to open a PR for):"
+          cat /tmp/doc-gardening-report.txt

@@ -30,9 +30,16 @@ struct RoomsView: View {
     }
     var body: some View {
         ZStack {
-            RadialGradient(
-                colors: [Color(hex: 0x1C1B1F), Color(hex: 0x141416), Color(hex: 0x111113)], center: UnitPoint(x: 0.48, y: 0.52), startRadius: 0,
-                endRadius: 700)
+            // Same glass as the main window (Home, every pop-up): reuse HomeBackdrop so Rooms
+            // follows the same frosted recipe and See-through setting, not a new background.
+            // Renders only: ImageRenderer can't draw the real NSVisualEffectView material
+            // offscreen (same limit Home's own renders dodge via HomeView.stillDesk/still), so
+            // test frames use a flat stand-in instead of the live glass.
+            if still {
+                RoomsStillBackdrop()
+            } else {
+                HomeBackdrop()
+            }
             if graph.rooms.isEmpty {
                 Text("Your rooms show up here once setup is done.").foregroundStyle(Color(hex: 0xF4EFE8, 0.5))
             } else {
@@ -68,6 +75,23 @@ struct RoomsView: View {
         graph.load(RoomMap.load())
         graph.focus = f.flatMap { n in graph.rooms.firstIndex { $0.name == n } }
         graph.selected = nil
+    }
+}
+
+/// Renders only: the same tint + lift as `HomeBackdrop`, without the live `WindowGlass` blur
+/// (ImageRenderer can't draw a real NSVisualEffectView offscreen), so test frames stay clean.
+struct RoomsStillBackdrop: View {
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                WorldLook.bg
+                Color(hex: 0x1C1C20).opacity(Glass.clamp(Glass.standard))
+                RadialGradient(
+                    colors: [Color(hex: 0x2C2C32, 0.4), .clear], center: UnitPoint(x: 0.38, y: 0.46), startRadius: 0,
+                    endRadius: max(g.size.width, g.size.height) * 0.3575)
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

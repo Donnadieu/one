@@ -26,10 +26,13 @@ enum Choices {
     }
 }
 
-struct Bubble: Identifiable {
+struct Bubble: Identifiable, Equatable {
     let id = UUID()
     let fromMe: Bool
     var text: String
+    /// When this turn happened. Defaults to now for every in-memory bubble created today; restored bubbles
+    /// carry their real saved time. Used only for the plain-thread history's day/time dividers.
+    var date: Date = Date()
     /// On a reply: what the person sent while it was being worked on (went into that same turn).
     var followUps: [String] = []
 }
@@ -54,6 +57,14 @@ final class Model: ObservableObject {
     @AppStorage("interviewOffered") var interviewOffered = false
     @Published var roomInvites: [URL] = []
     var clashes: [String] = []
+
+    /// `--reset` (devs only): clears ONLY onboarding/setup so the next launch runs the welcome flow again.
+    /// NEVER call `UserDefaults.standard.removePersistentDomain` for this: that drops everything saved under
+    /// the bundle id at once, helpers (`helpers`), chat history (`bubbles`), the shelf (`shelf`) and every other
+    /// key included, with nothing in a diff or a log to show it happened. Add new onboarding-only keys to this
+    /// list by name; never widen it back to a whole-domain wipe.
+    static let onboardingKeys = ["onboarded", "assistantName", "userName", "interviewOffered"]
+    static func resetOnboarding() { onboardingKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
     /// Routines (scheduled jobs) finish into hermes/cron/output/<job>/<time>.md. Read each new result
     /// out loud, wherever the person is, unless the voice is muted. Silent runs say nothing.
     private var routineSeen: Set<String> = []
@@ -89,7 +100,7 @@ final class Model: ObservableObject {
         guard onboarded, !Env.commandLine else { return }
         FolderWatch.tend(
             talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running,
-            routineBusy: { !Routines.inFlight().isEmpty },
+            routineBusy: { !Routines.inFlight().isEmpty }, sensitiveBusy: { !self.helpersInSensitiveStep().isEmpty },
             restart: { resume, pause in await self.restartForFolders(resume: resume, pauseHelpers: pause) })
     }
 
@@ -150,13 +161,23 @@ final class Model: ObservableObject {
     static func savedBubbles() -> [Bubble] {
         guard let raw = UserDefaults.standard.array(forKey: "bubbles") as? [[String: Any]] else { return [] }
         return raw.compactMap { d in
-            (d["t"] as? String).map { Bubble(fromMe: d["me"] as? Bool ?? false, text: $0, followUps: d["f"] as? [String] ?? []) }
+            (d["t"] as? String).map {
+                Bubble(
+                    fromMe: d["me"] as? Bool ?? false, text: $0,
+                    date: (d["d"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date(),
+                    followUps: d["f"] as? [String] ?? [])
+            }
         }
     }
+    /// How many persisted bubbles to keep across a restart. Was capped at 40 (Omar: real history was being
+    /// thrown away, not just hidden); raised so "real history" survives, not only the last few turns.
+    static let maxSavedBubbles = 500
     func saveBubbles() {
         guard !thinking else { return }
         UserDefaults.standard.set(
-            bubbles.suffix(40).filter { !$0.text.isEmpty }.map { ["me": $0.fromMe, "t": $0.text, "f": $0.followUps] as [String: Any] },
+            bubbles.filter { !$0.text.isEmpty }.suffix(Model.maxSavedBubbles).map {
+                ["me": $0.fromMe, "t": $0.text, "f": $0.followUps, "d": $0.date.timeIntervalSince1970] as [String: Any]
+            },
             forKey: "bubbles")
     }
     @Published var step: Step = .pickAI
@@ -188,12 +209,18 @@ final class Model: ObservableObject {
     @Published var asks: [Ask] = []
     /// Steps only the person can do (a code, a passkey…), shown with Done / I'm not at the Mac (HumanStep.swift).
     @Published var humanSteps: [HumanStepAsk] = []
+    /// A new folder the assistant asked for in chat, waiting on Yes/No (FolderApprovals.swift, ACP only).
+    @Published var folderAsks: [FolderAsk] = []
+    /// Folders already flagged this run as missing a ledger entry, so the warning bubble shows once.
+    var folderLedgerFlagged: Set<String> = []
     @Published var paused = false
     @Published var pickedEmails: Set<String> = []
     @Published var pickedConnections: [String] = ["Email", "Calendar", "News", "Files", "Browser"].map { _ in "" }.filter { !$0.isEmpty }
     @Published var connectOptions: [String] = ["Email", "Calendar", "News", "Files", "Browser"]
 
-    @Published var switchingAI = false
+    @Published var switchingAI = false { didSet { if switchingAI { closeOtherPanels(keep: .switchAI) } } }
+    @Published var switchWaitMessage: String?
+    @Published var signInChoice: Provider?
     @Published var speaking = false
     @Published var installDone = 0
     @Published var installLine = ""
@@ -222,12 +249,19 @@ final class Model: ObservableObject {
     var helperTurnEnded: [UUID: Date] = [:]  // when each helper's last engine turn ended (checks read it)
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     var shelfScanning = false
-    @Published var openedShelf: UUID?
+    // MARK: One panel at a time (PanelCenter.swift) — every in-window overlay below, plus the separate Rooms
+    // window, funnels through `closeOtherPanels` so opening one always swaps out whatever else was showing.
+    @Published var openedShelf: UUID? { didSet { if openedShelf != nil { closeOtherPanels(keep: .shelf) } } }
     @Published var draftSeed: String?
     @Published var about: (title: String, url: URL)?
-    @Published var viewing: URL?
-    @Published var routinesOpen = false  // the Routines panel (RoutinesView.swift)
-    @Published var stopAsk: UUID?  // a long press on a working helper's orb: the "Stop this helper?" pop-up (HelperStop.swift)
+    @Published var viewing: URL? { didSet { if viewing != nil { closeOtherPanels(keep: .file) } } }
+    @Published var routinesOpen = false { didSet { if routinesOpen { closeOtherPanels(keep: .routines) } } }  // RoutinesView.swift
+    @Published var stopAsk: UUID? { didSet { if stopAsk != nil { closeOtherPanels(keep: .stopAsk) } } }  // "Stop this helper?" (HelperStop.swift)
+    @Published var meCard = false { didSet { if meCard { closeOtherPanels(keep: .meCard) } } }  // the name pill's card (MeCard.swift)
+    @Published var connectionsSheet = false { didSet { if connectionsSheet { closeOtherPanels(keep: .connections) } } }
+    @Published var talkKeySheet = false { didSet { if talkKeySheet { closeOtherPanels(keep: .talkKey) } } }
+    @Published var folderSheet = false { didSet { if folderSheet { closeOtherPanels(keep: .folders) } } }
+    @Published var writingPanel = false { didSet { if writingPanel { closeOtherPanels(keep: .writing) } } }  // the big write space (AskEditor.swift)
 
     // Tell me when I learn (ModelLearning.swift)
     var learning = Learning.load()

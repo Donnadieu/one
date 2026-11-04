@@ -31,6 +31,7 @@ extension Model {
                 ))
         }
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
+        FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         Task.detached { _ = GoogleSignIn.ensureVenv() }
@@ -389,6 +390,7 @@ extension Model {
         }
         guard var c = compose(text) else { return }
         if !hidden { c.engine += blockedYes(text, helper: nil) }
+        if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
         if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),
@@ -472,6 +474,9 @@ extension Model {
         // "[done-helper: …]" (or the older "[close-helper: …]"): asked to take an orb off the screen. The only way besides
         // Got it in its thread. After the stops, so "stop it and clear it" in one reply works.
         for s in tags.closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
+        // "[tell-helper: Title | message]": passes a message into that helper's thread, just as typing in its orb
+        // would. After the stops/closes, so a helper stopped or cleared in the same reply is never told anything.
+        for (name, msg) in tags.tells { if let miss = tellHelpers(named: name, message: msg) { full += (full.isEmpty ? "" : "\n\n") + miss } }
         let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
         Helpers.logSkipped(skipped)
         if !all.isEmpty {
@@ -480,6 +485,7 @@ extension Model {
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }
         full = learnFinish(full, stop: stop, idx: idx)  // [job-kind:] / [learned:] read and hidden; the job recorded
+        detectFolderAsk(full)  // "I don't have access to <path>. Want me to add it?" -> a card, ACP only
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."
         }

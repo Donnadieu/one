@@ -219,6 +219,98 @@ def page_step(ws_url: str) -> dict:
         return {"kind": "unknown", "score": 0, "error": str(exc)[:120]}
 
 
+# ---------------------------------------------------------------------------
+# Before asking the person to sign in: check every hidden browser for a session that's already signed in
+# to this site (One's main hidden browser on 9223, a Chrome-sign-in copy on 9224, Project Ledger on 9333).
+# Found 2026-10-29: the "NotArc correction" helper asked Omar to sign in because the Chrome copy on 9224 had
+# no x.com cookies, while 9223 (One's own hidden browser) was already signed in as @OverviewEffect6 the whole
+# time. Never ask a human for a sign-in that another of One's own browsers already has.
+# ---------------------------------------------------------------------------
+
+KNOWN_AUTH_COOKIES = {
+    "x.com": ("auth_token",), "twitter.com": ("auth_token",), "facebook.com": ("c_user", "xs"),
+    "instagram.com": ("sessionid",), "github.com": ("user_session", "_gh_sess"),
+    "google.com": ("SID", "HSID", "__Secure-1PSID"), "linkedin.com": ("li_at",),
+    "reddit.com": ("reddit_session", "token_v2"),
+}
+_BORING_COOKIES = {"gt", "ct0", "guest_id", "personalization_id", "_ga", "_gid", "ga", "gid"}
+
+
+def _signed_in_cookies(url: str, cookies: list[dict]) -> bool:
+    """Is this cookie jar a real signed-in session for the site (not just a guest visit)?"""
+    site = _site(url)
+    names = {c.get("name", "") for c in cookies}
+    for dom, want in KNOWN_AUTH_COOKIES.items():
+        if dom in site:
+            return any(n in names for n in want)
+    # A site we don't know by name: a long-lived, httpOnly cookie that isn't a guest/analytics/CSRF id.
+    return any(
+        c.get("httpOnly") and len(str(c.get("value", ""))) > 20 and c.get("name") not in _BORING_COOKIES for c in cookies)
+
+
+def sibling_ports(exclude: int = 0) -> list[int]:
+    raw = os.environ.get("ONE_HANDOFF_SIBLING_PORTS", "9223,9224,9333")
+    out = []
+    for p in raw.split(","):
+        p = p.strip()
+        if p.isdigit() and int(p) != exclude:
+            out.append(int(p))
+    return out
+
+
+def _probe_tab(host: str, port: int, url: str) -> tuple[Optional[dict], bool]:
+    """A page to read cookies from on this port: reuses an open one, or opens (and later closes) a blank one."""
+    pages = _pages(host, port)
+    if pages:
+        return pages[0], False
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/json/new?about:blank", method="PUT")
+        with urllib.request.urlopen(req, timeout=3) as r:
+            return json.loads(r.read().decode()), True
+    except Exception:
+        return None, False
+
+
+def _port_cookies(host: str, port: int, url: str) -> Optional[list[dict]]:
+    t, created = _probe_tab(host, port, url)
+    if not t or not t.get("webSocketDebuggerUrl"):
+        return None
+    from websockets.sync.client import connect
+    cookies: Optional[list[dict]] = None
+    try:
+        with connect(t["webSocketDebuggerUrl"], open_timeout=3, close_timeout=1) as ws:
+            ws.send(json.dumps({"id": 1, "method": "Network.getCookies", "params": {"urls": [url]}}))
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                msg = json.loads(ws.recv(timeout=max(0.1, deadline - time.time())))
+                if msg.get("id") == 1:
+                    cookies = (msg.get("result") or {}).get("cookies") or []
+                    break
+    except Exception:
+        cookies = None
+    finally:
+        if created:
+            try:
+                urllib.request.urlopen(f"http://{host}:{port}/json/close/{t['id']}", timeout=2)
+            except Exception:
+                pass
+    return cookies
+
+
+def find_session(url: str, exclude_port: int = 0) -> Optional[dict]:
+    """Checks every sibling hidden browser (never the shared one you're already in) for a real session on
+    this site. Returns {"port", "url"} for the first one that has it, else None."""
+    for p in sibling_ports(exclude_port):
+        try:
+            _http_json("127.0.0.1", p, "/json/version")
+        except Exception:
+            continue
+        cookies = _port_cookies("127.0.0.1", p, url)
+        if cookies and _signed_in_cookies(url, cookies):
+            return {"port": p, "url": url}
+    return None
+
+
 def pick_step_tab(host: str, port: int, kinds: tuple = HUMAN_KINDS, prefer_url: str = "") -> Optional[dict]:
     """The open tab most clearly asking for a human step (highest score; the agent's own page wins ties)."""
     best: Optional[dict] = None
@@ -249,7 +341,7 @@ def _site(url: str) -> str:
 # ---------------------------------------------------------------------------
 
 ASKING = {"code": "a code", "security_key": "your security key", "passkey": "your passkey",
-          "approve": "a tap to approve on your phone", "check": "a quick check"}
+          "approve": "a tap to approve on your phone", "check": "a quick check", "sign_in": "to sign in"}
 
 _APPS = {"amazon.": "the Amazon app", "google.": "the Google app or Gmail", "apple.com": "Settings on your iPhone",
          "microsoft.": "the Microsoft Authenticator app", "live.com": "the Microsoft Authenticator app",
@@ -259,6 +351,8 @@ _APPS = {"amazon.": "the Amazon app", "google.": "the Google app or Gmail", "app
 
 
 def line_for(site: str, kind: str) -> str:
+    if kind == "sign_in":
+        return f"I need you for one step: sign in to {site}. Tap Show the window to do it there, then tap Done."
     return (f"I need you for one step: {site} is asking for {ASKING.get(kind, 'a quick check')}. "
             "Tap Show the window to do it there, then tap Done.")
 
@@ -319,6 +413,16 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                 "phone_fallback": phone_fallback(site, k),
                 "next": "Tell the person in one short line what the site needs and give them the phone_fallback. Never ask for a code in chat."}
     host, p = port
+    if kind in ("", "sign_in") and current:
+        # Never ask the person for a sign-in another of One's own hidden browsers already has.
+        found = find_session(current, exclude_port=p)
+        if found:
+            return {"success": True, "answer": "found_elsewhere", "moved_on": False, "site": _site(current),
+                    "signed_in_port": found["port"],
+                    "next": (f"Port {found['port']} already has a real, signed-in session for this site. Don't ask "
+                             f"the person: open this same page there instead (http://127.0.0.1:{found['port']}/json/new?"
+                             "<url>) and carry on the job on that tab. Never mix work between two different hidden "
+                             "browsers mid-job; finish this task on the one that's signed in.")}
     tab = pick_step_tab(host, p, prefer_url=current)
     if tab is None:
         # No tab looks like a human step: show the agent's own page (the person may see something the probe missed).
@@ -466,19 +570,39 @@ def install(ns: dict) -> None:
     props = schema["parameters"]["properties"]
     if "hand_off" not in props["action"]["enum"]:
         props["action"]["enum"].append("hand_off")
+    if "find_session" not in props["action"]["enum"]:
+        props["action"]["enum"].append("find_session")
     props["kind"] = {"type": "string", "enum": list(ASKING),
                      "description": "hand_off only: what the site asks of the person (default: detected)."}
+    if "url" not in props:
+        props["url"] = {"type": "string", "description": "find_session only: the page's URL (or just its site)."}
     schema["description"] += (
         " hand_off (kind optional): a step only the person can do (a code you can't enter, passkey, security key, "
-        "approve on their device, CAPTCHA/Cloudflare check): One shows this same page in a window with Done / I'm not at "
-        "the Mac and the call waits, then reports moved_on or a phone_fallback. enter_code hands off by itself after 2 "
-        "failed tries. Never ask the person to type a code in chat.")
+        "approve on their device, CAPTCHA/Cloudflare check, OR SIMPLY A SIGN-IN WALL with no code/captcha — use "
+        "kind=sign_in there): One shows this same page in a window with Done / I'm not at the Mac and the call waits, "
+        "then reports moved_on or a phone_fallback. enter_code hands off by itself after 2 failed tries. Call hand_off "
+        "yourself for every other human-only step too, including a plain sign-in page you can't get past — asking the "
+        "person in chat does NOT open any window by itself; this call is what writes the request and shows it. "
+        "find_session (url required): before EVER asking a person to sign in, call this. It checks every other hidden "
+        "browser One runs for a real, already-signed-in session on that site and reports which port has it, if any — "
+        "use that browser instead of asking. hand_off with kind=sign_in also runs this check on its own first. Never "
+        "ask the person to type a code in chat.")
 
     original_handle = ns["_handle_vault"]
 
     def handle_vault(args: dict, **kwargs) -> str:
-        if str(args.get("action") or "") == "hand_off":
+        action = str(args.get("action") or "")
+        if action == "hand_off":
             return json.dumps(hand_off(str(args.get("kind") or ""), kwargs.get("task_id")))
+        if action == "find_session":
+            url = str(args.get("url") or "")
+            if not url:
+                return json.dumps({"success": False, "error": "find_session needs a url"})
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            found = find_session(url, exclude_port=(_local_port(kwargs.get("task_id") or "default") or (None, 0))[1])
+            return json.dumps({"success": True, "found": found} if found else
+                               {"success": True, "found": None, "next": "No sibling browser has a session there; ask the person."})
         return original_handle(args, **kwargs)
 
     ns["_handle_vault"] = handle_vault

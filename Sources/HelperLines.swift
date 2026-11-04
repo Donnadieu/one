@@ -8,9 +8,10 @@ import Foundation
 // Checked by `One --test-helpers` (HelperCheck.swift) and `make helpers-check` (HelperStress.swift).
 
 extension Helpers {
-    /// The tags in a finished reply, read in the only safe order: helper lines first, whole; then the stop and close
-    /// lines in what's left. A stop or close quoted inside a helper's job is part of that job, never acted on.
-    static func read(_ reply: String) -> (said: String, jobs: [(String, String)], stops: [String], closes: [String]) {
+    /// The tags in a finished reply, read in the only safe order: helper lines first, whole; then the stop, close
+    /// and tell lines in what's left. A stop, close or tell quoted inside a helper's job is part of that job,
+    /// never acted on.
+    static func read(_ reply: String) -> (said: String, jobs: [(String, String)], stops: [String], closes: [String], tells: [(String, String)]) {
         let (clean, jobs) = extract(reply)
         var said = jobs.isEmpty && !reply.components(separatedBy: "\n").contains(where: isLine) ? reply : clean
         let (unstopped, stops) = HelperStop.extract(said)
@@ -21,7 +22,9 @@ extension Helpers {
             if !names.isEmpty { said = unclosed }
             closes += names
         }
-        return (said, jobs, stops, closes)
+        let (untold, tells) = HelperTell.extract(said)
+        if !tells.isEmpty { said = untold }
+        return (said, jobs, stops, closes, tells)
     }
 
     /// A line the assistant meant as a helper: it starts with "[helper:". Never shown, never spoken.

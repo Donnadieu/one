@@ -140,6 +140,7 @@ enum RoomsWindow {
     private static var closing: Any?
     static var isOpen: Bool { panel.map { $0.isVisible && !$0.isMiniaturized } ?? false }
     static func show(_ m: Model) {
+        m.closeOtherPanels(keep: .rooms)
         if let p = panel {
             p.makeKeyAndOrderFront(nil)
             return

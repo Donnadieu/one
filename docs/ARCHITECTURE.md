@@ -19,7 +19,8 @@
 | ProductionCheck.swift | dev only | `One --test-production`: a test copy keeps to its own world; the Oct 27 shelf move replayed on fakes |
 | Installer.swift | service | install Hermes (pinned commit), KeePass overlay, provider sign-in, tools Python |
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |
-| Voice.swift | service | Kokoro voice process, speaking, listening (push to talk) |
+| Voice.swift | service | Kokoro voice process, speaking, the always-on audio line (rebuilt once after a route change, `rebuildSoon`), `VoiceLine` log (`hermes/logs/one-voice-line.log`) |
+| Listener.swift | service | listening (push to talk): mic → on-device speech → text |
 | HelperSound.swift | service | the organ swell when a helper's orb turns orange (done / needs your yes): on the voice line, after any sentence, never muted or during push to talk, one for several (`sounds/`, made by `sounds/make_sounds.py`) |
 | Updater.swift | service | check GitHub releases every 15 min (ETag, back-off), announce a new version once (notification, orb note, spoken line), download, swap the app |
 | VersionNote.swift | service | the hidden note on every prompt (assistant and helpers): running version, newer release if any, read the code at that tag before saying how One works |
@@ -44,6 +45,9 @@
 | HelperLinesCheck.swift | dev only | part of `One --test-helpers`: three helper lines quoting close, stop and choices tags all start whole, nothing stopped, closed, shown (also mid-stream) or spoken; odd helper lines recovered or hidden |
 | HelperBurst.swift | dev only | `tools/jobs-check.sh --helpers`: five helpers asked for at once against the real engine (all start together, the assistant still answers) |
 | VoiceCheck.swift | dev only | `One --test-voice` (stop talking just this once: never mutes, next reply speaks; helper sound rules; stand-in voice), run by preflight |
+| VoiceStress.swift | dev only | `One --test-voice-stress [secs]`: the REAL audio line under load (replies read and hushed, chimes, rebuilds, `sayNow` from a background task, the orb reading it 60×/s) at volume 0, no window; `make sanitize` runs it in thread- and address-sanitizer builds |
+| Diagnostics.swift | dev only | the command-line checks run before the app starts (`--test-glass`, `--test-voice-stress`, `--test-soak`, `--crash-line <pid>`: the one-line crash summary `Pulse` logs after a crash) |
+| SoakCheck.swift | dev only | `One --test-soak [minutes]`: the whole app under load (home screen live off screen, stand-in engine replies and helpers, every reply read aloud on the real line at volume 0, rebuilds; `ONE_SOAK_ROUTE=1` also switches the Mac speakers' format like a headset going into call mode); `make soak` runs it under Apple's sampling guard at full rate, or a sanitizer |
 | ShelfCopy.swift | UI | copying from the Ready for you shelf: ⌘C on a card (file + text for text files), the right-click menu (Copy file, Copy text, Show in Finder, Share…), the reader's Copy all; `One --test-shelf-copy <file>` |
 | ShelfRead.swift | UI | the shelf's title row (`ShelfHeader`) and "Mark all read" (`Model.markShelfRead`: every card read in one save, their helpers seen); renders `shelf-read-new` / `shelf-read-done` |
 | Pictures.swift | service | images and files attached to a message |
@@ -135,6 +139,18 @@
 3. Running another program (`Process`) only happens in services (enforced: `process-area`).
 4. Anything the engine can reach must be listed in `Access.profile()`; never widen it to all of home.
 5. New area = new file; keep each under 600 lines (enforced: `file-length`).
+6. **Dependency direction (enforced: `dependency-direction`).** Dependencies point one way, down the
+   diagram at the top of this file: UI → `Model` → services → `Env`/foundation. A file tagged
+   `foundation` or `service` in the table above must never reference `Model.shared` (the state layer
+   above it) or declare a SwiftUI `View`. Reaching back up — a service calling into `Model` instead of
+   returning a value or taking a closure/delegate — is the one direction this file calls out as
+   disallowed; it quietly turns a one-way dependency graph into a cycle, which is exactly what makes a
+   codebase hard for an agent (or a human) to hold in their head. `tools/lint/one-lint.py` enforces this
+   one check mechanically (pattern-matching `Model.shared` / `: View` references, since Swift has no
+   per-file `import` statement between files in the same module to parse); any existing violation is
+   grandfathered in `tools/lint/baseline.json` as debt, not silently allowed going forward. A rule this
+   lint can't check reliably (e.g. an indirect reverse dependency through a protocol or a closure
+   captured across files) is a stated skip, not something it guesses at.
 
 ## Extending
 - New connection: a node in `worldNodes` or a `connections.json` entry, a `connect()` branch, and the

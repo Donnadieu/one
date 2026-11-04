@@ -159,6 +159,7 @@ final class OrbHost: NSView {
     private var replyToken = 0, hintToken = 0
 
     private var mainWindow: NSWindow? { NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain } }
+    private var clampedOnLaunch = false
 
     func setup() {
         watchOrb()
@@ -170,6 +171,12 @@ final class OrbHost: NSView {
         nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { n in
             Task { @MainActor in
                 guard let w = n.object as? NSWindow, !(w is NSPanel), let b = w.standardWindowButton(.closeButton) else { return }
+                // First time the real window becomes key (right after launch): a frame restored off-screen
+                // hides the titlebar/toolbar while the body still renders fine, which reads as "no top row".
+                if !self.clampedOnLaunch {
+                    self.clampedOnLaunch = true
+                    WindowGuard.ensureOnScreen(w)
+                }
                 if b.target !== self {
                     b.target = self
                     b.action = #selector(Floater.tuckAway(_:))

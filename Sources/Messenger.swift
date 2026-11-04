@@ -23,6 +23,9 @@ enum Messenger {
 
     static var configured: Bool {
         let f = Env.hermesHome.appendingPathComponent(".env")
+        // Self-heal permissions on every read too: a copy made by hand (manual setup step) or by an
+        // older build before this fix may still be group/other-readable.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: f.path)
         return wanted((try? String(contentsOf: f, encoding: .utf8)) ?? "")
     }
 

@@ -149,6 +149,20 @@ extension Plain {
         if head == "notarytool" || low.contains("notarytool") { return "Getting Apple's OK…" }
         return nil
     }
+
+    /// A step risky to cut off mid-way: half a build, a half-made push, a release left incomplete.
+    /// An update or a folder restart waits for these specifically, not just any busy helper.
+    static let sensitivePrefixes = [
+        "Building ", "Packaging ", "Running tests…", "Checking the code…", "Pushing to GitHub…",
+        "Saving the changes…", "Publishing a release…", "Merging on GitHub…", "Getting Apple's OK…",
+    ]
+    static func sensitive(_ line: String) -> Bool { sensitivePrefixes.contains { line.hasPrefix($0) } }
+}
+
+@MainActor
+extension Model {
+    /// Titles of working helpers whose current step is a sensitive dev op right now.
+    func helpersInSensitiveStep() -> [String] { helpers.filter { $0.state == "working" && Plain.sensitive($0.line) }.map { $0.title } }
 }
 
 @MainActor

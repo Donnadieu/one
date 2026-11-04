@@ -23,13 +23,8 @@ struct HomeView: View {
     /// Renders only: the helper shown as if pointed at.
     nonisolated(unsafe) static var stillPointed: UUID?
     @State var draft = HomeView.stillDraft
-    @State var writing = HomeView.stillWriting
     @State var windowHeight: CGFloat = 760
     @StateObject var askMetrics = HomeView.makeMetrics()
-    @State var folderSheet = false
-    @State var talkKeySheet = false
-    @State var connectionsSheet = false
-    @State var meCard = false
     @AppStorage("shelfCollapsed") var shelfCollapsed = false
     @AppStorage("voiceMuted") var voiceOff = false
     @AppStorage(Glass.key) var solid = Glass.standard
@@ -38,6 +33,7 @@ struct HomeView: View {
     @State var micLatched = false
     @State var dropping = false
     @State var typing = false
+    @State var historyOpen = false
     var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 12 ? "Good morning" : (h < 17 ? "Good afternoon" : "Good evening")
@@ -50,6 +46,11 @@ struct HomeView: View {
         let k = m.bubbles.lastIndex(where: { $0.fromMe }).map { $0 + 1 } ?? 0
         return Array(m.bubbles[k...].filter { !$0.text.isEmpty }.suffix(6))
     }
+    /// Turns before the current exchange, oldest first: hidden by default, revealed by `HistoryStrip`.
+    var olderTurns: [Bubble] {
+        guard let cutoff = m.bubbles.lastIndex(where: { $0.fromMe }) else { return [] }
+        return m.bubbles[..<cutoff].filter { !$0.text.isEmpty }
+    }
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -58,6 +59,13 @@ struct HomeView: View {
                     .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
                 StillScroll {
                     VStack(spacing: 12) {
+                        // Extra room above the orb only: its own halo/aura is bigger than its component frame
+                        // (by design, elsewhere in the app too), and this is the one place the halo can sit at
+                        // the very top of a scrolling column. Without this gap the ScrollView's own clip
+                        // boundary cuts a flat edge straight through the circular halo the moment there's
+                        // nothing above it to scroll past (Omar, 2026-10-29: "we cannot desecrate the halo").
+                        // The orb/HelperConstellation themselves are untouched — this is only breathing room.
+                        Color.clear.frame(height: 64)
                         HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                         if m.isReady && m.thinking && m.openHelper == nil {
                             StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
@@ -110,6 +118,7 @@ struct HomeView: View {
                             AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                         }
                         ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
+                        ForEach(m.folderAsks) { a in FolderAskCard(a: a) { m.answerFolderAsk(a.id, approved: $0) }.starCalm() }
                         if !m.asks.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)
@@ -122,6 +131,7 @@ struct HomeView: View {
                             FollowUpList(m: m, helper: h.id).starCalm()
                         } else if let ask = lastAsk {
                             VStack(spacing: 8) {
+                                HistoryStrip(m: m, turns: olderTurns, open: $historyOpen).equatable()
                                 ChatText(text: ask.text, size: ChatText.callout, plain: true, center: true).opacity(0.55)
                                     .frame(maxWidth: .infinity)
                                 // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
@@ -187,21 +197,21 @@ struct HomeView: View {
         .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
-            if writing {
+            if m.writingPanel || (HomeView.still && HomeView.stillWriting) {
                 WritingPanel(
                     m: m, draft: $draft,
                     close: {
-                        writing = false
+                        m.writingPanel = false
                         typing = true
                     },
                     send: {
-                        writing = false
+                        m.writingPanel = false
                         go()
                     }
                 ).transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: writing)
+        .animation(.easeOut(duration: 0.15), value: m.writingPanel)
         .background(
             GeometryReader { g in Color.clear.onAppear { windowHeight = g.size.height }.onChange(of: g.size.height) { _, h in windowHeight = h } }
         )
@@ -240,9 +250,7 @@ struct HomeView: View {
         }
         .animation(.easeOut(duration: ReadyLayerLook.fade), value: m.isReady)
         .modifier(
-            HomeTitleRow(
-                m: m, voiceOff: $voiceOff, meCard: $meCard, connectionsSheet: $connectionsSheet, talkKeySheet: $talkKeySheet,
-                folderSheet: $folderSheet, dropping: $dropping)
+            HomeTitleRow(m: m, voiceOff: $voiceOff, dropping: $dropping)
         )
         .overlay {
             if dropping {
@@ -315,7 +323,7 @@ struct HomeView: View {
                     Button("File…") { PictureIn.pick() }
                     Button("Photo…") { PictureIn.pickPhoto() }
                     Button("Screenshot") { PictureIn.screenshot() }
-                    Button("Folder…") { folderSheet = true }
+                    Button("Folder…") { m.folderSheet = true }
                 } label: {
                     Image(systemName: "plus").font(.system(size: 16, weight: .regular)).foregroundStyle(WorldLook.cream.opacity(0.6))
                         .frame(width: 36, height: 36).contentShape(Circle())
@@ -357,7 +365,7 @@ struct HomeView: View {
             .overlay(alignment: .topTrailing) {
                 if !draft.isEmpty && askMetrics.contentHeight > AskEditor.oneLine + 3 * 17 {
                     Button {
-                        writing = true
+                        m.writingPanel = true
                     } label: {
                         Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .medium))
                             .foregroundStyle(WorldLook.cream.opacity(0.7)).frame(width: 28, height: 28)
@@ -390,7 +398,7 @@ struct HomeView: View {
         guard m.isReady else { return }  // getting ready: the box can't send (StartupGate.swift)
         let t = draft
         draft = ""
-        writing = false
+        m.writingPanel = false
         Task { await m.send(t) }
     }
 }

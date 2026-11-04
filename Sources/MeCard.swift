@@ -139,11 +139,19 @@ struct MeCard: View {
     }
     func pick(_ id: String) {
         guard id != model, !busy else { return }
-        model = id
         busy = true
         Task { @MainActor in
-            _ = await hermesRun(["config", "set", "model.default", id])
-            _ = await Engine.shared.start()
+            while !SwitchAI.ready(m.helpers, thinking: m.thinking) {
+                try? await Task.sleep(for: .seconds(2))
+            }
+            let (status, _) = await hermesRun(["config", "set", "model.default", id])
+            if status == 0, await Engine.shared.start() == nil {
+                model = id
+            } else {
+                _ = await hermesRun(["config", "set", "model.default", model])
+                _ = await Engine.shared.start()
+                m.bubbles.append(Bubble(fromMe: false, text: "That AI didn't start. I kept the one you were using."))
+            }
             busy = false
         }
     }

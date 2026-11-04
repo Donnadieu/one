@@ -91,39 +91,78 @@ final class Speaker: @unchecked Sendable {
             audio.attach(node)
             audio.connect(node, to: audio.mainMixerNode, format: fmt)
             NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: audio, queue: .main) { [weak self] _ in
-                self?.rebuild()
+                self?.rebuildSoon(after: 0.8, why: "the output changed")
             }
         }
         if !audio.isRunning {
+            useTestDevice()
             audio.prepare()
             try? audio.start()
         }
-        if !node.isPlaying { node.play() }
+        // play() on a line that didn't start raises "player started when engine not running" and kills One
+        // (0.9.83, Nov 2 04:37Z: hush → wakeAudio). A line that's down stays quiet until the next wake or rebuild.
+        if audio.isRunning, !node.isPlaying { node.play() }
+        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
         routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+        latency = audio.outputNode.presentationLatency
     }
     private var routeRate: Double = 0
+    /// The speaker's own delay (Bluetooth is ~0.2 s), read when the line (re)starts. Never read per frame: each read
+    /// is a synchronous call into the audio unit, and the orbs ask `heard()` 60 to 120 times a second.
+    private var latency: Double = 0
     /// Loudness of what is queued on the audio line, by the time it's heard.
     private var track = VoiceTrack()
     /// Main thread. The voice as the person hears it right now: the speaker's own delay (Bluetooth is
     /// ~0.2 s) is taken off, so the orb moves with the sound, not with the text or the file.
+    /// Touches only One's own copy of the loudness, never the audio engine: the orbs call this every frame, and the
+    /// engine may be mid-change under them (a headset going into call mode for push to talk and back).
     func heard() -> VoiceWave {
-        guard audioUp, !track.clips.isEmpty else { return .still }
-        return track.wave(at: Date().addingTimeInterval(-audio.outputNode.presentationLatency))
+        guard audioUp, let last = track.clips.last else { return .still }
+        let now = Date()
+        if now.timeIntervalSince(last.end) > 3 {
+            track.clips = []  // everything queued has been said: nothing to follow until the next sentence
+            return .still
+        }
+        return track.wave(at: now.addingTimeInterval(-latency))
     }
     var state: String { "engine=\(audio.isRunning) node=\(node.isPlaying) rate=\(audio.outputNode.outputFormat(forBus: 0).sampleRate)" }
     /// Main thread. Rebuilds the audio line from scratch. Bluetooth headsets switch to "call mode" while the mic
     /// is on and back afterwards; the old line can stay bound to the call-mode output and play into nothing.
     func rebuild() {
+        rebuildWork?.cancel()
+        rebuildWork = nil
+        rebuildBy = nil
+        VoiceLine.log("rebuild")
         node.stop()
         audio.stop()
         audio.disconnectNodeOutput(node)
         audio.reset()
         audio.connect(node, to: audio.mainMixerNode, format: fmt)
         endsAt = .distantPast
+        useTestDevice()
         audio.prepare()
         try? audio.start()
-        node.play()
+        if audio.isRunning { node.play() }
+        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
         routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+        latency = audio.outputNode.presentationLatency
+    }
+    private var rebuildWork: DispatchWorkItem?
+    private var rebuildBy: Date?
+    /// Main thread. The output is changing under the line (a Bluetooth headset switching into call mode for push to
+    /// talk and back, a new device): rebuild ONCE, after it has settled, not on every step of the change. Each call
+    /// can only push the rebuild later, never earlier. One used to stop, reset and restart the line up to three
+    /// times within two seconds of every push to talk (the change notice, then 0.6 s and 1.8 s after letting go),
+    /// while the headset was still switching; One's heap-corruption crashes came right after push to talk.
+    func rebuildSoon(after s: Double, why: String) {
+        let at = max(rebuildBy ?? .distantPast, Date().addingTimeInterval(s))
+        guard at != rebuildBy else { return }
+        VoiceLine.log("rebuild in \(String(format: "%.1f", at.timeIntervalSinceNow)) s: \(why)")
+        rebuildWork?.cancel()
+        rebuildBy = at
+        let w = DispatchWorkItem { [weak self] in self?.rebuild() }
+        rebuildWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, at.timeIntervalSinceNow), execute: w)
     }
     /// Main thread. Before speaking: if the output changed under us (headset mode, new device), rebuild.
     func ensureRoute() {
@@ -160,7 +199,7 @@ final class Speaker: @unchecked Sendable {
     @discardableResult
     func enqueue(_ url: URL) -> Double {
         if Date() >= endsAt { ensureRoute() } else { wakeAudio() }
-        guard let b = buffer(url) else { return 0 }
+        guard audio.isRunning || stand != nil, let b = buffer(url) else { return 0 }
         let d = Double(b.frameLength) / fmt.sampleRate
         let starts = max(endsAt, Date())
         node.scheduleBuffer(b, completionHandler: nil)
@@ -170,7 +209,7 @@ final class Speaker: @unchecked Sendable {
     }
     /// Main thread. Silences now but keeps the line awake.
     func hush() {
-        guard stand == nil else {  // self-tests never touch the audio line
+        guard stand == nil || standPlays else {  // self-tests never touch the audio line (unless standPlays)
             endsAt = .distantPast
             return
         }
@@ -241,13 +280,13 @@ final class Speaker: @unchecked Sendable {
             let id = UUID().uuidString
             self.waiting[id] = done
             let msg = (try? JSONSerialization.data(withJSONObject: ["id": id, "text": text])) ?? Data()
-            input.write(msg + Data("\n".utf8))
+            try? input.write(contentsOf: msg + Data("\n".utf8))  // throws (never raises) if the voice process just died
         }
     }
     /// Says a line now and returns its length in seconds (0 if the live voice isn't ready).
     func sayNow(_ text: String) async -> Double {
         guard ready, !Speaker.prefs.bool(forKey: "voiceMuted") else { return 0 }
-        stop()
+        await MainActor.run { self.stop() }  // the playback state belongs to the main thread (see `stop`)
         let (url, dur): (URL?, Double) = await withCheckedContinuation { c in render(text) { c.resume(returning: ($0, $1)) } }
         guard let url else { return 0 }
         await MainActor.run { _ = self.enqueue(url) }
@@ -303,7 +342,7 @@ final class Speaker: @unchecked Sendable {
             reached += 1
             outstanding = max(0, outstanding - 1)
             lastStep = Date()
-            if let url, stand == nil { enqueue(url) }
+            if let url, stand == nil || standPlays { enqueue(url) }
             if stand != nil, standSecs > 0 { endsAt = max(endsAt, Date()).addingTimeInterval(standSecs) }  // self-tests: "plays" this long
             if let f = onFirst {
                 onFirst = nil
@@ -331,6 +370,18 @@ final class Speaker: @unchecked Sendable {
     static var prefs: UserDefaults { Env.selfTest ? (UserDefaults(suiteName: "ai.forjado.one.voice-test") ?? .standard) : .standard }
     /// Self-tests only: stands in for the voice process (no Kokoro, no sound).
     var stand: ((String) -> URL?)?
+    /// Self-tests only (`--test-voice-stress`): the stand-in's sounds really play on the audio line.
+    var standPlays = false
+    /// Self-tests only: the line's volume (0 = runs and renders, heard by nobody).
+    var testVolume: Float?
+    /// Self-tests only (`--test-soak`): play on this output device instead of the default one.
+    var testDevice: AudioDeviceID?
+    private func useTestDevice() {
+        guard var d = testDevice, let u = audio.outputNode.audioUnit else { return }
+        AudioUnitSetProperty(u, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &d, UInt32(MemoryLayout<AudioDeviceID>.size))
+    }
+    /// Self-tests only: act as if the live voice were up (the stand-in makes the sentences), so `sayNow` runs.
+    func pretendReady() { q.sync { ready = true } }
     /// Sentences that reached the audio line so far (self-tests count them).
     private(set) var reached = 0
     static var voiceID: String { UserDefaults.standard.string(forKey: "voiceID") ?? "af_heart" }
@@ -353,7 +404,11 @@ final class Speaker: @unchecked Sendable {
             }
         }
     }
+    /// Main thread, like everything that touches the reply being read (`gen`, `pending`, `queue`, `onFirst`).
+    /// `sayNow` used to call this from a background task, racing the main thread on those arrays (found by
+    /// `--test-voice-stress` under the thread sanitizer). A call from anywhere else now hops to main first.
     func stop() {
+        guard Thread.isMainThread else { return DispatchQueue.main.async { self.stop() } }
         gen += 1
         pending = []
         queue = []
@@ -400,185 +455,19 @@ final class Speaker: @unchecked Sendable {
     }
 }
 
-// MARK: - Push to talk (speech → text on this Mac)
-
-/// Hears you while you hold the orb. Speech is turned into text on the Mac when it can be.
-@MainActor final class Listener: ObservableObject {
-    static let shared = Listener()
-    @Published var listening = false
-    @Published var text = ""
-    @Published var level: Double = 0
-    @Published var problem: String?
-    private let audio = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var want = false
-    private var gotFinal = false
-    private var onFinal: (() -> Void)?
-    private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-
-    var wanting: Bool { want }
-    /// Ask for permissions once at launch so pressing the key starts the mic with no waiting.
-    func warm() {
-        if SFSpeechRecognizer.authorizationStatus() == .notDetermined { SFSpeechRecognizer.requestAuthorization { _ in } }
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
-    }
-    func begin() {
-        want = true
-        problem = nil
-        text = ""
-        if SFSpeechRecognizer.authorizationStatus() == .authorized, AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
-            listening = false
-            startAudio()
-            return  // already allowed: start right now
-        }
-        SFSpeechRecognizer.requestAuthorization { s in
-            DispatchQueue.main.async {
-                guard s == .authorized else {
-                    self.fail("I need permission to hear you. Open System Settings, Privacy & Security, Speech Recognition, and turn on One.")
-                    return
-                }
-                AVCaptureDevice.requestAccess(for: .audio) { ok in
-                    DispatchQueue.main.async {
-                        guard ok else {
-                            self.fail("I need the microphone. Open System Settings, Privacy & Security, Microphone, and turn on One.")
-                            return
-                        }
-                        if self.want { self.startAudio() }
-                    }
-                }
-            }
-        }
-    }
-
-    private func fail(_ msg: String) {
-        problem = msg
-        want = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { if self.problem == msg { self.problem = nil } }
-    }
-
-    private func startAudio() {
-        guard !listening else { return }
-        guard let r = recognizer, r.isAvailable else {
-            fail("Talking isn't available right now. You can type instead.")
-            return
-        }
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        req.addsPunctuation = true
-        if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req
-        gotFinal = false
-        let input = audio.inputNode
-        input.removeTap(onBus: 0)
-        input.installTap(
-            onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0),
-            block: Listener.tap(req) { lv in
-                DispatchQueue.main.async { self.level = lv }
-            })
-        audio.prepare()
-        do { try audio.start() } catch {
-            input.removeTap(onBus: 0)
-            fail("I couldn't use the microphone.")
-            return
-        }
-        listening = true
-        task = r.recognitionTask(
-            with: req,
-            resultHandler: Listener.handler { text, final in
-                DispatchQueue.main.async {
-                    if let text { self.text = text }
-                    if final {
-                        self.gotFinal = true
-                        let f = self.onFinal
-                        self.onFinal = nil
-                        f?()
-                    }
-                }
-            })
-    }
-
-    /// Bluetooth headsets take 1–2 s to switch into mic mode (and swallow the first words), so listen
-    /// through the Mac's own microphone when the default input is Bluetooth. Replies still play on the headset.
-    static func preferBuiltInMic(_ engine: AVAudioEngine) {
-        func prop<T>(_ id: AudioObjectID, _ sel: AudioObjectPropertySelector, _ v: inout T) -> Bool {
-            var a = AudioObjectPropertyAddress(mSelector: sel, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-            var size = UInt32(MemoryLayout<T>.size)
-            return AudioObjectGetPropertyData(id, &a, 0, nil, &size, &v) == noErr
-        }
-        var def = AudioDeviceID(0)
-        guard prop(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice, &def) else { return }
-        var transport = UInt32(0)
-        _ = prop(def, kAudioDevicePropertyTransportType, &transport)
-        guard transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE else { return }
-        var a = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var size = UInt32(0)
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size) == noErr else { return }
-        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids) == noErr else { return }
-        for id in ids {
-            var t = UInt32(0)
-            _ = prop(id, kAudioDevicePropertyTransportType, &t)
-            guard t == kAudioDeviceTransportTypeBuiltIn else { continue }
-            var sa = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyStreams, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
-            var ss = UInt32(0)
-            guard AudioObjectGetPropertyDataSize(id, &sa, 0, nil, &ss) == noErr, ss > 0 else { continue }
-            var dev = id
-            if let unit = engine.inputNode.audioUnit {
-                AudioUnitSetProperty(
-                    unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
-            }
-            return
-        }
-    }
-
-    /// Built outside the class's methods so the audio thread never touches main-thread-only state.
-    nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest, level: @escaping (Double) -> Void) -> AVAudioNodeTapBlock {
-        return { buf, _ in
-            req.append(buf)
-            guard let ch = buf.floatChannelData?[0] else { return }
-            let n = Int(buf.frameLength)
-            var sum: Float = 0
-            for i in 0..<n { sum += ch[i] * ch[i] }
-            level(min(1, Double(sqrt(sum / Float(max(n, 1)))) * 14))
-        }
-    }
-    nonisolated private static func handler(_ cb: @escaping (String?, Bool) -> Void) -> (SFSpeechRecognitionResult?, Error?) -> Void {
-        return { res, err in cb(res?.bestTranscription.formattedString, err != nil || res?.isFinal == true) }
-    }
-
-    /// Stop listening; `done` gets what was heard (empty if nothing).
-    func finish(_ done: @escaping (String) -> Void) {
-        want = false
-        guard listening else {
-            done("")
-            return
-        }
-        listening = false
-        audio.stop()
-        audio.inputNode.removeTap(onBus: 0)
-        for d in [0.6, 1.8] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { if !self.listening { Speaker.shared.rebuild() } } }
-        request?.endAudio()
-        var called = false
-        let complete = {
-            guard !called else { return }
-            called = true
-            self.task?.cancel()
-            self.task = nil
-            self.request = nil
-            self.level = 0
-            done(self.text.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if gotFinal {
-            complete()
+/// When the voice line changed, in `hermes/logs/one-voice-line.log` (push to talk, route changes, rebuilds; a few
+/// lines per push to talk). If One crashes again, Pulse's crash line can be lined up against these times.
+enum VoiceLine {
+    nonisolated static func log(_ line: String) {
+        guard !Env.selfTest else { return }
+        let f = Env.hermesHome.appendingPathComponent("logs/one-voice-line.log")
+        let s = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+        if let h = try? FileHandle(forWritingTo: f) {
+            h.seekToEndOfFile()
+            h.write(Data(s.utf8))
+            try? h.close()
         } else {
-            onFinal = complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                self.onFinal = nil
-                complete()
-            }
+            try? s.write(to: f, atomically: true, encoding: .utf8)
         }
     }
 }

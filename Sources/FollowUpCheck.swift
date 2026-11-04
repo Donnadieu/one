@@ -9,6 +9,13 @@ import Foundation
 /// new words and the taken-back one never goes. Costs two or three short Claude turns.
 /// Must run from a copy with its own bundle id (the script does that), so the person's chat is never touched.
 enum FollowUpCheck {
+    static func launch() -> Bool {
+        guard CommandLine.arguments.contains("--test-followups") else { return false }
+        TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
+        Task { @MainActor in exit(await run()) }
+        return true
+    }
+
     @MainActor
     static func run() async -> Int32 {
         var fails = 0

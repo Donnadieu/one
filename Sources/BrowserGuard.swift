@@ -161,7 +161,9 @@ enum BrowserGuard {
             browser = b
         }
         let id = "yes-" + UUID().uuidString.prefix(8).lowercased()
-        let j: [String: Any] = ["id": id, "browser": browser, "expires": now.timeIntervalSince1970 + 900, "said": String(text.prefix(80))]
+        // Only the derived decision is persisted — never a snippet of what the person typed, even
+        // though they're only saying yes to a browser window: it could still be sensitive if pasted.
+        let j: [String: Any] = ["id": id, "browser": browser, "expires": now.timeIntervalSince1970 + 900, "approved": true]
         try? FileManager.default.createDirectory(at: allowDir, withIntermediateDirectories: true)
         guard let d = try? JSONSerialization.data(withJSONObject: j), (try? d.write(to: allowDir.appendingPathComponent("\(id).json"))) != nil
         else { return nil }

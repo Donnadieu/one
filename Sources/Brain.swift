@@ -220,6 +220,8 @@ enum Persona {
             These helper rules are for you, the main assistant, only, not for helpers. If your first message says you're one of the helpers, do the job yourself with your own tools and never write [helper: …] lines; they do nothing there.
             \(HelperStop.soul)
 
+            \(HelperTell.soul)
+
             \(BrowserGuard.soul)
 
             \(BlockedAsk.soul)

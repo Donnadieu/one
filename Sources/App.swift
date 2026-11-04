@@ -36,11 +36,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await UpdaterCheck.run()) }
             return
         }
-        if CommandLine.arguments.contains("--test-followups") {
-            TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/followups-check.sh)
-            Task { @MainActor in exit(await FollowUpCheck.run()) }
-            return
-        }
+        if LocalModelsCheck.launch() || FollowUpCheck.launch() { return }
         if CommandLine.arguments.contains("--test-helper-done") {
             TestWorld.enter()  // throwaway Hermes home and brain; run from a copy with its own settings (tools/helper-done-check.sh)
             Task { @MainActor in exit(await HelperDoneCheck.run()) }
@@ -69,7 +65,9 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HumanStepCheck.run()) }
             return
         }
-        if HumanCheckLive.launch() || HelperStress.launch() { return }  // --test-human-window, --test-helpers-stress (tools/*-check.sh)
+        if HumanCheckLive.launch() || HelperStress.launch() || WindowGuardCheck.launch() { return }  // -window/-stress/-guard checks
+        if MessageHistoryCheck.launch() || MessageHistoryClickCheck.launch() || MessageTypingPerfCheck.launch() { return }  // --test-message-* checks
+        if ResetCheck.launch() { return }  // --test-reset (tools/reset-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {
             TestWorld.enter()  // stand-in engine calls, in-memory saved helpers; run with ONE_SUPPORT_DIR set to an empty folder
             guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -107,7 +105,8 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await LearningLiveCheck.run()) }
             return
         }
-        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() { return }  // --test-blocked, -keep-awake(-hold), -progress
+        if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
+        if SwitchAICheck.launch() || FolderApprovalCheck.launch() { return }  // --test-folder-approval (tools/preflight.sh)
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -162,8 +161,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
-        // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
-        Task.detached {
+        Task.detached {  // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
             while true {
                 Messenger.tend()
                 try? await Task.sleep(for: .seconds(10))
@@ -203,6 +201,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             TalkKeys.shared.apply()
             Listener.shared.warm()
             Model.shared.syncName()
+            Pulse.launch()
         }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -245,7 +244,7 @@ struct Entry {
         if let code = MyChrome.cli(args) { exit(code) }
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
-        GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
+        Diagnostics.main(args)  // `--test-glass`, `--test-voice-stress`, `--crash-line <pid>` (Diagnostics.swift)
         if let k = args.firstIndex(of: "--test-connections-open") {
             TestWorld.enter()  // a test copy only: one window, the Connections sheet opened in it
             MainActor.assumeIsolated {
@@ -284,6 +283,7 @@ struct Entry {
             exit(ok ? 0 : 1)
         }
         RoutinesRender.cli(args)  // --render-routines <png>
+        SwitchAIPanelRender.cli(args)  // --render-switch-ai <png> [picker|waiting]
         MainActor.assumeIsolated { StarsRender.cli(args) }  // --render-stars <prefix>, --stars-cpu <seconds>
         if let k = args.firstIndex(of: "--render-world"), k + 1 < args.count {
             let out = args[k + 1]
@@ -401,10 +401,10 @@ struct Entry {
                     ("shelf-copy-reader", ShelfCopyRender.reader()),
                     ("shelf-read-new", ShelfReadRender.panel(read: false)),
                     ("shelf-read-done", ShelfReadRender.panel(read: true)),
+                    ("shelf-search-grouped", ShelfSearchRender.panel()), ("shelf-search-typed", ShelfSearchRender.panel(query: "routing")),
                     ("helpers", AnyView(HelpersScene())),
                     ("helper-open", AnyView(HelpersScene(open: true))),
-                    ("home-4", AnyView(EmptyView())),
-                    ("home-glass", AnyView(EmptyView())),
+                    ("home-4", AnyView(EmptyView())), ("home-glass", AnyView(EmptyView())),
                     ("home-8", AnyView(EmptyView())),
                     ("home-10", AnyView(EmptyView())),
                     ("home-15", AnyView(EmptyView())),
@@ -423,6 +423,7 @@ struct Entry {
                     ),
                     ("long-start", AnyView(EmptyView())), ("long-middle", AnyView(EmptyView())), ("long-end", AnyView(EmptyView())),
                     ("long-panel", AnyView(EmptyView())),
+                    ("message-history", MessageHistoryRender.scene(open: true)), ("message-history-closed", MessageHistoryRender.scene(open: false)),
                 ]
                 for (name, v) in views + HelperStopScene.renders {
                     if name.hasPrefix("rooms-") {
@@ -501,7 +502,7 @@ struct Entry {
                     Env.hermesPath != nil
                     ? nil : await Installer.run { n, line in if line.hasPrefix("Install") || n % 5 == 0 { print("  [\(n)] \(line)") } }
                 if let k = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] {
-                    try? "OPENROUTER_API_KEY=\(k)\n".write(to: Env.hermesHome.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+                    Env.writeSecretEnv("OPENROUTER_API_KEY=\(k)\n", to: Env.hermesHome.appendingPathComponent(".env"))
                 }
                 print("install:", err ?? "ok", "in \(Int(Date().timeIntervalSince(t0)))s", "hermes:", Env.hermesPath ?? "missing")
                 guard err == nil else { return }
@@ -530,7 +531,7 @@ struct Entry {
             JobsCheck.run()
         }
         if args.contains("--reset") {
-            if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+            Model.resetOnboarding()  // onboarding keys only, never the whole domain (see Model.resetOnboarding)
             print("reset onboarding")
             exit(0)
         }

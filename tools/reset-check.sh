@@ -10,7 +10,7 @@ case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAI
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-reset.XXXXXX")
 tools/test-copy.sh reset-test "$S" >/dev/null  # own bundle id: never your real One or its settings
 mkdir -p "$S/sup"
-env -i ONE_SUPPORT_DIR="$S/sup" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" ONE_SUPPORT_DIR="$S/sup" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
   LANG="${LANG:-en_US.UTF-8}" \
   perl -e 'alarm 60; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-reset > "$S/out.txt" 2>"$S/err.txt"
 rc=$?

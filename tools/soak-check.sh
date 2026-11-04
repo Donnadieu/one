@@ -34,7 +34,7 @@ cp tools/fake-engine.py "$W/fake-engine.py"; chmod +x "$W/fake-engine.py"
 GUARD=()
 [ "$MODE" = guard ] && GUARD=(MallocProbGuard=1 MallocProbGuardSampleRate=1 MallocProbGuardAllocations=400000 MallocProbGuardMemoryBudgetInKB=8000000)
 start=$(date +%s)
-env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$W/support" LANG="${LANG:-en_US.UTF-8}" \
+env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="$W/support" LANG="${LANG:-en_US.UTF-8}" \
   ONE_SUPPORT_DIR="$W/support" ONE_TEST_ENGINE="$W/fake-engine.py" ONE_FAKE_ENGINE_LOG="$W/engine.jsonl" ONE_FAKE_LOAD_SECS=0.5 ONE_SOAK_ROUTE="${ONE_SOAK_ROUTE:-0}" \
   TSAN_OPTIONS="halt_on_error=0:abort_on_error=0:exitcode=0:history_size=4" ASAN_OPTIONS="halt_on_error=1:detect_leaks=0" ${GUARD[@]+"${GUARD[@]}"} \
   perl -e "alarm $((MIN * 60 + 180)); exec @ARGV" "$APP/Contents/MacOS/One" --test-soak "$MIN" > "$W/out.txt" 2>&1

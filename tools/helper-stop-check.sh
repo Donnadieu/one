@@ -14,7 +14,7 @@ S=$(mktemp -d "${TMPDIR:-/tmp}/one-helperstop.XXXXXX")
 tools/test-copy.sh "${ID#ai.forjado.one.}" "$S" >/dev/null  # own bundle id: never your real One or its settings
 defaults delete "$ID" >/dev/null 2>&1
 run() {
-  env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+  env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
     LANG="${LANG:-en_US.UTF-8}" HERMES_RUNTIME_DIR="$HOME/Library/Application Support/One/hermes/tools" \
     ONE_UPDATE_NO_REOPEN=1 ONE_TEST_UPDATE_ZIP="${ZIPURL:-}" \
     perl -e 'alarm 900; exec @ARGV' "$S/One.app/Contents/MacOS/One" "$@"

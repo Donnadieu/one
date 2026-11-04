@@ -25,7 +25,7 @@ tools/test-copy.sh jobs-test "$S" >/dev/null  # own bundle id: never your real O
 echo "scratch: $S (kept for reading: transcripts, steps, routines)"
 # A clean environment, like opening One from the Finder: Hermes variables from whatever launched
 # this script (e.g. an agent's own gateway) would steer One's engine.
-env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
   LANG="${LANG:-en_US.UTF-8}" OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ONE_JOBS_PROVIDER="$PROVIDER" HERMES_RUNTIME_DIR="$HOME/Library/Application Support/One/hermes/tools" ONE_JOBS_ONLY="$ONLY" ONE_JOBS_DIR="$S" ONE_FAKE_MAIL="$S/inbox.json" \
   perl -e 'alarm 900; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-jobs > "$S/out.txt" 2>"$S/err.txt"
 rc=$?

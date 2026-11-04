@@ -23,7 +23,7 @@ for SAN in thread address; do
   cp voice/*.mp3 sounds/chime-done.mp3 sounds/chime-yes.mp3 "$APP/Contents/Resources/"
   codesign --force -s - "$APP" > /dev/null 2>&1
   S="$W/$SAN-run"; mkdir -p "$S"
-  env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin TMPDIR="$S" ONE_SUPPORT_DIR="$S" \
+  env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin TMPDIR="$S" ONE_SUPPORT_DIR="$S" \
     TSAN_OPTIONS="halt_on_error=0:abort_on_error=0:exitcode=0" ASAN_OPTIONS="halt_on_error=1:detect_leaks=0" \
     perl -e "alarm $((SECS + 90)); exec @ARGV" "$APP/Contents/MacOS/One" --test-voice-stress "$SECS" > "$S/out.txt" 2>&1
   code=$?

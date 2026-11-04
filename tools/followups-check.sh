@@ -11,7 +11,7 @@ tools/test-copy.sh followups-test "$S" >/dev/null  # own bundle id: never your r
 # Its own One folder, borrowing only the installed engine program (Hermes), so it also starts from inside One's lock.
 mkdir -p "$S/sup"
 ln -s "$HOME/Library/Application Support/One/engine" "$S/sup/engine"
-env -i ONE_SUPPORT_DIR="$S/sup" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" ONE_SUPPORT_DIR="$S/sup" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
   LANG="${LANG:-en_US.UTF-8}" HERMES_RUNTIME_DIR="$HOME/Library/Application Support/One/hermes/tools" \
   perl -e 'alarm 480; exec @ARGV' "$S/One.app/Contents/MacOS/One" --test-followups > "$S/out.txt" 2>"$S/err.txt"
 rc=$?

@@ -19,7 +19,7 @@ mkdir -p "$S/support"
 cp tools/fake-engine.py "$S/fake-engine.py"; chmod +x "$S/fake-engine.py"
 run() {
   local secs=$1; shift
-  exec env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+  exec env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
     LANG="${LANG:-en_US.UTF-8}" ONE_SUPPORT_DIR="${SUP:-$S/support}" ONE_TEST_ENGINE="$S/fake-engine.py" ONE_FAKE_ENGINE_LOG="${ELOG:-$S/engine.jsonl}" ONE_FAKE_LOAD_SECS=1.5 \
     ONE_QUEUE_SHOT="${ONE_QUEUE_SHOT:-}" \
     perl -e "alarm $secs; exec @ARGV" "$APP/Contents/MacOS/One" --test-helpers-stress "$@"

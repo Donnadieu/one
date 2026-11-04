@@ -125,7 +125,7 @@ enum RouteStore {
     }
 
     /// The route for a job, or nil when the router isn't ready (then nothing changes).
-    static func route(_ text: String) -> Route? {
+    static func route(_ text: String) -> JobRoute? {
         guard !index.skills.isEmpty else { return nil }
         return Router.route(text, index: index, memory: state.memory)
     }
@@ -133,7 +133,7 @@ enum RouteStore {
     // MARK: Learning
 
     /// A helper starts: remember what was offered. A very similar job that finished in the last 2 hours went wrong (a redo).
-    static func began(_ id: UUID, text: String, kind: String, route r: Route) {
+    static func began(_ id: UUID, text: String, kind: String, route r: JobRoute) {
         let t = RouteMemory.terms(text)
         let since = Date().addingTimeInterval(-7200)
         if let k = state.memory.indices.last(where: { state.memory[$0].date > since && RouteMemory.cosine(t, state.memory[$0].terms) >= 0.6 }),

@@ -69,7 +69,7 @@ enum RoutingCheck {
         check("Nyx is never routed into", Router.room("load nyx and talk about work at Andela") == nil)
         check("building One → no claim", Router.room("Fix a bug in Omar's One Mac app, bundle id ai.forjado.one") == nil)
         check("nothing named → no claim", Router.room("What's the weather?") == nil)
-        check("main chat inside Nyx: no room line", !Router.mainNote(Route(room: "work"), inNyx: true).contains("room"))
+        check("main chat inside Nyx: no room line", !Router.mainNote(JobRoute(room: "work"), inNyx: true).contains("room"))
 
         print("their yes")
         for t in [
@@ -80,14 +80,14 @@ enum RoutingCheck {
         }
         check("a plain lookup doesn't", !Router.needsYes("What movies are playing tomorrow?"))
         check("sending a helper doesn't", !Router.needsYes("Can you send a helper to check the orbs? Send me the link."))
-        check("the yes line is short", Router.mainNote(Route(needsYes: true), inNyx: false).count < 160)
+        check("the yes line is short", Router.mainNote(JobRoute(needsYes: true), inNyx: false).count < 160)
 
         print("the brain")
         check("a showtimes lookup → balanced", Router.tier("Search for movie showtimes tomorrow") == 1)
         check("building → their own pick", Router.tier("Build and ship the orb fix") == 0)
-        check("steps down from Smartest only", Router.model(Route(tier: 1), provider: .claude, current: "claude-opus-5-5") == "claude-sonnet-5")
-        check("never from Balanced or Fastest", Router.model(Route(tier: 1), provider: .claude, current: "claude-sonnet-5") == nil)
-        check("never on a pay-per-use account", Router.model(Route(tier: 1), provider: .openrouter, current: "anthropic/claude-opus-5.5") == nil)
+        check("steps down from Smartest only", Router.model(JobRoute(tier: 1), provider: .claude, current: "claude-opus-5-5") == "claude-sonnet-5")
+        check("never from Balanced or Fastest", Router.model(JobRoute(tier: 1), provider: .claude, current: "claude-sonnet-5") == nil)
+        check("never on a pay-per-use account", Router.model(JobRoute(tier: 1), provider: .openrouter, current: "anthropic/claude-opus-5.5") == nil)
 
         print("what the helper gets")
         let note = Router.helperNote(b, index: idx)

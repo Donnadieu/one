@@ -19,7 +19,7 @@ struct RouteSkill: Sendable {
 }
 
 /// What the router decided for one job.
-struct Route: Sendable {
+struct JobRoute: Sendable {
     var ranked: [(name: String, score: Double)] = []
     var preload: [String] = []
     var room: String?  // "personal", "work", "cofounder"; nil = no claim (today's behaviour)
@@ -124,9 +124,9 @@ enum Router {
     static let budget = 120_000  // bytes of recipes put in front of one helper, at most
 
     /// Ranks the recipes for a job and picks the ones to load up front. Pure: the index and memory come in.
-    static func route(_ text: String, index: RouteIndex, memory: [RouteMemory]) -> Route {
+    static func route(_ text: String, index: RouteIndex, memory: [RouteMemory]) -> JobRoute {
         let t0 = Date()
-        var r = Route()
+        var r = JobRoute()
         r.room = room(text)
         r.needsYes = needsYes(text)
         r.tier = tier(text)
@@ -198,7 +198,7 @@ enum Router {
 
     /// The model for a helper's job, or nil to keep their own pick. Steps down to Balanced only from Smartest, for
     /// light jobs; never picks a model on a pay-per-use account (that would spend their money without a yes).
-    static func model(_ r: Route, provider: Provider, current: String) -> String? {
+    static func model(_ r: JobRoute, provider: Provider, current: String) -> String? {
         let t = provider.tiers
         guard r.tier == 1, provider != .openrouter, t.count > 1, current == t[0].1 else { return nil }
         return t[1].1
@@ -211,7 +211,7 @@ extension Router {
     static let roomNames = ["personal": "Personal", "work": "Work", "cofounder": "Co-Founder"]
 
     /// A helper's first prompt: the recipes that fit, already loaded, plus its room. Empty when there's nothing sure to add.
-    static func helperNote(_ r: Route, index: RouteIndex) -> String {
+    static func helperNote(_ r: JobRoute, index: RouteIndex) -> String {
         var parts: [String] = []
         var loaded: [(String, String)] = []
         for k in r.preload {
@@ -231,7 +231,7 @@ extension Router {
     }
 
     /// The main chat: one short line, only when there's something sure to say. Never a recipe name, never Nyx.
-    static func mainNote(_ r: Route, inNyx: Bool) -> String {
+    static func mainNote(_ r: JobRoute, inNyx: Bool) -> String {
         var parts: [String] = []
         if !inNyx, let room = r.room, let n = roomNames[room] { parts.append("if this needs a room, it's likely the \(n) room") }
         if r.needsYes { parts.append("this may involve money, sending, posting or deleting: ask for their yes before that step") }
@@ -240,7 +240,7 @@ extension Router {
     }
 
     /// The one plain line in the helper's own steps: what it started from, in words, never a file name.
-    static func plainLine(_ r: Route, index: RouteIndex) -> String? {
+    static func plainLine(_ r: JobRoute, index: RouteIndex) -> String? {
         guard let k = r.preload.first, let s = index.skill(k) else { return nil }
         var d = s.desc
         if d.lowercased().hasPrefix("use when ") {

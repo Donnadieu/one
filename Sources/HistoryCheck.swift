@@ -176,6 +176,13 @@ enum HistoryCheck {
         print("Locked copy in iCloud")
         let fm = FileManager.default
         Offsite.on = false
+        // Asked from a chat (inside the folder lock, no Keychain): One's own loop finishes turning it on.
+        fm.createFile(atPath: Offsite.requestFile.path, contents: Data())
+        Offsite.tend()
+        check("a turn-on asked from a chat is finished by One itself", Offsite.on && !fm.fileExists(atPath: Offsite.requestFile.path))
+        Offsite.on = false
+        Offsite.testKey = nil
+        try? fm.removeItem(at: Offsite.codeFile)
         guard case .success(let f) = Offsite.turnOn(), let codeFile = f, let key = Offsite.storedKey() else {
             check("turning it on makes a key and a recovery code", false)
             return

@@ -199,8 +199,12 @@ enum ImproveNightRun {
                 out.append(
                     "Last night's review found \(rules.count) lesson\(rules.count == 1 ? "" : "s") (suggestions only, nothing changed): \(short(rules))."
                 )
+            } else if lessons.isEmpty {
+                out.append("Last night's review found nothing new to learn.")
             } else {
-                out.append("Last night's review found nothing new to learn (\(lessons.count) moment\(lessons.count == 1 ? "" : "s") noted).")
+                out.append(
+                    "Last night's review noted \(lessons.count) possible lesson\(lessons.count == 1 ? "" : "s"), each seen once so far "
+                        + "(one becomes a rule only when it happens twice).")
             }
             if let note = night?.note, note.contains("put back") { out[0] += " (\(note).)" }
         }

@@ -27,6 +27,9 @@ enum Offsite {
         return u
     }
     static var codeFile: URL { home.appendingPathComponent("recovery-code.txt") }
+    /// Left by `One --offsite on` when it can't reach the Keychain (run by the assistant, inside the folder lock):
+    /// One's own app finishes turning the copy on within 5 minutes (`tend`).
+    static var requestFile: URL { home.appendingPathComponent("turn-on.request") }
     static var statusFile: URL { home.appendingPathComponent("offsite.json") }
     /// Tests only: the key lives here instead of the Keychain.
     nonisolated(unsafe) static var testKey: Data?
@@ -196,6 +199,10 @@ enum Offsite {
 
     /// From the hourly loop: once a day, between 2 and 5 in the morning, or the first quiet 10 minutes after that.
     static func tend(now: Date = Date()) {
+        if FileManager.default.fileExists(atPath: requestFile.path), case .success = turnOn() {
+            try? FileManager.default.removeItem(at: requestFile)
+            History.log("locked copy turned on (asked from a chat); recovery code waiting on Home")
+        }
         guard on, available else { return }
         let s = status()
         if s["day"] as? String == day(now) { return }
@@ -254,6 +261,12 @@ enum Offsite {
         switch verb {
         case "on":
             switch turnOn() {
+            case .failure(let e) where storedKey() == nil && available:
+                // Inside the folder lock the Keychain is out of reach: One's own app finishes it.
+                FileManager.default.createFile(atPath: requestFile.path, contents: Data(), attributes: [.posixPermissions: 0o600])
+                print("Asked One to turn it on: it needs this Mac's Keychain, which only One itself can reach (\(e.text))")
+                print("While One is open it finishes within 5 minutes; the recovery code then waits in \(codeFile.path).")
+                return 0
             case .failure(let e):
                 print(e.text)
                 return 1

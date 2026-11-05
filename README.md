@@ -6,9 +6,9 @@
 
 You download it, you open it, and it talks you through the rest. It sets itself up, asks which AI you already pay for, learns your name, and shows you everything it can reach from your Mac. Then it works for you: your files, your browser, your email, your calendar, the web. It always asks before it does anything that matters.
 
-[![One sends out several helpers at once. Click to watch the full video.](docs/one-promo.gif)](https://donnadieu.github.io/one/one.mp4)
+https://github.com/user-attachments/assets/76a8071a-3d84-4a2c-bf0e-7e0460fea3bc
 
-▶ [Watch the full video (1:18)](https://donnadieu.github.io/one/one.mp4)
+▶ [Watch it in full quality](https://donnadieu.github.io/one/one.mp4)
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 

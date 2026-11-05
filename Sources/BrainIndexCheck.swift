@@ -160,14 +160,19 @@ enum BrainIndexCheck {
             times.append(Date().timeIntervalSince(s))
             if i == 0 && r.hits.isEmpty { print("    (no hits for the first timing query)") }
         }
-        let s = Date()
-        let close = BrainSearch.search(String(vocab[5].dropLast(2)) + "x", room: "perf-room", limit: 10, refresh: false)
-        let closeTime = Date().timeIntervalSince(s)
+        var closeTimes: [Double] = []
+        var close = SearchResult()
+        for i in 0..<5 {  // a typo'd word: the last two letters lost, an x added
+            let s = Date()
+            close = BrainSearch.search(String(vocab[i * 17 + 5].dropLast(2)) + "x", room: "perf-room", limit: 10, refresh: false)
+            closeTimes.append(Date().timeIntervalSince(s))
+        }
+        let closeTime = closeTimes.reduce(0, +) / Double(closeTimes.count)
         let avg = times.reduce(0, +) / Double(times.count)
         print(
             String(
                 format:
-                    "    took: index 1,000 notes %.2f s (%d pieces), refresh with nothing changed %.0f ms, word query avg %.1f ms (max %.1f), close spelling %.1f ms (%d found)",
+                    "    took: index 1,000 notes %.2f s (%d pieces), refresh with nothing changed %.0f ms, word query avg %.1f ms (max %.1f), close spelling avg %.1f ms (%d found)",
                 build, built.chunks, noop * 1000, avg * 1000, (times.max() ?? 0) * 1000, closeTime * 1000, close.hits.count))
         check("1,000 notes indexed in under 2 s", built.files == 1000 && build < 2)
         check("a query takes under 50 ms", avg < 0.05 && closeTime < 0.05)

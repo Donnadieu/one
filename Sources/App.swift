@@ -160,7 +160,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
-        BrainIndex.start()  // the brain's search index, refreshed in the background (BrainIndex.swift)
+        StorageCLI.start()  // the brain's search index and the hourly copies, in the background (StorageCLI.swift)
         Task.detached {  // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
             while true {
                 Messenger.tend()
@@ -236,11 +236,10 @@ struct Entry {
         sem.wait()
         exit(0)
     }
-
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
-        if let code = MyChrome.cli(args) ?? FrontPage.cli(args) ?? SkillFiler.cli(args) { exit(code) }  // --front-page, --file-skills
+        if let code = MyChrome.cli(args) ?? StorageCLI.run(args) { exit(code) }  // storage modes: StorageCLI.swift
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         Diagnostics.main(args)  // `--test-glass`, `--test-voice-stress`, `--crash-line <pid>` (Diagnostics.swift)
@@ -544,7 +543,6 @@ struct Entry {
                 try? FileManager.default.removeItem(at: Brain.root)
                 print("brain:", Brain.build(owner: "Omar", ai: "Juno", rooms: [.work]) ?? "built at \(Brain.root.path)")
                 print("rooms:", Brain.rooms.map(\.folder))
-                print("backup:", Brain.backupToICloud() ?? "copied to iCloud Drive")
                 Access.override = []
                 Persona.write(assistant: "Juno", user: "Omar", connections: ["Gmail"], passwords: "use 1Password")
                 let t0 = Date()

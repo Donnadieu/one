@@ -306,6 +306,8 @@ enum ImproveCheck {
             "health: notes near full, skill too big, the same name twice, a link loop, a failing routine",
             health.isSuperset(of: ["notes_near_full", "skill_too_big", "skill_twice", "link_loop", "routine_failing"]))
 
+        fails += ImproveNightlyCheck.run()  // the nightly review: routine, morning note, edits, undo, the learning cap
+
         print(fails == 0 ? "improve ok" : "improve failed: \(fails)")
         return fails == 0 ? 0 : 1
     }

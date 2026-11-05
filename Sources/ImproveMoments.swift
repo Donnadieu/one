@@ -117,7 +117,8 @@ enum ImproveMoments {
     }
 }
 
-/// `One --improve collect|score|moments|settings`: used by the nightly review routine and the morning brief.
+/// `One --improve collect|score|moments|settings|morning|edits|undo-last-night`: used by the nightly review routine, the
+/// morning brief and the assistant ("undo last night").
 enum ImproveCLI {
     static func value(_ a: [String], _ flag: String) -> String? {
         guard let k = a.firstIndex(of: flag), k + 1 < a.count else { return nil }
@@ -130,6 +131,7 @@ enum ImproveCLI {
         let a = Array(args[(k + 1)...])
         let usage =
             "usage: One --improve collect [--date YYYY-MM-DD | --since YYYY-MM-DD] | score [--week] | moments [--date D] [--max 20] | settings [show | set <key> <value>]"
+            + " | morning [--date D] | edits record <ledger-id>… | edits check | undo-last-night"
         switch a.first ?? "" {
         case "collect":
             let today = Date()
@@ -161,7 +163,10 @@ enum ImproveCLI {
             return 0
         case "settings":
             return settings(Array(a.dropFirst()))
+        case "morning":
+            return NightlyReview.morningCLI(a)  // NightlyReview.swift
         default:
+            if let code = ImproveEdits.cli(a) { return code }  // edits record|check, undo-last-night (ImproveEdits.swift)
             print(usage)
             return 2
         }

@@ -20,6 +20,31 @@ measures. Nothing here edits a skill, a note, a routine or a setting.
     One --improve moments [--date D] [--max 20]   # default: yesterday; markdown, 2 replies before and after each event
     One --improve settings [show | set <key> <value>]   # improve/settings.json: mode suggest|edit, max_edits_per_night,
                                                          # max_edits_per_skill, snapshot_first, auto_undo_on_drop
+    One --improve morning [--date D]      # the nightly review's morning note (improve/morning/<date>.md), or nothing
+    One --improve edits record <ledger-id>…   # remember a change the review made (improve/edits/<date>.json)
+    One --improve edits check             # a week on: jobs that used the skill before vs after; worse → rolled back
+    One --improve undo-last-night         # last night's changes rolled back + last night's safety copy put back
+
+## Steps 2-4: the nightly review, safe edits, the engine's own learning capped
+- **The routine** (`NightlyReview.swift`, prompt `routines/nightly-review.md`): "Nightly review", 3:30 am, an engine routine
+  added at launch if no routine has that name (never twice; a routine of theirs with that name is never touched). It
+  delivers nowhere and answers exactly `[SILENT]`, so it's never spoken or shown. A new version of the prompt (first line:
+  version + fingerprint) replaces the old one. Steps needing a part of One this build lacks are left out of the prompt.
+- **What it does**: safety copy (`One --snapshot "before nightly review"`), collect / score / moments (at most 20, never whole
+  conversations or private ones), health, filing (front page, recipe filer, `assistant/routines.md` without prompts), reflect
+  on each moment, the lesson ledger (`lessons.jsonl`: seen-once → rule on 2 days / 2 jobs / their own words → proven →
+  retired; incidents in `incidents.jsonl`, one per spike), then changes by mode, the morning note, and on Sundays the
+  weekly card and up to 3 One-fix suggestions in `feature-ideas.md`.
+- **Mode `suggest`** (the default): changes nothing; "would do" lines go into the morning note. **Mode `edit`**: at most
+  `max_edits_per_night` (5), 1 per skill, only one bullet `- [L-0142] <rule> (seen …; evidence)` in a skill's `## Lessons`
+  (under 25 lines, SKILL.md under 12 KB) through skill_manage patch, or trimming the assistant's notes over 90%. Never SOUL,
+  safety rules, policy.yaml, locked drawers, shared rooms, their own stated rules, a new skill, a routine; never send, post,
+  spend or delete. Each change's ledger id goes to `edits record`.
+- **Checked a week later** (`edits check`): with 3+ jobs after (and some before) and more corrections + redos + failures a
+  job than before, the change is rolled back (`auto_undo_on_drop`) and the morning note says so in one line.
+- **"Undo last night"**: the assistant is told on every prompt to run `One --improve undo-last-night`.
+- **The engine's own learning** (`EnginePlugins.swift`, plugin `one-learning-cap`): the after-job review's skill edits are
+  held past the same limits and logged to `improve/held-review-edits.jsonl`, which the nightly review reads.
 
 ## Signals (design 3a)
 | Kind | Sub-kinds | Rule |

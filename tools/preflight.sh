@@ -51,6 +51,7 @@ echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
+check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
 check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
 check "shipped skill descriptions are short (60 max)" bash -c "for f in \$(find skills -name SKILL.md); do d=\$(sed -n 's/^description: *//p' \$f | head -1); [ -n \"\$d\" ] && [ \${#d} -le 60 ] || { echo \"\$f\"; exit 1; }; done"
@@ -97,6 +98,14 @@ echo "Improve: the look-only score (made-up records)"
 mkdir -p "$T/imp"
 check "corrections, cut-offs, walls and slow jobs counted; week %, not enough jobs, one incident; history only read; nothing private in moments" bash -c "ONE_SUPPORT_DIR=$T/imp $TBIN --test-improve | tee $T/imp/out.txt | grep -q '^improve ok'"
 grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Nightly review: what one night may change, its undo, only when nothing else is working"
+mkdir -p "$T/night"
+check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
+grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "The engine's own learning stays under the nightly limits"
+check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
 
 echo "Local models"
 mkdir -p "$T/local"

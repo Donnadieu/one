@@ -75,3 +75,8 @@ they wanted you to text them, which Google Messages can't do: it only sends from
 - Don't offer data types as choices ("texts", "photos"). Offer outcomes ("You text me").
 - A method that works but points the wrong way (reads when they wanted to be told) is a failure, not
   a partial success.
+
+## Once the goal is agreed: the how
+Methods and step-by-step recipes (accounts from browser history, Google OAuth, KeePassXC and other password
+managers, a remote browser, phone chat bots like Telegram and Slack, verifying with a real read) are in
+`references/connection-recipes.md`. Read the part you need; keep talking to the person in plain words.

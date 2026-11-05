@@ -6,6 +6,7 @@ import Foundation
 /// `main()` needs one line for all of them. Each `cli` returns nil when the arguments aren't its own.
 enum StorageCLI {
     static func run(_ args: [String]) -> Int32? {
+        FirstLaunchCheck.main(args)  // `--test-first-launch` (fresh-install workflow, CI only)
         if let c = FrontPage.cli(args) ?? SkillFiler.cli(args) { return c }  // --front-page, --file-skills
         if let c = History.cli(args) ?? Offsite.cli(args) ?? HistoryRender.cli(args) ?? HistoryCheck.cli(args) { return c }  // copies, restore
         if let c = ImproveCLI.run(args) { return c }  // --improve: the score and the nightly review (Improve*.swift)

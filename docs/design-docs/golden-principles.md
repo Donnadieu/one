@@ -34,6 +34,9 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
 | A search that names no room never looks in a private room (its index file isn't even opened) or a `confidential/` folder | `BrainSearch.rooms` + `BrainIndex.files` + preflight "Brain search" (`One --test-search`) |
 | Corrections are captured ("No…", "I don't see it", "Where is…") | `FrictionLog` via `Corrections` + preflight "Guards" |
+| A night of learning stays inside its limits and can be undone (suggestions only = nothing changed; at most 5 recipes, 1 change each; never a private or shared room) | `ImproveNight.end`/`undo` + preflight "Nightly review" (`One --test-nightly`) |
+| The engine's own after-job learning is capped (5 a day, 1 per recipe) | engine plugin `one-learning-cap` (`LearningCap`) + preflight `tools/learning-cap-check.py` |
+| A fresh install gets brain, recipes, index, first copy, nightly routine and front page with no questions and no git | `.github/workflows/fresh-install.yml` (`One --test-first-launch`) |
 | The score only reads the engine's history, and never shows a private conversation | `ReadOnlyDB` (read-only, query_only) + `ImprovePrivate` + preflight "Improve" (`One --test-improve`) |
 | The three core jobs work end to end (sort files, inbox draft-only, price watch asks before buying) | `make jobs` (`tools/jobs-check.sh` → `One --test-jobs`) |
 | The mail bridge has no send command | `make jobs` ("bridge has no send command") |

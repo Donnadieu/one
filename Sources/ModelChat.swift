@@ -38,6 +38,7 @@ extension Model {
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
+        await LearningCap.sync()  // the engine's own after-job learning stays under the nightly limits (LearningCap.swift)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }
@@ -46,6 +47,7 @@ extension Model {
         await LearnedDirs.sync()  // skills saved into private rooms count as skills; shared rooms never
         Task { await LearnedDirs.checkLedgerOn() }
         await SignIn.enableRoutines()
+        BrowserGuard.log("nightly review routine: \(await NightlyRoutine.ensure())")  // made once (NightlyRoutine.swift)
         await PhoneVoice.sync()  // phone chats speak with the same voice as the Mac
         if let e = await Engine.shared.ensureStarted() {
             bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))

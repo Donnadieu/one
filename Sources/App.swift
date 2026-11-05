@@ -106,7 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
         if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() { return }  // in preflight
-        if FrontPageCheck.launch() || ImproveCheck.launch() { return }  // in preflight
+        if FrontPageCheck.launch() || ImproveCheck.launch() || ImproveNightCheck.launch() { return }  // in preflight
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -505,7 +505,7 @@ struct Entry {
                     Env.writeSecretEnv("OPENROUTER_API_KEY=\(k)\n", to: Env.hermesHome.appendingPathComponent(".env"))
                 }
                 print("install:", err ?? "ok", "in \(Int(Date().timeIntervalSince(t0)))s", "hermes:", Env.hermesPath ?? "missing")
-                guard err == nil else { return }
+                guard err == nil, ProcessInfo.processInfo.environment["ONE_INSTALL_ONLY"] == nil else { return }  // fresh-install workflow
                 await SignIn.makeDefault(.openrouter)
                 _ = await hermesRun(["config", "set", "model.default", "openai/gpt-4o-mini"])
                 Access.override = []

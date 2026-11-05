@@ -50,21 +50,9 @@ enum BrainRooms {
         return indexDir.appendingPathComponent(safe + ".sqlite")
     }
 
-    // TODO(storage): use RoomInfo.isPrivate once storage-guards lands
-    /// A room is private when its `room.yaml` says `private: true`. No room.yaml (or no clear `false`) = private:
-    /// the safe default. Shared rooms and the assistant's own folder are never private (they don't come here).
-    static func isPrivate(_ room: URL) -> Bool {
-        guard let s = try? String(contentsOf: room.appendingPathComponent("room.yaml"), encoding: .utf8) else { return true }
-        for line in s.split(separator: "\n") {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            guard t.hasPrefix("private:") else { continue }
-            var v = t.dropFirst("private:".count).trimmingCharacters(in: .whitespaces)
-            if let hash = v.firstIndex(of: "#") { v = String(v[..<hash]).trimmingCharacters(in: .whitespaces) }
-            v = v.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).lowercased()
-            return !(v == "false" || v == "no")
-        }
-        return true
-    }
+    /// A room is private when its `room.yaml` says so, or has none (the safe default): `RoomPrivacy.isPrivate`.
+    /// Shared rooms and the assistant's own folder are never private (they don't come here).
+    static func isPrivate(_ room: URL) -> Bool { RoomPrivacy.isPrivate(room, shared: []) }
 }
 
 // MARK: - A small SQLite handle

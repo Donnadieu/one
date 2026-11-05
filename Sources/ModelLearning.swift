@@ -94,6 +94,7 @@ extension Model {
         guard onboarded || Env.selfTest else { return }
         routeTend()
         Improve.tend()  // the score, once a day (Improve.swift)
+        Task.detached(priority: .background) { ImproveNightRun.tendShelf() }  // no morning brief: a Ready for you card
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {
             learning.started = true  // no log yet: nothing old to skip, so the very first line counts

@@ -22,6 +22,7 @@ struct ImproveScoreLine: Codable, Equatable {
     var slowJobs: Int
     var helpersOver30: Int
     var timeouts: Int
+    var slowHelpers: Int?
     var incidents: Int
     var kinds: [String: [Int]]
 
@@ -33,6 +34,7 @@ struct ImproveScoreLine: Codable, Equatable {
         case cutOff = "cut_off"
         case slowJobs = "slow_jobs"
         case helpersOver30 = "helpers_over_30_min"
+        case slowHelpers = "slow_helpers"
     }
 }
 
@@ -66,8 +68,8 @@ enum ImproveScore {
             period: period, said: said, corrections: n(ImproveCount.corrections), perHundred: per, helpers: helpers,
             right: n(ImproveCount.right), rightPct: pct, note: week && !enough ? notEnough : nil, sameAgain: n(ImproveCount.sameAgain),
             cutOff: n(ImproveCount.cutOff) + n(ImproveCount.pickedAlone), walls: walls, handoffs: n(ImproveCount.handoffs),
-            slowJobs: n(ImproveCount.over30) + n(ImproveCount.timeouts), helpersOver30: n(ImproveCount.over30),
-            timeouts: n(ImproveCount.timeouts), incidents: incidents, kinds: kinds)
+            slowJobs: n(ImproveCount.slowHelpers) + n(ImproveCount.timeouts), helpersOver30: n(ImproveCount.over30),
+            timeouts: n(ImproveCount.timeouts), slowHelpers: n(ImproveCount.slowHelpers), incidents: incidents, kinds: kinds)
     }
 
     // MARK: Files

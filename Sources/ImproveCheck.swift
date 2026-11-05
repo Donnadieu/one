@@ -20,6 +20,7 @@ enum ImproveCheck {
         "You're one of Juno's helpers, sent to do one job in the background while Omar keep talking. Don't send helpers yourself; do the job.\n\nThe job: "
     static let long = String(repeating: "Here is the whole result, with every detail you asked for. ", count: 5)
     static let cut = "Gateway shutting down: this turn was interrupted. Ask again once it's back."
+    static let resumed = "You were interrupted by a restart. Here's what you already did:\n- Reading your files…"
     static func call(_ name: String, _ args: String) -> String {
         let a = args.replacingOccurrences(of: "\"", with: "\\\"")
         return "[{\"id\": \"c\", \"type\": \"function\", \"function\": {\"name\": \"\(name)\", \"arguments\": \"\(a)\"}}]"
@@ -87,7 +88,8 @@ enum ImproveCheck {
                 ("assistant", long, nil, n == 17 ? 60 : 5),
             ]
             if n == 1 { rows += [("user", "No, that's not what I asked for.", nil, 6), ("assistant", "Sorry, fixing it.", nil, 7)] }
-            if n == 2 { rows += [("assistant", cut, nil, 7)] }
+            if n == 2 { rows += [("assistant", cut, nil, 7), ("user", resumed, nil, 8), ("assistant", long, nil, 9)] }  // picked up after a cut
+            if n == 6 { rows += [("user", resumed, nil, 8), ("assistant", long, nil, 9)] }  // picked back up, no reply cut off
             if n == 5 { rows += [("user", "No thanks, that's okay.", nil, 6)] }
             f.session("h-\(n)", "local", start, rows)
             jobs.append([
@@ -119,6 +121,10 @@ enum ImproveCheck {
                 ("tool", "{\"output\": \"the notes say Operation not permitted earlier\", \"exit_code\": 0}", nil, 9.7),
                 ("assistant", "", call("terminal", "{\"command\": \"make\"}"), 9.8),
                 ("tool", "Error executing tool 'terminal': timed out after 420.0s", nil, 16.8),
+                ("assistant", "", call("terminal", "{\"command\": \"make check\"}"), 16.85),
+                ("tool", "{\"output\": \"building\\n[Command timed out after 420s]\", \"exit_code\": 124, \"error\": null}", nil, 16.9),
+                ("assistant", "", call("terminal", "{\"command\": \"tail gateway.log\"}"), 16.92),
+                ("tool", "{\"output\": \"WARNING Gateway drain timed out after 30s\", \"exit_code\": 0}", nil, 16.95),
                 ("assistant", "All done, here's the summary.", nil, 17), ("user", "I'm confused, I don't see the result.", nil, 18),
             ])
         let origin =
@@ -230,12 +236,16 @@ enum ImproveCheck {
         check("one of them their own rule", c(ImproveCount.statedRules) == 1)
         check("corrections per 100 messages: 50.0", week.perHundred == 50.0)
         check(
-            "right the first time: 16 of 20 = 80% (corrected, cut off, stopped, sent again)",
-            week.helpers == 20 && week.right == 16 && week.rightPct == 80)
+            "right the first time: 15 of 20 = 75% (corrected, cut off, stopped, sent again, picked back up)",
+            week.helpers == 20 && week.right == 15 && week.rightPct == 75)
         check("job kinds kept (pdf: 4 jobs, 0 right)", week.kinds["pdf"] == [4, 0])
-        check("cut off: 13", week.cutOff == 13)
+        check(
+            "cut off: 13 replies + 1 helper picked back up with no reply cut off (a pick-up after a cut isn't counted twice)",
+            week.cutOff == 14 && c(ImproveCount.pickedBack) == 2 && c(ImproveCount.pickedAlone) == 1)
         check("walls: a handoff, the folder lock, a 401 (a step that worked doesn't count)", week.walls == 3 && c(ImproveCount.folderLock) == 1)
-        check("slow: a helper over 30 min and a command at the time limit", week.slowJobs == 2 && c(ImproveCount.slowHelpers) == 1)
+        check(
+            "slow: a helper 3× longer than similar jobs, 2 commands at the time limit (a log that mentions a timeout doesn't count)",
+            week.slowJobs == 3 && c(ImproveCount.slowHelpers) == 1 && c(ImproveCount.timeouts) == 2)
         check("stop, redo and undo found", c(ImproveCount.stops) == 1 && c(ImproveCount.redos) == 1 && c(ImproveCount.undos) == 1)
         check(
             "broke: 3 failed in a row, a repeated step, a routine not done (only in its reply), an engine stop",
@@ -253,7 +263,7 @@ enum ImproveCheck {
         let files = (try? String(contentsOf: Improve.scoreFile, encoding: .utf8)) ?? ""
         let weeks = (try? String(contentsOf: Improve.weeksFile, encoding: .utf8)) ?? ""
         check("score.jsonl: one line a day", files.split(separator: "\n").count == 14 && files.contains("\"period\":\"2026-10-26\""))
-        check("weeks.jsonl: one line a week", weeks.split(separator: "\n").count == 2 && weeks.contains("\"right_first_time_pct\":80"))
+        check("weeks.jsonl: one line a week", weeks.split(separator: "\n").count == 2 && weeks.contains("\"right_first_time_pct\":75"))
         let raw = (try? String(contentsOf: Improve.daysDir.appendingPathComponent("2026-10-27.json"), encoding: .utf8)) ?? ""
         check("no private words in the day files", !raw.contains("SECRET") && !files.contains("SECRET"))
 
@@ -261,8 +271,8 @@ enum ImproveCheck {
         check("morning lines: not enough jobs this week", brief.first == "Right the first time: not enough jobs this week (5 so far).")
         let last = ImproveScore.brief(lastWeek: true, today: t("2026-11-04", 12).asDate)
         check(
-            "last week's lines: 80% and 50.0 per 100",
-            last.first == "Right the first time: 80% last week." && last.contains("Corrections: 50.0 per 100 messages."))
+            "last week's lines: 75% and 50.0 per 100",
+            last.first == "Right the first time: 75% last week." && last.contains("Corrections: 50.0 per 100 messages."))
 
         var moments = ""
         for d in ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"] { moments += ImproveMoments.render(date: d, max: 20) }

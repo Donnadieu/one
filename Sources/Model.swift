@@ -101,6 +101,7 @@ final class Model: ObservableObject {
         FolderWatch.tend(
             talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running,
             routineBusy: { !Routines.inFlight().isEmpty }, sensitiveBusy: { !self.helpersInSensitiveStep().isEmpty },
+            midStep: { !self.helpersMidStep().isEmpty },
             restart: { resume, pause in await self.restartForFolders(resume: resume, pauseHelpers: pause) })
     }
 

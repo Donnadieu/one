@@ -46,6 +46,7 @@ enum BrowserGuard {
             }
         }
         try? fm.createDirectory(at: allowDir, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: LookOnly.dir, withIntermediateDirectories: true)  // the engine reads it, never writes it
         return true
     }
 
@@ -185,5 +186,5 @@ enum BrowserGuard {
     }
 
     /// Paths the engine may read but never write (added last to the folder lock, so they win).
-    static var lockedPaths: [String] { [allowDir.path, pluginDir.path] }
+    static var lockedPaths: [String] { [allowDir.path, pluginDir.path, LookOnly.dir.path] }
 }

@@ -8,7 +8,8 @@ import Foundation
 /// background helper too, which would otherwise keep the old lock), reopens the same conversation and,
 /// if the assistant was busy, tells it to carry on. It never waits on helpers for long: a helper is
 /// often the one that needs the folder, so after `helperGrace` working helpers are paused and picked
-/// back up after the restart. A reply in progress gets up to `maxWait`. A routine at work (a scheduled job mid-run) is
+/// back up after the restart, but only at a safe point: between two steps, never halfway through one
+/// (up to `stepWait`). A reply in progress gets up to `maxWait`. A routine at work (a scheduled job mid-run) is
 /// waited for, up to `routineWait`: restarting the engine would cut its run off midway.
 enum FolderWatch {
     private static let lock = NSLock()
@@ -27,6 +28,9 @@ enum FolderWatch {
     /// The longest a change waits for a helper mid a sensitive dev step (build, test, push, release):
     /// cutting that off mid-way can corrupt a build or leave a half-finished push. Same cap as an update.
     static let sensitiveWait: TimeInterval = 20 * 60  // same as an update (Updater.sensitiveWait)
+    /// The longest a change waits for working helpers to reach a safe point (between two steps: no command, build or
+    /// search running), so a pause never cuts a step off halfway. A step running longer is probably stuck.
+    static let stepWait: TimeInterval = 10 * 60
     /// Last time the assistant or a helper was busy: a change seen soon after came from that job.
     nonisolated(unsafe) static var lastBusy = Date.distantPast
 
@@ -77,9 +81,13 @@ enum FolderWatch {
     /// mid-reply. Waiting for every helper to finish could wait forever: the helper that needs the folder
     /// keeps working (retrying) until it gets it. A helper mid a sensitive dev step (build/test/push/release)
     /// gets its own, longer wait: pausing there mid-way could corrupt the build or leave a half-finished push.
-    static func due(talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false, sensitiveBusy: Bool = false) -> Bool {
+    /// `midStep`: a working helper is in the middle of a step right now; wait for it to finish that step (up to `stepWait`).
+    static func due(
+        talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false, sensitiveBusy: Bool = false, midStep: Bool = false
+    ) -> Bool {
         if routineBusy && waited < routineWait { return false }
         if sensitiveBusy && waited < sensitiveWait { return false }
+        if midStep && waited < stepWait { return false }
         if !talking && !helpersWorking { return true }
         if !talking && waited >= helperGrace { return true }
         return waited >= maxWait
@@ -91,7 +99,7 @@ enum FolderWatch {
     @MainActor
     static func tend(
         talking: Bool, helpersWorking: Bool, running: Bool, now: Date = Date(), routineBusy: () -> Bool = { false },
-        sensitiveBusy: () -> Bool = { false }, restart: @escaping @MainActor (Bool, Bool) async -> Void
+        sensitiveBusy: () -> Bool = { false }, midStep: () -> Bool = { false }, restart: @escaping @MainActor (Bool, Bool) async -> Void
     ) {
         if talking || helpersWorking { lastBusy = now }
         lock.lock()
@@ -102,7 +110,10 @@ enum FolderWatch {
         if changedSince == nil { changedSince = now }
         let waited = now.timeIntervalSince(changedSince ?? now)
         lock.unlock()
-        guard due(talking: talking, helpersWorking: helpersWorking, waited: waited, routineBusy: routineBusy(), sensitiveBusy: sensitiveBusy())
+        guard
+            due(
+                talking: talking, helpersWorking: helpersWorking, waited: waited, routineBusy: routineBusy(), sensitiveBusy: sensitiveBusy(),
+                midStep: helpersWorking && midStep())
         else { return }
         lock.lock()
         restarting = true

@@ -270,6 +270,15 @@ final class Updater: ObservableObject {
             state = "I couldn't start the update."
             return
         }
+        // Every working helper is paused at a safe point: between two steps, never halfway through one (the swap
+        // script waits for One to quit). Nothing awaits between the last check and the pause, so no step starts in between.
+        var mid = m.helpersMidStep()
+        let stepUntil = Date().addingTimeInterval(FolderWatch.stepWait)
+        while !mid.isEmpty && Date() < stepUntil {
+            state = Updater.sensitiveLine(mid)
+            try? await Task.sleep(for: .seconds(1))
+            mid = m.helpersMidStep()
+        }
         state = "Restarting…"
         m.pauseHelpersForUpdate()  // after this, nothing they did is lost: each picks back up after the restart
         Engine.shared.stop()

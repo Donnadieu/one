@@ -42,6 +42,7 @@ enum Installer {
         return base.contains("KeePassLoginBackend") && FileManager.default.fileExists(atPath: vb.appendingPathComponent("keepass.py").path)
     }
     @discardableResult static func applyOverlay() -> Bool {
+        SkillWalkFix.apply()  // the engine's skill walks skip a folder already walked (LinkGuard.swift)
         let fm = FileManager.default
         let vb = Env.engineDir.appendingPathComponent("agent/vault_backends")
         guard let src = Bundle.main.url(forResource: "keepass", withExtension: "py"),

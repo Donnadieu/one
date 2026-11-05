@@ -68,10 +68,25 @@ check "second run changes nothing" cmp "$T/once.py" "$T/ovl/engine/agent/vault_b
 printf 'def other():\n    pass\n' > "$T/ovl/engine/agent/vault_backends/base.py"
 check "reports failure when Hermes changed" bash -c "ONE_SUPPORT_DIR=$T/ovl $BIN --apply-overlay | grep -q 'overlay failed'"
 
+echo "Skill folders: a link back up never loops the engine"
+mkdir -p "$T/sw/engine/agent"
+cp tests/fixtures/skill_walk/skill_utils.py tests/fixtures/skill_walk/prompt_builder.py "$T/sw/engine/agent/"
+ONE_SUPPORT_DIR="$T/sw" "$BIN" --apply-overlay >/dev/null
+cp "$T/sw/engine/agent/skill_utils.py" "$T/sw/once.py"
+ONE_SUPPORT_DIR="$T/sw" "$BIN" --apply-overlay >/dev/null
+check "the engine's two skill walks (pinned Hermes) skip a folder already walked; flat and learned/ recipes both found" /usr/bin/python3 tools/skill-walk-check.py "$T/sw/engine/agent"
+check "second run changes nothing" cmp "$T/sw/once.py" "$T/sw/engine/agent/skill_utils.py"
+
 echo "Guards (enforced in code)"
 mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/lg"
+check "shortcut guard: a link to itself, to its own folder and a file pointing at itself are removed and logged (3 lines); links elsewhere stay" bash -c "ONE_SUPPORT_DIR=$T/lg $TBIN --test-link-guard | tee $T/lg/out.txt | grep -q '^link guard ok'"
+grep "✗" "$T/lg/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/rp/support" "$T/rp/cloud"
+check "room.yaml privacy: Nyx and the personal room never offered for sharing or in the global recipe list; room.yaml only where missing; assistant/ never overwritten" bash -c "ONE_SUPPORT_DIR=$T/rp/support ONE_CLOUD_DIR=$T/rp/cloud $TBIN --test-rooms-privacy | tee $T/rp/out.txt | grep -q '^rooms privacy ok'"
+grep "✗" "$T/rp/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Local models"
 mkdir -p "$T/local"

@@ -395,7 +395,7 @@ extension Model {
         guard var c = compose(text) else { return }
         if !hidden { c.engine += blockedYes(text, helper: nil) }
         if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
-        if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
+        if !hidden && FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),
         // shown as Next up, and is sent once everything before it is fully over. It never cuts into a reply.

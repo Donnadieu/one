@@ -82,9 +82,12 @@ enum GuardsCheck {
             ExperimentalGuard.listed("hermes: note\n  - godmode\n  - \"axolotl\"\n⚠ warning") == ["godmode", "axolotl"])
 
         // Friction log.
-        check("\"that annoyed me\" is caught", FrictionLog.matches("Ugh, that annoyed me, it asked twice"))
+        check("a correction is caught (\"No, that's not what I asked\")", FrictionLog.matches("No, that's not what I asked, it asked twice"))
+        check("\"I don't see it\" and \"Where is…\" are caught", FrictionLog.matches("I don't see it") && FrictionLog.matches("Where is the file?"))
         check("normal messages aren't", !FrictionLog.matches("Find my receipts from this year"))
-        FrictionLog.add("that annoyed me: it asked twice", context: "Should I move 555 files?")
+        check("a polite no isn't (\"No thanks\", \"No that's okay\")", !FrictionLog.matches("No thanks") && !FrictionLog.matches("No that's okay"))
+        check("One's own hidden note isn't", !FrictionLog.matches("Yes\n\n(One app note, not from the user: no, that's wrong)"))
+        FrictionLog.add("No, that's not what I asked: it asked twice", context: "Should I move 555 files?")
         let log = (try? String(contentsOf: FrictionLog.file, encoding: .utf8)) ?? ""
         check("complaints are written to the friction log", log.contains("asked twice") && log.contains("555 files"))
 

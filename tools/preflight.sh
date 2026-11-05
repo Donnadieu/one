@@ -73,6 +73,11 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Improve: the look-only score (made-up records)"
+mkdir -p "$T/imp"
+check "corrections, cut-offs, walls and slow jobs counted; week %, not enough jobs, one incident; history only read; nothing private in moments" bash -c "ONE_SUPPORT_DIR=$T/imp $TBIN --test-improve | tee $T/imp/out.txt | grep -q '^improve ok'"
+grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Local models"
 mkdir -p "$T/local"
 check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"

@@ -28,7 +28,8 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | Screens render | preflight "Screens" |
 | Private notes don't leak into shared rooms | `SharedGuard` + preflight "Guards" |
 | Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
-| Complaints are captured | `FrictionLog` + preflight "Guards" |
+| Corrections are captured ("No…", "I don't see it", "Where is…") | `FrictionLog` via `Corrections` + preflight "Guards" |
+| The score only reads the engine's history, and never shows a private conversation | `ReadOnlyDB` (read-only, query_only) + `ImprovePrivate` + preflight "Improve" (`One --test-improve`) |
 | The three core jobs work end to end (sort files, inbox draft-only, price watch asks before buying) | `make jobs` (`tools/jobs-check.sh` → `One --test-jobs`) |
 | The mail bridge has no send command | `make jobs` ("bridge has no send command") |
 | Shipped skills reach every install and never overwrite an edited copy | `BundledSkills` + preflight "Shipped skills" (`One --test-skills`) |

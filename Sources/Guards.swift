@@ -192,15 +192,13 @@ enum ExperimentalGuard {
     }
 }
 
-/// "That annoyed me": every complaint goes to a list that gets fixed weekly.
+/// Every time the person corrects One ("No…", "I don't see it", "Where is…", "I told you"), the message and what the
+/// assistant last said go to a list that gets fixed weekly. Found by the same correction finder the score uses
+/// (`Corrections`, ImproveSignals.swift); the score itself is counted from the engine's records (Improve.swift).
 enum FrictionLog {
     static var file: URL { Env.support.appendingPathComponent("friction-log.md") }
-    static let triggers = ["annoyed me", "that's annoying", "that is annoying", "so annoying", "friction:", "this is frustrating"]
 
-    static func matches(_ text: String) -> Bool {
-        let t = text.lowercased()
-        return triggers.contains { t.contains($0) }
-    }
+    static func matches(_ text: String) -> Bool { Corrections.matches(text) }
 
     /// Appends the complaint and what the assistant last said, so the fix has context.
     static func add(_ text: String, context: String) {
@@ -208,7 +206,7 @@ enum FrictionLog {
         let ctx = context.split(separator: "\n").prefix(3).joined(separator: " ").prefix(240)
         let entry = "- \(day) | \(text.replacingOccurrences(of: "\n", with: " ")) | after: \(ctx)\n"
         if !FileManager.default.fileExists(atPath: file.path) {
-            try? "# Friction log\n\nEvery time something in One annoyed you. Fixed weekly.\n\n".write(to: file, atomically: true, encoding: .utf8)
+            try? "# Friction log\n\nEvery time you corrected One. Fixed weekly.\n\n".write(to: file, atomically: true, encoding: .utf8)
         }
         if let h = try? FileHandle(forWritingTo: file) {
             h.seekToEndOfFile()

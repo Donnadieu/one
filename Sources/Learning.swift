@@ -355,10 +355,10 @@ enum Learning {
             + "If you can't save it, reply [learned: none | none].)"
     }
 
-    /// Facts for the assistant's memory: kinds of job they said no to.
+    /// Facts for the assistant's memory: kinds of job they said no to (the newest 8; the rest stay in learning.json).
     static var declinedFact: String? {
         let s = load()
-        let kinds = s.declinedKinds.map(\.kind).filter { !$0.isEmpty }
+        let kinds = Array(s.declinedKinds.map(\.kind).filter { !$0.isEmpty }.suffix(8))
         guard !kinds.isEmpty else { return nil }
         return "Don't save recipes (skills) for these kinds of jobs; they said no: \(kinds.joined(separator: "; "))."
     }

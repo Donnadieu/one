@@ -116,6 +116,11 @@ mkdir -p "$T/rt"
 check "smart routing: recipes, rooms, the yes gate, the brain, never Nyx" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-routing | tee $T/rt/out.txt | grep -q '^routing ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Front page and recipe filer (USER.md, MEMORY.md from My Brain/assistant; new recipes into the brain)"
+mkdir -p "$T/fp/support" "$T/fp/cloud"
+check "USER.md from live connections, MEMORY.md filed then rebuilt, recipes filed into rooms, undo" bash -c "ONE_SUPPORT_DIR=$T/fp/support ONE_CLOUD_DIR=$T/fp/cloud $TBIN --test-front-page | tee $T/fp/out.txt | grep -q '^front page ok'"
+grep "✗" "$T/fp/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Helpers: look only, own repo copies, earlier results, restarts that don't cut work off"
 mkdir -p "$T/hw"
 check "look-only marks (engine can't write them, only their message lifts one), a worktree for a repo another helper is in (removed after, unsaved work kept), today's related results, long turns kept while active, the chat waited for through a slow restart, restarts between steps" bash -c "ONE_SUPPORT_DIR=$T/hw $TBIN --test-helper-work | tee $T/hw/out.txt | grep -q '^helper work ok'"

@@ -34,8 +34,7 @@ enum Messenger {
     /// A helper is alive in this home (whoever started it).
     static var helperAlive: Bool {
         guard let pid = GatewayGuard.recordedPID(), kill(pid, 0) == 0 else { return false }
-        let a = GatewayGuard.arguments(of: pid)
-        return a.contains("gateway") && a.contains("run")
+        return GatewayGuard.isGateway(GatewayGuard.arguments(of: pid))
     }
 
     /// Called every few seconds by the app's housekeeping loop.

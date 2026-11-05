@@ -153,11 +153,80 @@ enum RestartCheck {
             check("a reused pid that isn't a helper is never touched", other.isRunning)
             other.terminate()
         }
+        await relaunchedHelperChecks(check)
+        grantedFolderChecks(check)
         try? FileManager.default.removeItem(at: GatewayGuard.pidFile)
         check("the assistant is told One restarts by itself", FolderWatch.note.contains("restarts by itself"))
         Access.override = nil
         Access.readsOverride = nil
         print(fails == 0 ? "restart ok" : "restart: \(fails) failed")
         return fails == 0 ? 0 : 1
+    }
+
+    /// Hermes can relaunch itself under its own Python, which hides "gateway run" inside a `-c` script
+    /// (the shape seen live on Nov 5 2026). That helper must still be stopped when a folder is added,
+    /// or the assistant keeps the old lock and gets "Operation not permitted" on the new folder.
+    @MainActor
+    static func relaunchedHelperChecks(_ check: (String, Bool) -> Void) async {
+        let live = [
+            "/x/python3", "-I", "-I", "-c",
+            "import sys, runpy; sys.path.insert(0, '/Users/x/Library/Application Support/One/engine'); "
+                + "sys.argv = ['-c', 'gateway', 'run', '--quiet']; exec(\"import os, re, sys\\nprint('a]b')\")",
+        ]
+        check("a relaunched helper is recognised as the helper", GatewayGuard.isGateway(live))
+        check("its own arguments are read from the script", GatewayGuard.hermesArguments(live) == ["-c", "gateway", "run", "--quiet"])
+        check(
+            "a relaunched engine (not the helper) is not",
+            !GatewayGuard.isGateway(["/x/python3", "-I", "-c", "import sys; sys.argv = ['-c', 'acp']; exec('gateway run')"]))
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        p.arguments = ["-I", "-I", "-c", "import sys, runpy; sys.argv = ['-c', 'gateway', 'run', '--quiet']; import time; time.sleep(120)"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return check("could start a relaunched stand-in helper", false) }
+        usleep(300_000)
+        try? "{\"pid\": \(p.processIdentifier)}".write(to: GatewayGuard.pidFile, atomically: true, encoding: .utf8)
+        check("the running relaunched helper is seen as alive", Messenger.helperAlive)
+        let v = await Task.detached { GatewayGuard.stopForNewAccess(previousEngine: nil) }.value
+        usleep(300_000)
+        check("new folder access stops a relaunched helper too", !p.isRunning && v != .notGateway)
+        if p.isRunning { p.terminate() }
+    }
+
+    /// A folder granted under ~/Library/Application Support (closed by default) with a space in its name
+    /// is readable under the lock built after the grant, and a folder next to it that was never granted
+    /// stays closed.
+    static func grantedFolderChecks(_ check: (String, Bool) -> Void) {
+        let base = NSHomeDirectory() + "/Library/Application Support"
+        let granted = base + "/One check \(getpid()) granted folder"
+        let other = base + "/One check \(getpid()) never granted"
+        defer {
+            try? FileManager.default.removeItem(atPath: granted)
+            try? FileManager.default.removeItem(atPath: other)
+        }
+        for d in [granted, other] {
+            try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+            try? "workflow \(getpid())".write(toFile: d + "/WORKFLOW.md", atomically: true, encoding: .utf8)
+        }
+        let saved = Access.override
+        Access.override = (saved ?? []) + [granted]
+        let profile = Access.profile()
+        Access.override = saved
+        func run(_ tool: String, _ path: String) -> (Int32, String) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+            p.arguments = ["-p", profile, tool, path]
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return (-1, "") }
+            let d = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return (p.terminationStatus, String(decoding: d, as: UTF8.self))
+        }
+        let read = run("/bin/cat", granted + "/WORKFLOW.md")
+        check("a granted folder under Application Support with a space is readable", read.0 == 0 && read.1 == "workflow \(getpid())")
+        check("and its listing too", run("/bin/ls", granted).1.contains("WORKFLOW.md"))
+        check("a folder next to it that was never granted stays closed", run("/bin/cat", other + "/WORKFLOW.md").0 != 0)
     }
 }

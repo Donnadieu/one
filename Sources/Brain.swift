@@ -169,21 +169,6 @@ enum Brain {
         }
         return nil
     }
-
-    /// Mirrors the brain into iCloud Drive (plain copy, newest wins). Returns an error or nil.
-    static func backupToICloud() -> String? {
-        let icloud = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
-        guard FileManager.default.fileExists(atPath: icloud.path) else { return "iCloud Drive isn't turned on for this Mac." }
-        let dest = icloud.appendingPathComponent(Env.selfTest ? "One selftest backup" : "My Brain (backup)")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
-        p.arguments = ["-a", "--exclude", ".DS_Store", root.path + "/", dest.path + "/"]
-        do {
-            try p.run()
-            p.waitUntilExit()
-        } catch { return error.localizedDescription }
-        return p.terminationStatus == 0 ? nil : "The copy to iCloud didn't finish."
-    }
 }
 
 // MARK: - Who the assistant is (written into One's own Hermes)

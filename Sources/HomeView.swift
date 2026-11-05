@@ -118,6 +118,7 @@ struct HomeView: View {
                             .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
                         }
+                        if OffsiteCard.shows(m) { OffsiteCard(m: m).starCalm() }  // the locked copy in iCloud, offered once
                         if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
                             AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                         }

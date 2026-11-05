@@ -73,6 +73,11 @@ mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Instant copies, earlier versions, putting one back, the locked copy in iCloud"
+mkdir -p "$T/hist/support" "$T/hist/cloud"
+check "copies are clones and skip iCloud-only files, put back saves what was there first, pruning keeps the right ones and never before-move, the locked copy opens with its key" bash -c "ONE_SUPPORT_DIR=$T/hist/support ONE_CLOUD_DIR=$T/hist/cloud $TBIN --test-history | tee $T/hist/out.txt | grep -q '^history ok'"
+grep "✗" "$T/hist/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Local models"
 mkdir -p "$T/local"
 check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"

@@ -355,10 +355,10 @@ enum Learning {
             + "If you can't save it, reply [learned: none | none].)"
     }
 
-    /// Facts for the assistant's memory: kinds of job they said no to.
+    /// Facts for the assistant's memory: kinds of job they said no to (the newest 8; the rest stay in learning.json).
     static var declinedFact: String? {
         let s = load()
-        let kinds = s.declinedKinds.map(\.kind).filter { !$0.isEmpty }
+        let kinds = Array(s.declinedKinds.map(\.kind).filter { !$0.isEmpty }.suffix(8))
         guard !kinds.isEmpty else { return nil }
         return "Don't save recipes (skills) for these kinds of jobs; they said no: \(kinds.joined(separator: "; "))."
     }
@@ -397,13 +397,19 @@ enum LearnedDirs {
             return p == r || p.hasPrefix(r + "/")
         }
     }
-    /// The folders One wants the engine to read: private rooms only.
-    static func wanted(rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths) -> [String] {
-        rooms.map { $0.appendingPathComponent("skills/learned").path }.filter { !isShared($0, shared) }
+    /// The folders One wants the engine to read: the brain's own rooms only, plus `assistant/skills` once the brain
+    /// has an `assistant/` folder (the recipe filer's home for recipes with no room, SkillFiler.swift).
+    // storage-guards also edits this
+    static func wanted(rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths, assistant: String? = assistantDir) -> [String] {
+        (assistant.map { [$0] } ?? []) + rooms.map { $0.appendingPathComponent("skills/learned").path }.filter { !isShared($0, shared) }
+    }
+    static var assistantDir: String? {
+        let a = Brain.root.appendingPathComponent("assistant", isDirectory: true)
+        return FileManager.default.fileExists(atPath: a.path) ? a.appendingPathComponent("skills").standardizedFileURL.path : nil
     }
     /// Keeps whatever else is listed, drops One's old entries and anything inside a shared room, adds the private rooms.
     static func merged(current: [String], wanted: [String], shared: [String] = Shared.paths) -> [String] {
-        var out = current.filter { !$0.hasSuffix("/skills/learned") && !isShared($0, shared) }
+        var out = current.filter { !$0.hasSuffix("/skills/learned") && !$0.hasSuffix("/assistant/skills") && !isShared($0, shared) }
         for w in wanted where !out.contains(w) { out.append(w) }
         return out
     }

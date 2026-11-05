@@ -105,7 +105,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
-        if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() { return }  // in preflight
+        if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() || FrontPageCheck.launch() { return }  // in preflight
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -240,7 +240,7 @@ struct Entry {
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
-        if let code = MyChrome.cli(args) { exit(code) }
+        if let code = MyChrome.cli(args) ?? FrontPage.cli(args) ?? SkillFiler.cli(args) { exit(code) }  // --front-page, --file-skills
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         Diagnostics.main(args)  // `--test-glass`, `--test-voice-stress`, `--crash-line <pid>` (Diagnostics.swift)

@@ -17,6 +17,7 @@ extension Model {
         guard onboarded, !Engine.shared.running, !Env.commandLine else { return }
         if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+        FrontPage.atLaunch()  // MEMORY.md: the assistant's new lines filed into My Brain/assistant/this-mac.md, then rebuilt
         // Warn only if KeePass really isn't wired in after a retry, and never twice in a row
         // (a one-off failed write used to show this on every open even though KeePass worked).
         let warn = "Heads up: after an update I can't use your KeePass logins right now. Everything else works. Tell me and I'll look into it."
@@ -37,6 +38,7 @@ extension Model {
         sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
+        tendFiler(launch: true)  // recipes saved since last time move into the brain before the engine starts (SkillFiler.swift)
         await LearnedDirs.sync()  // skills saved into private rooms count as skills; shared rooms never
         Task { await LearnedDirs.checkLedgerOn() }
         await SignIn.enableRoutines()

@@ -34,6 +34,7 @@ extension Model {
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
+        sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
         await LearnedDirs.sync()  // skills saved into private rooms count as skills; shared rooms never
@@ -160,7 +161,8 @@ extension Model {
             }
             self.update(id) { $0.sid = sid }
             let routed = await self.routeHelper(id, sid: sid, title: title, task: task)  // RoutingHelpers.swift; "" = as before
-            await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: task) + routed, images: [])
+            let start = await self.helperStartNotes(id, title: title, task: task)  // look only, own repo copy, earlier results
+            await self.runHelper(id, Helpers.brief(assistant: self.assistantName, user: self.userName, task: task) + routed + start, images: [])
         }
     }
 
@@ -168,6 +170,7 @@ extension Model {
         guard let sid = helpers.first(where: { $0.id == id })?.sid else { return }
         helperLive.remove(id)
         learnHelperStart(id)
+        syncLookOnly(id)  // a look-only helper's conversation (new after a restart or Start again) keeps its mark
         update(id) {
             $0.state = "working"
             $0.reply = ""
@@ -375,6 +378,7 @@ extension Model {
         if !isReady { gateCheck() }  // the engine may be up a moment before its news arrives
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard var c = compose(text) else { return }
+            liftLookOnly(hid)  // they're talking to it directly: it may do what they ask
             BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
             c.engine += blockedYes(text, helper: hid)  // "Yes, show it" to a robot-check ask shows that one window
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.

@@ -277,20 +277,22 @@ final class Engine: @unchecked Sendable {
     /// Set when a saved conversation couldn't be reopened and a new one was started instead.
     var lostConversation = false
 
-    /// Reopens a saved conversation. Right after a restart the background helper answers
-    /// "draining: not_ready" for a few seconds; wait that out instead of starting a new chat
-    /// (giving up on the first try made the assistant forget the conversation at every restart).
+    /// Reopens a saved conversation. Right after a restart the background helper can take a while to answer
+    /// (the old one may still be finishing a routine); every answer but "not found" is waited out, up to
+    /// `Engine.loadPatience`, instead of starting a new chat (EngineWait.swift says why).
     private func loadSession(_ sid: String, _ dir: String, gen: Int? = nil) async -> Bool {
-        for attempt in 0..<15 {
+        let until = Date().addingTimeInterval(Engine.loadPatience)
+        while true {
             if let gen, stale(gen) { return false }
             let r = await call("session/load", ["sessionId": sid, "cwd": dir, "mcpServers": [Any]()], timeout: 120)
             if r["error"] == nil, r["result"] != nil, !(r["result"] is NSNull) { return true }
-            let e = "\(r["error"] ?? "")".lowercased()
-            let notYet = ["draining", "not_ready", "starting", "unavailable", "timed out"].contains { e.contains($0) }
-            guard notYet, attempt < 14 else { return false }
+            let e = "\(r["error"] ?? "")"
+            guard !Engine.gone(e), Date() < until else {
+                Engine.logLoad(sid, error: e, gaveUp: true)
+                return false
+            }
             try? await Task.sleep(for: .seconds(3))
         }
-        return false
     }
 
     /// Start a new conversation on purpose ("Start fresh"). Memory and notes stay.
@@ -337,7 +339,7 @@ final class Engine: @unchecked Sendable {
             [
                 "sessionId": sid,
                 "prompt": [["type": "text", "text": text]] + images.map { ["type": "image", "data": $0, "mimeType": "image/jpeg"] },
-            ], timeout: 900)
+            ], timeout: 900, alive: sid)
         if let res = r["result"] as? [String: Any] { return res["stopReason"] as? String ?? "end_turn" }
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
         return "error: \(r["error"] ?? "no answer")"
@@ -356,17 +358,6 @@ final class Engine: @unchecked Sendable {
             try? await Task.sleep(for: .seconds(3))
         }
         return stop
-    }
-
-    /// True when a turn failed because the background helper went away under it (not a real error).
-    static func dropped(_ stop: String, text: String, gatewayBefore: pid_t?) -> Bool {
-        if text.contains("Gateway shutting down") || text.contains("this turn was interrupted") { return true }
-        guard stop.hasPrefix("error") else { return false }
-        let e = stop.lowercased()
-        if ["shutting down", "interrupted", "draining", "not_ready", "stopped"].contains(where: { e.contains($0) }) { return true }
-        // A generic "Internal error" counts only if the gateway really changed or died during the turn.
-        guard let g = gatewayBefore else { return false }
-        return GatewayGuard.recordedPID() != g || kill(g, 0) != 0
     }
 
     /// A new background session for a helper.
@@ -434,7 +425,7 @@ final class Engine: @unchecked Sendable {
             [
                 "sessionId": sid,
                 "prompt": [["type": "text", "text": text]] + images.map { ["type": "image", "data": $0, "mimeType": "image/jpeg"] },
-            ], timeout: 1800)
+            ], timeout: 1800, alive: sid)
         lock.lock()
         sessionHandlers[sid] = nil
         lock.unlock()
@@ -462,7 +453,7 @@ final class Engine: @unchecked Sendable {
         let before = sid.map { steerAcks[$0, default: 0] } ?? 0
         lock.unlock()
         guard let sid else { return "error: not started" }
-        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": "/steer " + text]]], timeout: 1800)
+        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": "/steer " + text]]], timeout: 1800, alive: sid)
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
         if let e = r["error"] { return "error: \(e)" }
         lock.lock()
@@ -483,7 +474,9 @@ final class Engine: @unchecked Sendable {
         write(["jsonrpc": "2.0", "method": "session/cancel", "params": ["sessionId": sid]])
     }
 
-    private func call(_ method: String, _ params: [String: Any], timeout: TimeInterval) async -> [String: Any] {
+    /// `alive`: a turn on this conversation is waited for as long as it keeps doing something; it's given up on only
+    /// after `timeout` with no words, thoughts or steps at all (TurnWait in EngineWait.swift).
+    private func call(_ method: String, _ params: [String: Any], timeout: TimeInterval, alive: String? = nil) async -> [String: Any] {
         await withCheckedContinuation { cont in
             lock.lock()
             nextID += 1
@@ -501,12 +494,18 @@ final class Engine: @unchecked Sendable {
             waiting[id] = finish
             lock.unlock()
             write(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                self.lock.lock()
-                let f = self.waiting.removeValue(forKey: id)
-                self.lock.unlock()
-                f?(["error": "timed out"])
+            let started = Date()
+            @Sendable func arm(_ after: TimeInterval) {
+                DispatchQueue.global().asyncAfter(deadline: .now() + after) {
+                    let left = TurnWait.left(alive, started: started, window: timeout)
+                    if left > 0 { return arm(left) }  // still doing something: keep waiting
+                    self.lock.lock()
+                    let f = self.waiting.removeValue(forKey: id)
+                    self.lock.unlock()
+                    f?(["error": "timed out"])
+                }
             }
+            arm(timeout)
         }
     }
 
@@ -546,6 +545,7 @@ final class Engine: @unchecked Sendable {
             let usid = params["sessionId"] as? String
             lock.lock()
             let mainID = sessionID
+            if let s = usid ?? sessionID { TurnWait.saw(s) }
             let hh = usid.flatMap { sessionHandlers[$0] }
             lock.unlock()
             let toMain = usid == nil || usid == mainID

@@ -4,6 +4,8 @@ The rule: no assistant, helper or routine opens a visible browser window unless 
 to that exact window first. Everything runs in the background on the saved hidden browsers (One's on
 port 9223, Project Ledger's on 9333, both headless).
 
+It also keeps look-only helpers from changing anything (see "Look-only helpers" below).
+
 This ``pre_tool_call`` hook reads every ``terminal`` command and ``execute_code`` script (and the
 shell scripts they run) before it runs, and blocks anything that would open, show or drive a visible
 browser:
@@ -398,9 +400,251 @@ def block_message(browser: str, why: str) -> str:
     )
 
 
+# --- Look-only helpers: a helper sent only to check or report can't change anything ---------------------------------
+# One (outside the folder lock) writes guard/look-only/<session>.json for a helper whose job starts with "Look only:".
+# The engine can read that folder but never write it, so a helper can't unmark itself. For those conversations (and the
+# ones they continue into after a context squeeze), commands that save or publish are blocked: git commit/push/tag/merge…,
+# gh release / pr / issue / repo changes, gh api writes, installs (brew, mas, installer, npm -g, copies into /Applications),
+# posting (x-cli, xurl, curl/wget sending data except GraphQL reads) and the send_message tool.
+
+GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+GIT_CHANGES = {"commit", "push", "merge", "rebase", "cherry-pick", "revert", "am", "pull"}
+GH_CHANGES = {
+    "release": {"create", "upload", "edit", "delete", "delete-asset"},
+    "pr": {"create", "merge", "close", "comment", "review", "edit", "ready", "reopen", "lock"},
+    "issue": {"create", "comment", "close", "edit", "reopen", "delete", "lock", "transfer", "pin"},
+    "repo": {"create", "delete", "edit", "fork", "rename", "archive", "unarchive", "sync"},
+    "gist": {"create", "edit", "delete"},
+    "workflow": {"run", "enable", "disable"},
+    "run": {"rerun", "cancel", "delete"},
+    "label": {"create", "edit", "delete", "clone"},
+    "secret": {"set", "delete"},
+    "variable": {"set", "delete"},
+}
+POSTERS = {"x-cli", "xurl", "twurl", "toot", "bsky"}
+POST_WORDS = {"post", "tweet", "reply", "quote", "dm", "like", "repost", "retweet", "follow", "delete", "send", "publish"}
+LOOK_LOG = "one-look-only.log"
+
+
+def look_dir() -> Path:
+    return guard_dir() / "look-only"
+
+
+def _safe(sid: str) -> str:
+    return "".join(c if (c.isalnum() or c in "-_") else "_" for c in sid)
+
+
+def _parents(session_id: str) -> list[str]:
+    """The conversations this one continues (the engine starts a new id when it squeezes a long one)."""
+    out = []
+    try:
+        import sqlite3
+        db = hermes_home() / "state.db"
+        if not db.exists():
+            return out
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
+        try:
+            cur = session_id
+            for _ in range(8):
+                row = con.execute("select parent_session_id from sessions where id = ?", (cur,)).fetchone()
+                if not row or not row[0]:
+                    break
+                cur = str(row[0])
+                out.append(cur)
+        finally:
+            con.close()
+    except Exception:
+        pass
+    return out
+
+
+def look_only(session_id: str) -> bool:
+    if not session_id:
+        return False
+    d = look_dir()
+    try:
+        if not d.is_dir() or not any(d.iterdir()):
+            return False
+    except Exception:
+        return False
+    for sid in [session_id] + _parents(session_id):
+        if (d / (_safe(sid) + ".json")).exists():
+            return True
+    return False
+
+
+def _git_change(rest: list[str]) -> Optional[str]:
+    i = 0
+    while i < len(rest) and rest[i].startswith("-"):
+        i += 2 if rest[i] in GIT_GLOBAL_WITH_VALUE else 1
+    if i >= len(rest):
+        return None
+    sub, more = rest[i], rest[i + 1:]
+    if sub == "pull":
+        return "change the code on disk (git pull)"
+    if sub in GIT_CHANGES:
+        return f"save or push code (git {sub})"
+    if sub == "tag":
+        listing = not [a for a in more if not a.startswith("-")] or any(a in ("-l", "--list", "-v", "--verify", "--contains", "--points-at") for a in more)
+        return None if listing else "tag a release (git tag)"
+    if sub == "reset" and "--hard" in more:
+        return "throw away changes (git reset --hard)"
+    return None
+
+
+def _gh_change(rest: list[str]) -> Optional[str]:
+    args = [a for a in rest if not a.startswith("-")]
+    if not args:
+        return None
+    area = args[0]
+    if area == "api":
+        text = " ".join(rest)
+        method = None
+        for k, a in enumerate(rest):
+            if a in ("-X", "--method") and k + 1 < len(rest):
+                method = rest[k + 1].upper()
+            elif a.startswith("--method="):
+                method = a.split("=", 1)[1].upper()
+        fields = any(a in ("-f", "-F", "--field", "--raw-field", "--input") or a.startswith(("--field=", "--raw-field=")) for a in rest)
+        if len(args) > 1 and args[1] == "graphql":
+            return "change something on GitHub (gh api graphql mutation)" if "mutation" in text else None
+        if method in ("POST", "PUT", "PATCH", "DELETE") or (method is None and fields):
+            return f"change something on GitHub (gh api {method or 'POST'})"
+        return None
+    verb = args[1] if len(args) > 1 else ""
+    if verb in GH_CHANGES.get(area, set()):
+        return "publish a release (gh release)" if area == "release" else f"change something on GitHub (gh {area} {verb})"
+    return None
+
+
+def _install(cmd: str, rest: list[str]) -> Optional[str]:
+    if cmd == "brew" and rest and rest[0] in ("install", "reinstall", "upgrade", "uninstall", "remove", "rm", "tap", "link"):
+        return f"install or remove apps (brew {rest[0]})"
+    if cmd == "mas" and rest and rest[0] in ("install", "purchase", "upgrade", "uninstall"):
+        return "install an app (mas)"
+    if cmd == "installer":
+        return "install a package (installer)"
+    if cmd in ("npm", "pnpm", "yarn", "bun") and any(a in ("-g", "--global", "global") for a in rest):
+        return f"install a program for the whole Mac ({cmd} -g)"
+    if cmd in ("cp", "ditto", "mv", "rsync", "ln", "rm", "unzip", "tar") and any(
+            re.match(r"^(~|\$HOME|/Users/[^/]+)?/Applications(/|$)", a) for a in rest):
+        return "install or change an app in Applications"
+    if cmd == "open" and any(a.lower().endswith((".dmg", ".pkg", ".mpkg")) for a in rest):
+        return "install an app (open a .dmg or .pkg)"
+    return None
+
+
+def _post(cmd: str, rest: list[str], seg: str) -> Optional[str]:
+    if cmd in POSTERS and any(a.lower() in POST_WORDS for a in rest):
+        return f"post online ({cmd})"
+    if cmd in ("curl", "wget", "http", "https", "xh"):
+        sends = any(a in ("-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-F", "--form", "-T",
+                          "--upload-file", "--post-data", "--post-file") or a.startswith(("--data", "--json", "--form", "--post-"))
+                    for a in rest)
+        for k, a in enumerate(rest):
+            if a in ("-X", "--request", "--method") and k + 1 < len(rest) and rest[k + 1].upper() in ("POST", "PUT", "PATCH", "DELETE"):
+                sends = True
+            if re.match(r"^-X(POST|PUT|PATCH|DELETE)$", a, re.I):
+                sends = True
+        if cmd in ("http", "https", "xh") and rest and rest[0].upper() in ("POST", "PUT", "PATCH", "DELETE"):
+            sends = True
+        if sends and "graphql" in seg.lower() and "mutation" not in seg.lower():
+            return None  # a GraphQL read is sent as a POST but changes nothing
+        if sends:
+            return f"send data to a website ({cmd})"
+    return None
+
+
+def change_segment(seg: str) -> Optional[str]:
+    toks = _tokens(seg)
+    i = _command_start(toks)
+    if i >= len(toks):
+        return None
+    cmd = os.path.basename(toks[i])
+    rest = toks[i + 1:]
+    if cmd == "git":
+        return _git_change(rest)
+    if cmd == "gh":
+        return _gh_change(rest)
+    return _install(cmd, rest) or _post(cmd, rest, seg)
+
+
+def change_shell(command: str, depth: int = 0) -> Optional[str]:
+    """What a look-only helper's shell command would change, in plain words; None when it only looks."""
+    if not command:
+        return None
+    for seg in split_segments(command):
+        for part in re.split(r"\)\s+", seg):  # `GH_TOKEN=$(gh auth token) gh release create …`
+            hit = change_segment(part)
+            if hit:
+                return hit
+    for inner in re.findall(r"\b(?:ba|z)?sh\s+-\w*c\s+(\"[^\"]*\"|'[^']*')", command):
+        hit = change_shell(inner[1:-1], depth + 1)
+        if hit:
+            return hit
+    if depth < 2:
+        for p in scripts_run_by(command):
+            try:
+                hit = change_shell(p.read_text(errors="ignore"), depth + 1)
+            except Exception:
+                hit = None
+            if hit:
+                return f"{hit} (inside {p.name})"
+    return None
+
+
+def change_code(code: str) -> Optional[str]:
+    for line in (code or "").splitlines():
+        if not EXEC_LINE.search(_code_only(line)):
+            continue
+        lits = [x[1:-1] for x in re.findall(r"\"[^\"]*\"|'[^']*'", line)]
+        flat = " ".join(shlex.quote(x) for x in lits) if ("[" in line and len(lits) > 1) else " ".join(lits)
+        hit = change_shell(flat, 1)
+        if hit:
+            return hit
+    return None
+
+
+def change_tool(tool_name: str, args: dict[str, Any]) -> Optional[str]:
+    if tool_name == "terminal":
+        return change_shell(str(args.get("command") or ""))
+    if tool_name == "execute_code":
+        return change_code(str(args.get("code") or ""))
+    if tool_name in ("send_message", "send_email"):
+        return "send a message"
+    return None
+
+
+def look_only_message(what: str) -> str:
+    return (
+        f"One blocked this: this helper was sent to look only, so it can't {what}. Nothing was changed. "
+        "Don't look for another way to do it. Carry on looking, and in your report say exactly what you wanted to do "
+        "(the command and why) and ask them, ending with [choices: Do it | Not now]. Their answer in your thread lets you go ahead."
+    )
+
+
+def look_log(line: str) -> None:
+    try:
+        f = hermes_home() / "logs" / LOOK_LOG
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with f.open("a", encoding="utf-8") as h:
+            h.write(time.strftime("%Y-%m-%dT%H:%M:%S%z ") + line.replace("\n", " ")[:600] + "\n")
+    except Exception:
+        pass
+
+
 def on_pre_tool_call(tool_name: str = "", args: Optional[dict[str, Any]] = None, session_id: str = "", **_: Any):
     try:
         args = args if isinstance(args, dict) else {}
+        if look_only(session_id):
+            what = change_tool(tool_name, args)
+            if what:
+                cmd = str(args.get("command") or args.get("code") or "")
+                look_log(f"blocked {tool_name} (session {session_id}): would {what}: {cmd[:300]}")
+                return {"action": "block", "message": look_only_message(what)}
+    except Exception as e:  # never break a tool call because the look-only check itself failed
+        log(f"look-only check error on {tool_name}: {e}")
+    try:
         hit = check_tool(tool_name, args)
         if not hit:
             return None

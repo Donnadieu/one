@@ -70,6 +70,7 @@ extension Model {
         outbox.removeAll { $0 == .helperNews(id) }
         Helpers.log("helper \"\(h.title)\" taken off the screen by you (\(h.state))")
         withAnimation(.easeIn(duration: 0.6)) { helpers.removeAll { $0.id == id } }
+        releaseCopies(id)  // its own copies of repos go (HelperRepos.swift); unsaved work stays
         return true
     }
 

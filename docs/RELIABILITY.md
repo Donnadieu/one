@@ -43,6 +43,13 @@ person's own Mac, not about a server One's team operates.
   to the person's folders restarts the engine under the new lock only once
   nothing is mid-reply (`FolderWatch`); shared-room sync treats a conflicting
   edit as a merge note, not an overwrite (`SharedRooms`/`tend()`).
+- **Restarts and long jobs don't cut work off** (0.9.89): a folder restart or an
+  update pauses working helpers only between two steps (no command running,
+  `Model.helpersMidStep`, up to `FolderWatch.stepWait` = 10 min); a turn is
+  waited for as long as it keeps doing something (`TurnWait`, EngineWait.swift)
+  instead of a fixed 15/30 minutes; the saved conversation is waited for
+  through a slow restart (`Engine.loadPatience`, only "not_found" counts as
+  gone) instead of being replaced by a new one.
 
 ## Enforcement
 
@@ -55,6 +62,7 @@ person's own Mac, not about a server One's team operates.
 | A dropped engine turn is retried, not lost | `GatewayGuard` + retry-once in `Engine` |
 | Stale (not healthy) gateways only are stopped | `GatewayGuard`; preflight `GatewayCheck`/`RestartCheck` |
 | Folder-permission changes never corrupt a mid-reply turn | `FolderWatch` (waits for idle before restarting) |
+| Restarts pause helpers only between steps; long active turns aren't cut off; the chat reopens after a slow restart | `FolderWatch.due(midStep:)`, `Updater.install`, `TurnWait`, `Engine.loadPatience`; `HelperWorkCheck` (`One --test-helper-work`, preflight) |
 | Crash-free session rate | **NOT YET ENFORCED** — no crash reporter wired up |
 | Voice/engine process liveness under Bluetooth route changes | `Speaker.rebuild()` on `.AVAudioEngineConfigurationChange`; checked manually, no automated assertion |
 
@@ -73,7 +81,16 @@ person's own Mac, not about a server One's team operates.
 - `session/load` returning "Gateway draining: not_ready" on the very first
   load after a restart (the restart itself kills and re-wakes the gateway);
   giving up after one try used to open a blank chat on every restart — fixed
-  with a 15×3s retry.
+  with a 15×3s retry. That still lost the chat on Nov 4 2026: the old gateway
+  drained a routine for 54 s and the new one answered "Gateway could not
+  start: Another gateway instance is already running", which wasn't on the
+  retry list, so a new conversation replaced the saved one. Since 0.9.89 every
+  answer except "not_found" is waited out for up to 4 minutes, and a load that
+  still fails is logged in `one-gateway-guard.log`.
+- Helper turns over 30 minutes came back "timed out" while still working (One's
+  own fixed wait, not a restart) and were sent their job again: "Forge triage
+  moves" twice on Nov 4 2026. Since 0.9.89 the wait restarts at every sign of
+  life (`TurnWait`).
 - A routine's `fire_claim` left with no `at` timestamp by a dead run (e.g.
   the update-swap script killing the engine mid-routine) used to read as
   "still running" forever, silently blocking that routine from ever firing

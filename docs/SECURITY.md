@@ -66,7 +66,16 @@ boundaries today, not an aspirational version of them.
   passwords. Fixed in 0.9.81 — see Known findings for the prior state.
 - `BrowserGuard.lockedPaths` are explicitly denied write access on top of the
   allow-list, so an engine-driven command cannot silently flip on a visible
-  browser window without the person's yes.
+  browser window without the person's yes. Since 0.9.89 that includes
+  `guard/look-only/`: One marks a helper whose job starts with "Look only:"
+  there, and the engine plugin blocks that helper's commits, pushes, tags,
+  merges, releases, pull requests/issues, `gh api` writes, installs (brew, mas,
+  installer, npm -g, copies into /Applications), posting (x-cli/xurl, curl or
+  wget sending data except GraphQL reads) and `send_message`. The helper can't
+  write the mark away; only the person's own message in that helper's thread
+  lifts it (`LookOnly.swift`, `tools/look-only-check.py` in preflight). It
+  reads command text, like the browser guard: a determined script could still
+  get round it, so it's a strong guard against mistakes, not a sandbox.
 - The hidden Chrome instance `BrowserKeeper` manages pins its CDP listener
   to `--remote-debugging-address=127.0.0.1` explicitly (`Sources/BrowserKeeper.swift`),
   rather than relying on Chrome's current default, so the debugging port is

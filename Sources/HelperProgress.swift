@@ -163,6 +163,8 @@ extension Plain {
 extension Model {
     /// Titles of working helpers whose current step is a sensitive dev op right now.
     func helpersInSensitiveStep() -> [String] { helpers.filter { $0.state == "working" && Plain.sensitive($0.line) }.map { $0.title } }
+    /// Titles of working helpers in the middle of a step (a command, build or search running): not a safe point to pause.
+    func helpersMidStep() -> [String] { helpers.filter { $0.state == "working" && pulses[$0.id]?.stepOpen == true }.map { $0.title } }
 }
 
 @MainActor

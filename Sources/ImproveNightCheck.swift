@@ -159,6 +159,11 @@ enum ImproveNightCheck {
             m.first?.contains("Last night I learned 1 thing") == true && m.first?.contains("undo last night") == true)
         check("morning line 2: the one thing that needs a yes", m.count > 1 && m[1].hasPrefix("One thing needs your yes"))
         check("morning line 3: the score", m.count == 3 && (m[2].contains("Right the first time") || m[2].contains("score")))
+        _ = ImproveNightRun.cli(["end"], now: now)
+        let note = read(ImproveNightRun.morningDir.appendingPathComponent("\(today).md"))
+        check(
+            "ending the night leaves the morning note the brief reads",
+            note.contains("Last night I learned") && note.contains("One thing needs your yes"))
 
         // 8. The pre-run script refuses a One older than 0.9.90 (it would open its window), runs a new one.
         let apps = Env.support.appendingPathComponent("apps")

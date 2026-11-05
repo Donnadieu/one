@@ -25,6 +25,7 @@ enum ImproveNightRun {
                 return 0
             }
             print("Review of \(d) (\(r.mode)): \(r.note ?? "done").")
+            writeMorning(date: d, now: now)
             return 0
         case "undo":
             ImproveNight.undo(date: ImproveCLI.value(a, "--date"), now: now).forEach { print($0) }
@@ -224,12 +225,30 @@ enum ImproveNightRun {
         return nil
     }
 
+    // MARK: the morning note file
+
+    /// `improve/morning/<date>.md`: the morning lines as a file, written when a night's review ends (and by the app
+    /// after 5 AM if the review never ran `end`). The morning brief's pre-run script reads it (it never runs One's
+    /// binary), and "Turn on safe edits" counts these notes to know the review really ran.
+    static var morningDir: URL { Improve.dir.appendingPathComponent("morning", isDirectory: true) }
+    static func writeMorning(date: String, now: Date) {
+        try? FileManager.default.createDirectory(at: morningDir, withIntermediateDirectories: true)
+        let text = morning(now: now).map { "- \($0)" }.joined(separator: "\n") + "\n"
+        try? text.write(to: morningDir.appendingPathComponent("\(date).md"), atomically: true, encoding: .utf8)
+    }
+
     // MARK: no morning brief: a card in Ready for you
 
     /// Once a day after 7 AM, for someone with no "Morning brief" routine: the morning lines as one card.
     static func tendShelf(now: Date = Date()) {
-        guard !Env.commandLine, Calendar.current.component(.hour, from: now) >= 7 else { return }
+        guard !Env.commandLine, Calendar.current.component(.hour, from: now) >= 5 else { return }
         let date = Improve.dayKey(now)
+        if let r = ImproveNight.read(date), now.timeIntervalSince1970 - r.began > 3600,
+            !FileManager.default.fileExists(atPath: morningDir.appendingPathComponent("\(date).md").path)
+        {
+            writeMorning(date: date, now: now)  // the review never ran `end`: close it and leave the note
+        }
+        guard Calendar.current.component(.hour, from: now) >= 7 else { return }
         let stamp = Improve.dir.appendingPathComponent(".shelved")
         guard (try? String(contentsOf: stamp, encoding: .utf8)) != date, ImproveNight.read(date) != nil else { return }
         try? date.write(to: stamp, atomically: true, encoding: .utf8)

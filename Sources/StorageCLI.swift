@@ -4,10 +4,12 @@ import Foundation
 // Each `cli` returns an exit code when the arguments are its own, else nil.
 
 enum StorageCLI {
-    /// `--front-page`, `--file-skills`, `--snapshot`, `--restore`, the locked copy, the history render and check.
+    /// `--front-page`, `--file-skills`, `--snapshot`, `--restore`, the locked copy, the history render and check,
+    /// `--improve` (Improve.swift).
     static func run(_ args: [String]) -> Int32? {
         FrontPage.cli(args) ?? SkillFiler.cli(args)
             ?? History.cli(args) ?? Offsite.cli(args) ?? HistoryRender.cli(args) ?? HistoryCheck.cli(args)
+            ?? ImproveCLI.run(args)
     }
 
     /// Started once at launch: the brain's search index (BrainIndex.swift) and the hourly instant copies

@@ -93,6 +93,11 @@ mkdir -p "$T/hist/support" "$T/hist/cloud"
 check "copies are clones and skip iCloud-only files, put back saves what was there first, pruning keeps the right ones and never before-move, the locked copy opens with its key" bash -c "ONE_SUPPORT_DIR=$T/hist/support ONE_CLOUD_DIR=$T/hist/cloud $TBIN --test-history | tee $T/hist/out.txt | grep -q '^history ok'"
 grep "✗" "$T/hist/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Improve: the look-only score (made-up records)"
+mkdir -p "$T/imp"
+check "corrections, cut-offs, walls and slow jobs counted; week %, not enough jobs, one incident; history only read; nothing private in moments" bash -c "ONE_SUPPORT_DIR=$T/imp $TBIN --test-improve | tee $T/imp/out.txt | grep -q '^improve ok'"
+grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Local models"
 mkdir -p "$T/local"
 check "local model list, memory choice and warning" bash -c "ONE_SUPPORT_DIR=$T/local $TBIN --test-local-model | grep -q '^local: .* ✓'"

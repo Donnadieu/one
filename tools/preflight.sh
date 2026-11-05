@@ -125,6 +125,10 @@ echo "Front page and recipe filer (USER.md, MEMORY.md from My Brain/assistant; n
 mkdir -p "$T/fp/support" "$T/fp/cloud"
 check "USER.md from live connections, MEMORY.md filed then rebuilt, recipes filed into rooms, undo" bash -c "ONE_SUPPORT_DIR=$T/fp/support ONE_CLOUD_DIR=$T/fp/cloud $TBIN --test-front-page | tee $T/fp/out.txt | grep -q '^front page ok'"
 grep "✗" "$T/fp/out.txt" 2>/dev/null | sed 's/^/    /'
+echo "Brain search (One --search)"
+mkdir -p "$T/srch"
+check "private rooms and locked drawers never in a search that names no room, named rooms work, edits and deletes picked up, a broken index rebuilt, close spellings, 1,000 notes fast" bash -c "ONE_SUPPORT_DIR=$T/srch $TBIN --test-search | tee $T/srch/out.txt | grep -q '^search ok'"
+grep -E "✗|took:" "$T/srch/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Helpers: look only, own repo copies, earlier results, restarts that don't cut work off"
 mkdir -p "$T/hw"

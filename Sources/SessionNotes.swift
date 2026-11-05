@@ -29,8 +29,8 @@ enum SessionNotes {
 
     /// Every helper prompt, on top of `Helpers.helperNote` (which already carries the browser rule).
     static var helper: String {
-        screenNote + Bridge.note + BrowserKeeper.note + Model.githubNote + FolderWatch.note + VersionNote.note + History.note
-            + RoomPrivacy.crossRoomNote
+        screenNote + Bridge.note + BrainSearch.note + BrowserKeeper.note + Model.githubNote + FolderWatch.note + VersionNote.note
+            + History.note + RoomPrivacy.crossRoomNote
     }
     /// Every main-assistant prompt: the same notes, plus the browser rule.
     static var main: String { helper + BrowserGuard.note }

@@ -185,7 +185,7 @@ struct ShareRoomSheet: View {
     @State var made: URL?
     @State var error: String?
     var shareable: [URL] {
-        RoomMap.roomFolders().filter { !$0.path.hasPrefix(Shared.cloud.path) && !["personal-room", "private-room"].contains($0.lastPathComponent) }
+        RoomPrivacy.shareable()  // only rooms whose room.yaml says private: false (RoomPrivacy.swift)
     }
     var alreadyShared: [URL] { RoomMap.roomFolders().filter { $0.path.hasPrefix(Shared.cloud.path) } }
     var body: some View {
@@ -303,6 +303,11 @@ struct NotePanel: View {
     var select: NSRange?
     @State var copied = false
     @State var hovering = false
+    @State var earlier = NotePanel.stillVersions != nil  // "Earlier versions" open instead of the note
+    @State var putBack: String?  // the plain line after an earlier version was put back
+    /// Renders only: made-up earlier versions, and which one is open.
+    nonisolated(unsafe) static var stillVersions: [History.Version]?
+    nonisolated(unsafe) static var stillPick: String?
     static let cream = Color(hex: 0xF4EFE8)
     var text: String { Self.body(note.id) }
     /// The note without its front matter and its own title (the reader shows the title above).
@@ -339,6 +344,7 @@ struct NotePanel: View {
                 Text(room.name + " room" + (room.shared.map { " · " + $0 } ?? "")).font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Self.cream.opacity(0.58)).lineLimit(1)
                 Spacer()
+                noteIcon("clock.arrow.circlepath", "Earlier versions") { earlier.toggle() }
                 noteIcon(copied ? "checkmark" : "doc.on.doc", copied ? "Copied" : "Copy") { copy(shown) }
                 noteIcon("bubble.left", "Ask \(m.name) about it") { ask() }
                     .padding(.trailing, 6)
@@ -352,40 +358,57 @@ struct NotePanel: View {
             .padding(.top, 20).padding(.leading, 24).padding(.trailing, 18)
             Text(note.title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Self.cream).lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 10).padding(.horizontal, 24)
-            Text(meta).font(.system(size: 12)).foregroundStyle(Self.cream.opacity(0.45)).padding(.top, 8).padding(.horizontal, 24)
-            Group {
-                if still {
-                    Color.clear.overlay(alignment: .topLeading) {
-                        GeometryReader { geo in
-                            Image(nsImage: NoteText.snapshot(shown, width: geo.size.width, height: geo.size.height, select: select))
-                        }
-                    }
-                    .clipped()
-                } else {
-                    NoteText(text: shown, size: 14)
+            Text(putBack ?? meta).font(.system(size: 12)).foregroundStyle(Self.cream.opacity(putBack == nil ? 0.45 : 0.75))
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 8).padding(.horizontal, 24)
+            if earlier {
+                EarlierVersions(path: note.id, fixed: still ? Self.stillVersions : nil, still: still, pick: still ? Self.stillPick : nil) { line in
+                    earlier = false
+                    putBack = line
                 }
+                .padding(.top, 18).padding(.horizontal, 24).padding(.bottom, 18)
+            } else {
+                noteBody(shown, linked: Array(linked))
             }
-            .padding(.top, 18).padding(.horizontal, 24).padding(.bottom, 16).frame(minHeight: 120)
-            VStack(alignment: .leading, spacing: 12) {
-                if !linked.isEmpty {
-                    Text("LINKED NOTES").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Self.cream.opacity(0.4))
-                    FlowChips(items: linked.map { i in (i, g.nodes[i].name, g.rooms[g.nodes[i].room].tint.color(1)) }) { g.select($0) }
-                }
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: note.id)])
-                } label: {
-                    Label("Show in Finder", systemImage: "folder").font(.system(size: 12.5))
-                }
-                .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 16).padding(.horizontal, 24).padding(.bottom, 18)
-            .overlay(alignment: .top) { Rectangle().fill(Self.cream.opacity(0.06)).frame(height: 1) }
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .popupGlass(close: nil)  // the same glass as every pop-up; its own X sits in its header
         .onHover { hovering = $0 }
-        .onChange(of: index) { _, _ in copied = false }
+        .onChange(of: index) { _, _ in
+            copied = false
+            earlier = false
+            putBack = nil
+        }
+    }
+    /// The note itself and its linked notes (what the reader shows when “Earlier versions” is closed).
+    @ViewBuilder func noteBody(_ shown: String, linked: [Int]) -> some View {
+        Group {
+            if still {
+                Color.clear.overlay(alignment: .topLeading) {
+                    GeometryReader { geo in
+                        Image(nsImage: NoteText.snapshot(shown, width: geo.size.width, height: geo.size.height, select: select))
+                    }
+                }
+                .clipped()
+            } else {
+                NoteText(text: shown, size: 14)
+            }
+        }
+        .padding(.top, 18).padding(.horizontal, 24).padding(.bottom, 16).frame(minHeight: 120)
+        VStack(alignment: .leading, spacing: 12) {
+            if !linked.isEmpty {
+                Text("LINKED NOTES").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Self.cream.opacity(0.4))
+                FlowChips(items: linked.map { i in (i, g.nodes[i].name, g.rooms[g.nodes[i].room].tint.color(1)) }) { g.select($0) }
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: note.id)])
+            } label: {
+                Label("Show in Finder", systemImage: "folder").font(.system(size: 12.5))
+            }
+            .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 16).padding(.horizontal, 24).padding(.bottom, 18)
+        .overlay(alignment: .top) { Rectangle().fill(Self.cream.opacity(0.06)).frame(height: 1) }
     }
     /// A small round icon at the top of the note: faint until the pointer is over the note.
     func noteIcon(_ icon: String, _ help: String, tap: @escaping () -> Void) -> some View {
@@ -394,7 +417,10 @@ struct NotePanel: View {
                 .background(Circle().fill(Self.cream.opacity(hovering ? 0.07 : 0)))
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain).foregroundStyle(Self.cream.opacity(icon == "checkmark" ? 0.9 : hovering ? 0.72 : 0.38)).help(help)
+        .buttonStyle(.plain).foregroundStyle(
+            Self.cream.opacity(icon == "checkmark" || (earlier && icon.hasPrefix("clock")) ? 0.9 : hovering ? 0.72 : 0.38)
+        )
+        .help(help)
     }
     /// The whole note, as it reads, onto the clipboard; a check shows for a moment.
     func copy(_ body: String) {

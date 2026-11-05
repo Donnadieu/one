@@ -76,6 +76,7 @@ enum Shared {
     /// Makes a shared room (new, or by moving an existing local room into iCloud Drive). Returns its folder or an error.
     static func make(title: String, moving local: URL?) -> Result<URL, RoomError> {
         let fm = FileManager.default
+        if let local, RoomPrivacy.isPrivate(local) { return .failure(RoomError(text: "This room is private, so it stays on this Mac.")) }
         guard available else {
             return .failure(RoomError(text: "iCloud Drive is off on this Mac. Turn it on in System Settings › your name › iCloud › iCloud Drive."))
         }

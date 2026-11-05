@@ -93,6 +93,8 @@ extension Model {
     func tendLearning() {
         guard onboarded || Env.selfTest else { return }
         routeTend()
+        Improve.tend()  // the score, once a day (Improve.swift)
+        Task.detached(priority: .background) { ImproveNightRun.tendShelf() }  // no morning brief: a Ready for you card
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {
             learning.started = true  // no log yet: nothing old to skip, so the very first line counts
@@ -113,7 +115,13 @@ extension Model {
                 // They said no to recipes for this kind of job: the engine saved one anyway, so it goes, quietly.
                 Task {
                     for s in skills {
-                        let ok = await Learning.rollback(j.lines, skill: s)
+                        // Already filed into the brain (SkillFiler.swift): to the Trash from there instead.
+                        let ok: Bool
+                        if let f = SkillFiler.moved(s), FileManager.default.fileExists(atPath: f.to) {
+                            ok = Learning.trash(f.to + "/SKILL.md")
+                        } else {
+                            ok = await Learning.rollback(j.lines, skill: s)
+                        }
                         Learning.log("declined kind \"\(j.kind)\": skill \(s) rolled back by itself (\(ok))")
                     }
                 }
@@ -121,16 +129,20 @@ extension Model {
         }
         if showQueued() { changed = true }
         if changed { Learning.save(learning) }
+        tendFiler()  // new recipes the engine saved move into the brain (SkillFiler.swift)
+        tendFrontPage()
     }
 
     /// A new skill: remembered, a Learned card, and the line (in the main chat, or in the helper's own conversation).
     private func learned(_ j: LearnJob, _ skills: [String]) {
         for s in skills {
-            guard let file = Learning.skillFile(j.lines, s) else { continue }
-            var l = LearnedSkill(name: s, room: nil, path: file, session: j.session)
+            guard var file = Learning.skillFile(j.lines, s) else { continue }
+            let filed = SkillFiler.moved(s).flatMap { $0.from == URL(fileURLWithPath: file).deletingLastPathComponent().path ? $0 : nil }
+            if let f = filed { file = f.to + "/SKILL.md" }  // the recipe filer already moved it into the brain
+            var l = LearnedSkill(name: s, room: filed?.room, path: file, session: j.session)
             l.ledgerIDs = j.lines.filter { $0.skill == s }.map(\.id)
             l.card = learnCard(s, path: file)
-            learning.learned.removeAll { $0.name == s && $0.room == nil }
+            learning.learned.removeAll { $0.name == s && ($0.room == nil || $0.room == filed?.room) }
             learning.learned.append(l)
         }
         learnQueue.append(LearnShow(job: j.id, kind: "learned", skills: skills))

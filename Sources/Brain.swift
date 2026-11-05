@@ -116,6 +116,7 @@ enum Brain {
                 y += "\n# Kept by the One app: rooms are local folders on this Mac. Backup is the app's job.\nstorage: local\n"
                 try? y.write(to: oy, atomically: true, encoding: .utf8)
             }
+            BrainLayout.addException(root.appendingPathComponent("AGENTS.md"))  // the assistant may write in assistant/
         }
         var all = Set(rooms)
         all.insert(.personal)
@@ -125,6 +126,7 @@ enum Brain {
             let dest = root.appendingPathComponent(k.folder)
             let tpl = st.appendingPathComponent(k == .cofounder ? "templates/cofounder-room" : "templates/room")
             do { try fm.copyItem(at: tpl, to: dest) } catch { return "Couldn't make the \(k.title): \(error.localizedDescription)" }
+            RoomYaml(title: k.title.capitalized, ai: ai, isPrivate: k == .personal || k == .privateRoom).writeIfMissing(dest)
             let others = ordered.filter { $0 != k }.map { "the \($0.title) (`../\($0.folder)/`)" }.joined(separator: ", ")
             let fill: [String: String] = [
                 "{{OWNER}}": owner, "{{AI}}": ai, "{{ROOM}}": k.folder, "{{ROOM_TITLE}}": k.title,
@@ -167,22 +169,8 @@ enum Brain {
                 try? line.write(to: mf, atomically: true, encoding: .utf8)
             }
         }
+        BrainLayout.ensure(root)  // assistant/: notes, recipes and routines read in every room
         return nil
-    }
-
-    /// Mirrors the brain into iCloud Drive (plain copy, newest wins). Returns an error or nil.
-    static func backupToICloud() -> String? {
-        let icloud = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
-        guard FileManager.default.fileExists(atPath: icloud.path) else { return "iCloud Drive isn't turned on for this Mac." }
-        let dest = icloud.appendingPathComponent(Env.selfTest ? "One selftest backup" : "My Brain (backup)")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/rsync")
-        p.arguments = ["-a", "--exclude", ".DS_Store", root.path + "/", dest.path + "/"]
-        do {
-            try p.run()
-            p.waitUntilExit()
-        } catch { return error.localizedDescription }
-        return p.terminationStatus == 0 ? nil : "The copy to iCloud didn't finish."
     }
 }
 
@@ -243,20 +231,9 @@ enum Persona {
             If they ask what a skill is: a recipe you keep, so you don't have to figure it out from scratch next time.
             """
     }
+    /// USER.md is generated (FrontPage.swift): name, live connections, how they work, the newest "don't save" kinds.
+    /// `connections` and `passwords` are the setup answers, used only for what isn't really connected now.
     static func writeMemory(assistant: String, user: String, connections: [String], passwords: String) {
-        let mem = Env.hermesHome.appendingPathComponent("memories", isDirectory: true)
-        try? FileManager.default.createDirectory(at: mem, withIntermediateDirectories: true)
-        var facts = ["The user's name is \(user). They call their assistant \(assistant)."]
-        if !connections.isEmpty {
-            facts.append(
-                "They want these connected: \(connections.joined(separator: ", ")). Not connected yet; help them connect each one when it first comes up."
-            )
-        }
-        if !passwords.isEmpty { facts.append("For logins: \(passwords).") }
-        if let n = try? String(contentsOf: Env.hermesHome.appendingPathComponent("owner-notes.md"), encoding: .utf8), !n.isEmpty {
-            facts.append(n.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if let d = Learning.declinedFact { facts.append(d) }
-        try? facts.joined(separator: "\n§\n").write(to: mem.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+        FrontPage.writeUser(assistant: assistant, user: user, wanted: connections, passwords: passwords)
     }
 }

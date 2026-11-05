@@ -1,0 +1,6 @@
+name: one-learning-cap
+version: "1.0.0"
+description: "One: the engine's after-each-job skill review stays under the nightly review's limits (at most 5 skill edits a day, 1 per skill, from <One>/improve/settings.json). Held edits are logged for the nightly review; the person's own requests, helpers and the nightly review are never blocked."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - pre_tool_call

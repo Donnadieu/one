@@ -395,6 +395,8 @@ struct ShelfPanel: View {
 struct FileViewer: View {
     @ObservedObject var m: Model
     let url: URL
+    @State var earlier = false  // "Earlier versions" (notes in the brain or a shared room only)
+    @State var putBack: String?
     var body: some View {
         let raw = (try? String(contentsOf: url, encoding: .utf8)) ?? "I couldn't open this file. It may have been moved or deleted."
         var lines = raw.components(separatedBy: "\n")
@@ -413,7 +415,15 @@ struct FileViewer: View {
                     Spacer(minLength: 150)  // the X and "Esc to close"
                 }.padding(.horizontal, 22).padding(.vertical, 16)
                 Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
-                ReaderText(text: text.isEmpty ? "Nothing written here yet." : text)
+                if earlier {
+                    EarlierVersions(path: url.path) { line in
+                        earlier = false
+                        putBack = line
+                    }
+                    .padding(22)
+                } else {
+                    ReaderText(text: putBack.map { "_\($0)_\n\n" + text } ?? (text.isEmpty ? "Nothing written here yet." : text))
+                }
                 Divider().overlay(Color(hex: 0xF4EFE8, 0.08))
                 HStack(spacing: 8) {
                     Button {
@@ -429,6 +439,13 @@ struct FileViewer: View {
                     } label: {
                         Label("Ask \(m.name) about it", systemImage: "bubble.left")
                     }.buttonStyle(.bordered)
+                    if !earlier && History.inside(url.path) != nil {
+                        Button {
+                            earlier = true
+                        } label: {
+                            Label("Earlier versions", systemImage: "clock.arrow.circlepath")
+                        }.buttonStyle(.bordered)
+                    }
                     Spacer()
                 }.padding(.horizontal, 22).padding(.vertical, 14)
             }

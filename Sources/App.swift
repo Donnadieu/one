@@ -106,6 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
         if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() { return }  // in preflight
+        if FrontPageCheck.launch() || ImproveCheck.launch() || ImproveNightCheck.launch() { return }  // in preflight
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())
@@ -160,6 +161,8 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
+        History.loop()  // hourly instant copies of the brain and the nightly locked copy (History.swift, Offsite.swift)
+        BrainIndex.start()  // the brain's search index, refreshed in the background (BrainIndex.swift)
         Task.detached {  // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
             while true {
                 Messenger.tend()
@@ -224,7 +227,6 @@ struct OneApp: App {
 }
 
 // MARK: - Entry, with headless tests the agent can run
-
 @main
 struct Entry {
     static func runHeadless(_ body: @escaping @Sendable () async -> Void) -> Never {
@@ -236,11 +238,10 @@ struct Entry {
         sem.wait()
         exit(0)
     }
-
     static func main() {
         let args = CommandLine.arguments
         if let code = Bridge.run(args) { exit(code) }
-        if let code = MyChrome.cli(args) { exit(code) }
+        if let code = MyChrome.cli(args) ?? StorageCLI.run(args) { exit(code) }  // brain storage: StorageCLI.swift
         SelectCheck.main(args)  // `--test-select`: a test copy only
         FolderSheetCheck.main(args)  // `--test-folders-fit`: a test copy only
         Diagnostics.main(args)  // `--test-glass`, `--test-voice-stress`, `--crash-line <pid>` (Diagnostics.swift)
@@ -504,7 +505,7 @@ struct Entry {
                     Env.writeSecretEnv("OPENROUTER_API_KEY=\(k)\n", to: Env.hermesHome.appendingPathComponent(".env"))
                 }
                 print("install:", err ?? "ok", "in \(Int(Date().timeIntervalSince(t0)))s", "hermes:", Env.hermesPath ?? "missing")
-                guard err == nil else { return }
+                guard err == nil, ProcessInfo.processInfo.environment["ONE_INSTALL_ONLY"] == nil else { return }  // fresh-install workflow
                 await SignIn.makeDefault(.openrouter)
                 _ = await hermesRun(["config", "set", "model.default", "openai/gpt-4o-mini"])
                 Access.override = []
@@ -544,7 +545,6 @@ struct Entry {
                 try? FileManager.default.removeItem(at: Brain.root)
                 print("brain:", Brain.build(owner: "Omar", ai: "Juno", rooms: [.work]) ?? "built at \(Brain.root.path)")
                 print("rooms:", Brain.rooms.map(\.folder))
-                print("backup:", Brain.backupToICloud() ?? "copied to iCloud Drive")
                 Access.override = []
                 Persona.write(assistant: "Juno", user: "Omar", connections: ["Gmail"], passwords: "use 1Password")
                 let t0 = Date()

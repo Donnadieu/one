@@ -15,8 +15,13 @@ extension Model {
 
     func ensureEngine() async {
         guard onboarded, !Engine.shared.running, !Env.commandLine else { return }
-        if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
+        await LinkGuard.atLaunch()  // shortcut loops removed, skill walks fixed, room.yaml + assistant/ (LinkGuard.swift)
+        if backup == "icloud" {  // the old plain copy to iCloud is gone: a yes to backup now means the locked copy
+            backup = "locked"
+            Task.detached { _ = Offsite.turnOn() }  // the recovery code waits on Home (OffsiteCard)
+        }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
+        FrontPage.atLaunch()  // MEMORY.md: the assistant's new lines filed into My Brain/assistant/this-mac.md, then rebuilt
         // Warn only if KeePass really isn't wired in after a retry, and never twice in a row
         // (a one-off failed write used to show this on every open even though KeePass worked).
         let warn = "Heads up: after an update I can't use your KeePass logins right now. Everything else works. Tell me and I'll look into it."
@@ -33,13 +38,16 @@ extension Model {
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
+        await LearningCap.sync()  // the engine's own after-job learning stays under the nightly limits (LearningCap.swift)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }
         await ExperimentalGuard.sync()
+        tendFiler(launch: true)  // recipes saved since last time move into the brain before the engine starts (SkillFiler.swift)
         await LearnedDirs.sync()  // skills saved into private rooms count as skills; shared rooms never
         Task { await LearnedDirs.checkLedgerOn() }
         await SignIn.enableRoutines()
+        BrowserGuard.log("nightly review routine: \(await NightlyRoutine.ensure())")  // made once (NightlyRoutine.swift)
         await PhoneVoice.sync()  // phone chats speak with the same voice as the Mac
         if let e = await Engine.shared.ensureStarted() {
             bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))
@@ -327,7 +335,7 @@ extension Model {
         var out = ""
         if t.contains("room") {
             out +=
-                "\n\n(One app note, not from the user: ROOMS. A room is one part of their life where you act differently and keep its notes apart. A new room is only for different rules, not a new topic. To add one, follow the brain's skills/add-room/SKILL.md, but local only: no GitHub, git or keys; the One app handles backup. First say in one plain line what a room is. Then ask these one per message, each ending with a [choices: ...] line: 1) what you should be for them in this room, 2) who might ever see it, 3) how private it is, 4) what you should push them toward. Then show the room in a short summary: its name, your job there, who might see it, how private it is, what you push toward, and the rules (on your own: read and draft; needs their yes: send, spend, delete; only them: change these rules), ending with [choices: Make the room | Change something]. Build nothing before 'Make the room'. If it's only a topic, say which room and folder it fits in instead. After making it, offer a short get-to-know-you for that room, run from its skills/setup/SKILL.md, with Skip and That's enough for now on every question.)"
+                "\n\n(One app note, not from the user: ROOMS. A room is one part of their life where you act differently and keep its notes apart. A new room is only for different rules, not a new topic. To add one, follow the brain's skills/add-room/SKILL.md, but local only: no GitHub, git or keys; the One app handles backup. First say in one plain line what a room is. Then ask these one per message, each ending with a [choices: ...] line: 1) what you should be for them in this room, 2) who might ever see it, 3) how private it is, 4) what you should push them toward. Then show the room in a short summary: its name, your job there, who might see it, how private it is, what you push toward, and the rules (on your own: read and draft; needs their yes: send, spend, delete; only them: change these rules), ending with [choices: Make the room | Change something]. Build nothing before 'Make the room'. When you make it, also write room.yaml in the new room folder with three lines: title: \"<room name>\", ai: \"<your name in that room>\", and private: true or private: false from their answer about how private it is (private: true unless they said others may see it; when unsure, true). One reads that line to keep private rooms out of sharing and other rooms. If it's only a topic, say which room and folder it fits in instead. After making it, offer a short get-to-know-you for that room, run from its skills/setup/SKILL.md, with Skip and That's enough for now on every question.)"
         }
         if t.contains("welcome interview") || t.contains("get to know me") {
             out +=
@@ -395,7 +403,7 @@ extension Model {
         guard var c = compose(text) else { return }
         if !hidden { c.engine += blockedYes(text, helper: nil) }
         if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
-        if FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
+        if !hidden && FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),
         // shown as Next up, and is sent once everything before it is fully over. It never cuts into a reply.

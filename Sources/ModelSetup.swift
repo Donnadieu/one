@@ -127,6 +127,7 @@ extension Model {
         }
     }
     func syncName() {
+        SkillFiler.settleDefault(fresh: !onboarded)  // the recipe filer: on for a new install, off for one set up before it
         if onboarded { Persona.refreshSoul(assistant: assistantName, user: userName) }
         if let n = Model.nameInOwner() {
             if n != assistantName { rename(n) }
@@ -417,14 +418,16 @@ extension Model {
         me(yes ? "Yes, back it up" : "Not now")
         if yes {
             busy = true
-            let err = await Task.detached { Brain.backupToICloud() }.value
+            let r = await Task.detached { Offsite.turnOn() }.value  // a locked copy each night, never a readable one
             busy = false
-            if let err {
+            switch r {
+            case .failure(let e):
                 backup = "off"
-                await say("I couldn't turn it on: \(err) We can try again later.")
-            } else {
-                backup = "icloud"
+                await say("I couldn't turn it on: \(e.text) We can try again later.")
+            case .success:
+                backup = "locked"
                 await say("Backup is on. I'll keep a copy in your iCloud Drive.", voice: "backupOn")
+                await say("It's locked, so only you can open it. I'll show you a recovery code to save.")
             }
         } else {
             backup = "off"

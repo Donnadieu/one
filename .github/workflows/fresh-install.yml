@@ -1,0 +1,66 @@
+name: fresh-install
+# Goal: a brand-new person's first launch, on a clean Mac (a GitHub runner), never on the owner's Mac.
+# Installs the pinned engine into an empty One folder (`--install-test`, install only), then runs One's first-launch
+# steps on an empty test brain (`--test-first-launch`) and checks everything in the storage design's section 3c
+# appears with no questions. A stand-in `git` first on PATH records every call: the brain steps must make none.
+# Branch and tag pushes build One with a stand-in brain starter (the real one is a private repo);
+# a published release is tested as shipped: its own One.zip, which carries the real starter.
+on:
+  push:
+    tags: ['v*']
+    branches: ['release-*']
+  release:
+    types: [published]
+  workflow_dispatch:
+concurrency:
+  group: fresh-install-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+jobs:
+  fresh:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        if: github.event_name != 'release'
+        run: |
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+      - name: Build (stand-in brain starter)
+        if: github.event_name != 'release'
+        env:
+          ONE_FAST_BUILD: '1'
+        run: |
+          BS="$RUNNER_TEMP/brain-starter"
+          cp -R tests/fixtures/brain-starter-min "$BS"
+          git -C "$BS" init -q && git -C "$BS" add -A && git -C "$BS" -c user.name=ci -c user.email=ci@localhost commit -qm starter
+          BRAIN_STARTER="$BS" ./build.sh
+      - name: The released app, as shipped
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ github.event.release.tag_name }}" -p One.zip -D "$RUNNER_TEMP/rel"
+          mkdir -p build/app.noindex
+          ditto -x -k "$RUNNER_TEMP/rel/One.zip" build/app.noindex
+          test -d build/app.noindex/One.app/Contents/Resources/brain-starter
+      - name: Install the engine into an empty One folder
+        run: |
+          APP=$(tools/test-copy.sh fresh "$RUNNER_TEMP/app")
+          echo "TBIN=$APP/Contents/MacOS/One" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/fresh" "$RUNNER_TEMP/cloud"
+          cd "$RUNNER_TEMP/fresh"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" ONE_INSTALL_ONLY=1 perl -e 'alarm 1200; exec @ARGV' "$APP/Contents/MacOS/One" --install-test | tee install.txt
+          grep -q "^install: ok" install.txt
+      - name: The real engine loads the learning cap and holds the review's 6th edit
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
+      - name: First launch on an empty brain (no questions, no git)
+        run: |
+          mkdir -p "$RUNNER_TEMP/fakebin"
+          printf '#!/bin/bash\necho "git $*" >> "%s"\nexit 1\n' "$RUNNER_TEMP/git.log" > "$RUNNER_TEMP/fakebin/git"
+          chmod +x "$RUNNER_TEMP/fakebin/git"
+          : > "$RUNNER_TEMP/git.log"
+          cd "$RUNNER_TEMP/fresh"
+          PATH="$RUNNER_TEMP/fakebin:$PATH" ONE_GIT_LOG="$RUNNER_TEMP/git.log" ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" \
+            ONE_CLOUD_DIR="$RUNNER_TEMP/cloud" perl -e 'alarm 600; exec @ARGV' "$TBIN" --test-first-launch | tee first.txt
+          grep -q "^first launch ok" first.txt

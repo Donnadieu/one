@@ -124,6 +124,15 @@ tool-execution privilege":
     in `hermes/connections.json` — the engine that built the connection
     cannot flip it on for itself; the gate is a separate, static check run
     before every engine start.
+  - **The look-only score** (`Improve*.swift`, docs/design-docs/improve-score.md)
+    reads the engine's history `hermes/state.db` through `ReadOnlyDB`
+    (`mode=ro`, `query_only`, never written or checkpointed) and One's own logs,
+    and writes only `improve/` in One's folder. Conversations touching the Nyx
+    room, a `confidential/` path or a shared room keep counts but no words, and
+    `One --improve moments` leaves them out. The friction log (`FrictionLog`,
+    Guards.swift) now uses the same correction finder; it still only appends
+    the person's own message and the last reply to `friction-log.md`. The
+    phone-chat source names live in `Messenger.phoneSources` (read only here).
 - **What this does NOT yet cover**: there is no sandboxing of the *content*
   the engine reads back from a web page before it's added to the model's
   context — a page could contain adversarial text aimed at the model itself

@@ -51,6 +51,7 @@ echo "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
+check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
 check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
 check "shipped skill descriptions are short (60 max)" bash -c "for f in \$(find skills -name SKILL.md); do d=\$(sed -n 's/^description: *//p' \$f | head -1); [ -n \"\$d\" ] && [ \${#d} -le 60 ] || { echo \"\$f\"; exit 1; }; done"
@@ -68,10 +69,44 @@ check "second run changes nothing" cmp "$T/once.py" "$T/ovl/engine/agent/vault_b
 printf 'def other():\n    pass\n' > "$T/ovl/engine/agent/vault_backends/base.py"
 check "reports failure when Hermes changed" bash -c "ONE_SUPPORT_DIR=$T/ovl $BIN --apply-overlay | grep -q 'overlay failed'"
 
+echo "Skill folders: a link back up never loops the engine"
+mkdir -p "$T/sw/engine/agent"
+cp tests/fixtures/skill_walk/skill_utils.py tests/fixtures/skill_walk/prompt_builder.py "$T/sw/engine/agent/"
+ONE_SUPPORT_DIR="$T/sw" "$BIN" --apply-overlay >/dev/null
+cp "$T/sw/engine/agent/skill_utils.py" "$T/sw/once.py"
+ONE_SUPPORT_DIR="$T/sw" "$BIN" --apply-overlay >/dev/null
+check "the engine's two skill walks (pinned Hermes) skip a folder already walked; flat and learned/ recipes both found" /usr/bin/python3 tools/skill-walk-check.py "$T/sw/engine/agent"
+check "second run changes nothing" cmp "$T/sw/once.py" "$T/sw/engine/agent/skill_utils.py"
+
 echo "Guards (enforced in code)"
 mkdir -p "$T/g/support" "$T/g/cloud"
 check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/lg"
+check "shortcut guard: a link to itself, to its own folder and a file pointing at itself are removed and logged (3 lines); links elsewhere stay" bash -c "ONE_SUPPORT_DIR=$T/lg $TBIN --test-link-guard | tee $T/lg/out.txt | grep -q '^link guard ok'"
+grep "✗" "$T/lg/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/rp/support" "$T/rp/cloud"
+check "room.yaml privacy: Nyx and the personal room never offered for sharing or in the global recipe list; room.yaml only where missing; assistant/ never overwritten" bash -c "ONE_SUPPORT_DIR=$T/rp/support ONE_CLOUD_DIR=$T/rp/cloud $TBIN --test-rooms-privacy | tee $T/rp/out.txt | grep -q '^rooms privacy ok'"
+grep "✗" "$T/rp/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Instant copies, earlier versions, putting one back, the locked copy in iCloud"
+mkdir -p "$T/hist/support" "$T/hist/cloud"
+check "copies are clones and skip iCloud-only files, put back saves what was there first, pruning keeps the right ones and never before-move, the locked copy opens with its key" bash -c "ONE_SUPPORT_DIR=$T/hist/support ONE_CLOUD_DIR=$T/hist/cloud $TBIN --test-history | tee $T/hist/out.txt | grep -q '^history ok'"
+grep "✗" "$T/hist/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Improve: the look-only score (made-up records)"
+mkdir -p "$T/imp"
+check "corrections, cut-offs, walls and slow jobs counted; week %, not enough jobs, one incident; history only read; nothing private in moments" bash -c "ONE_SUPPORT_DIR=$T/imp $TBIN --test-improve | tee $T/imp/out.txt | grep -q '^improve ok'"
+grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Nightly review: what one night may change, its undo, only when nothing else is working"
+mkdir -p "$T/night"
+check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
+grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "The engine's own learning stays under the nightly limits"
+check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
+[ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
 
 echo "Local models"
 mkdir -p "$T/local"
@@ -100,6 +135,15 @@ check "new skill told once, fixes silent, the remember question once and never a
 mkdir -p "$T/rt"
 check "smart routing: recipes, rooms, the yes gate, the brain, never Nyx" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-routing | tee $T/rt/out.txt | grep -q '^routing ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Front page and recipe filer (USER.md, MEMORY.md from My Brain/assistant; new recipes into the brain)"
+mkdir -p "$T/fp/support" "$T/fp/cloud"
+check "USER.md from live connections, MEMORY.md filed then rebuilt, recipes filed into rooms, undo" bash -c "ONE_SUPPORT_DIR=$T/fp/support ONE_CLOUD_DIR=$T/fp/cloud $TBIN --test-front-page | tee $T/fp/out.txt | grep -q '^front page ok'"
+grep "✗" "$T/fp/out.txt" 2>/dev/null | sed 's/^/    /'
+echo "Brain search (One --search)"
+mkdir -p "$T/srch"
+check "private rooms and locked drawers never in a search that names no room, named rooms work, edits and deletes picked up, a broken index rebuilt, close spellings, 1,000 notes fast" bash -c "ONE_SUPPORT_DIR=$T/srch $TBIN --test-search | tee $T/srch/out.txt | grep -q '^search ok'"
+grep -E "✗|took:" "$T/srch/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Helpers: look only, own repo copies, earlier results, restarts that don't cut work off"
 mkdir -p "$T/hw"

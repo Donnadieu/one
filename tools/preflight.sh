@@ -101,6 +101,11 @@ mkdir -p "$T/rt"
 check "smart routing: recipes, rooms, the yes gate, the brain, never Nyx" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-routing | tee $T/rt/out.txt | grep -q '^routing ok'"
 grep "✗" "$T/lrn/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Brain search (One --search)"
+mkdir -p "$T/srch"
+check "private rooms and locked drawers never in a search that names no room, named rooms work, edits and deletes picked up, a broken index rebuilt, close spellings, 1,000 notes fast" bash -c "ONE_SUPPORT_DIR=$T/srch $TBIN --test-search | tee $T/srch/out.txt | grep -q '^search ok'"
+grep -E "✗|took:" "$T/srch/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Helpers: look only, own repo copies, earlier results, restarts that don't cut work off"
 mkdir -p "$T/hw"
 check "look-only marks (engine can't write them, only their message lifts one), a worktree for a repo another helper is in (removed after, unsaved work kept), today's related results, long turns kept while active, the chat waited for through a slow restart, restarts between steps" bash -c "ONE_SUPPORT_DIR=$T/hw $TBIN --test-helper-work | tee $T/hw/out.txt | grep -q '^helper work ok'"

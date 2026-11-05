@@ -160,6 +160,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
         BrowserKeeper.loop()  // the hidden browser kept up, and "use my Chrome" asked from a chat
+        BrainIndex.start()  // the brain's search index, refreshed in the background (BrainIndex.swift)
         Task.detached {  // Phone chat runs on its own loop, off the main thread: nothing on screen can hold it up.
             while true {
                 Messenger.tend()
@@ -224,7 +225,6 @@ struct OneApp: App {
 }
 
 // MARK: - Entry, with headless tests the agent can run
-
 @main
 struct Entry {
     static func runHeadless(_ body: @escaping @Sendable () async -> Void) -> Never {

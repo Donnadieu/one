@@ -18,7 +18,11 @@ enum StorageCheck {
             guard TestWorld.enterRender() else { exit(2) }
             UserDefaults.standard.set([String](), forKey: "sharedRooms")
             plant(Brain.root)
-            MainActor.assumeIsolated { _ = PopupRender.draw("popup-share", args[k + 1]) }
+            MainActor.assumeIsolated {
+                HomeView.still = true  // still pictures for the text box and the glass, as in --render-world
+                ChatText.still = true
+                _ = PopupRender.draw("popup-share", args[k + 1])
+            }
             print("wrote \(args[k + 1])-popup-share.png (rooms: \(RoomMap.roomFolders().map(\.lastPathComponent).joined(separator: ", ")))")
             exit(0)
         }

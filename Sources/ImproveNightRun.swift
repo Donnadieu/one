@@ -11,6 +11,12 @@ import Foundation
 // verdicts  the 7-day checks on their own.
 
 enum ImproveNightRun {
+    /// On every prompt (SessionNotes): how to act on the morning lines.
+    static var note: String {
+        "\n\n(One app note, not from the user: ONE'S NIGHTLY REVIEW. If they say \"undo last night\", run `\"\(Bridge.exe)\" --improve night undo` "
+            + "and tell them in plain words what it put back. To turn the review's safe edits off or on: `\"\(Bridge.exe)\" --improve settings set mode "
+            + "suggest` (suggestions only) or `... mode edit`. Last night's lines: `\"\(Bridge.exe)\" --improve night morning`.)"
+    }
     static func cli(_ a: [String], now: Date = Date()) -> Int32 {
         let today = Improve.dayKey(now)
         switch a.first ?? "" {

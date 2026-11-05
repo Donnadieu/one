@@ -34,12 +34,13 @@ enum RoomsPrivacyCheck {
         d.set([biz.path], forKey: "sharedRooms")
 
         print("who is private")
-        check("share candidates == [work-room] (Nyx and the personal room are never offered)", RoomPrivacy.shareable() == [work])
+        func names(_ u: [URL]) -> [String] { u.map(\.lastPathComponent) }  // the folder list may spell /var as /private/var
+        check("share candidates == [work-room] (Nyx and the personal room are never offered)", names(RoomPrivacy.shareable()) == ["work-room"])
         check("nyx-room is private (room.yaml), personal-room too (no room.yaml yet)", RoomPrivacy.isPrivate(nyx) && RoomPrivacy.isPrivate(personal))
         check("work-room isn't (private: false)", !RoomPrivacy.isPrivate(work))
         check(
             "a shared room is never private, and never offered as a new share", !RoomPrivacy.isPrivate(biz) && !RoomPrivacy.shareable().contains(biz))
-        check("privateRooms() lists both", RoomPrivacy.privateRooms() == [personal, nyx])
+        check("privateRooms() lists both", names(RoomPrivacy.privateRooms()) == ["personal-room", "nyx-room"])
         if case .failure = Shared.make(title: "Nyx", moving: nyx) {
             check("sharing a private room is refused and it stays put", fm.fileExists(atPath: nyx.appendingPathComponent("room.yaml").path))
         } else {
@@ -54,7 +55,9 @@ enum RoomsPrivacyCheck {
 
         print("the engine's recipe list")
         let want = LearnedDirs.wanted()
-        check("wanted == assistant/skills + work-room/skills", want == [BrainLayout.skills(brain).path, work.appendingPathComponent("skills").path])
+        check(
+            "wanted == assistant/skills + work-room/skills",
+            want.count == 2 && want[0] == BrainLayout.skills(brain).path && want[1].hasSuffix("/selftest-brain/work-room/skills"))
         check(
             "no private room's recipes, never a shared room's",
             !want.contains { $0.contains("nyx-room") || $0.contains("personal-room") || $0.hasPrefix(biz.path) })
@@ -72,7 +75,7 @@ enum RoomsPrivacyCheck {
         print("what the assistant is told")
         RoomPrivacy.refresh()
         let nyxNote = RoomPrivacy.recipesNote(RoomPrivacy.named(in: "Nyx, I want to tell you something"))
-        check("working with Nyx points at nyx-room/skills", nyxNote.contains(nyx.path + "/skills"))
+        check("working with Nyx points at nyx-room/skills", nyxNote.contains("/selftest-brain/nyx-room/skills"))
         check(
             "a work-room job gets no line (its recipes are in the list)",
             RoomPrivacy.recipesNote(RoomPrivacy.named(in: "Ajax, update my jobs")).isEmpty)
@@ -80,7 +83,8 @@ enum RoomsPrivacyCheck {
             "a shared room's recipes are pointed at when it's named",
             RoomPrivacy.recipesNote(RoomPrivacy.named(in: "add this to Biz")).contains(biz.path + "/skills"))
         check(
-            "a job the router puts in the personal room", RoomPrivacy.recipesNote(RoomPrivacy.claimed("personal")).contains(personal.path + "/skills")
+            "a job the router puts in the personal room",
+            RoomPrivacy.recipesNote(RoomPrivacy.claimed("personal")).contains("/selftest-brain/personal-room/skills")
         )
         check("nothing named, nothing said", RoomPrivacy.recipesNote(RoomPrivacy.named(in: "what's the weather")).isEmpty)
         let cross = RoomPrivacy.crossRoomNote

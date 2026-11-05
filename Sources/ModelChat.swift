@@ -46,6 +46,7 @@ extension Model {
             bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))
         } else {
             resumeInterrupted()  // helpers a restart cut off pick up where they left off
+            if Env.production { Task.detached { await NightlyReview.ensure() } }  // the built-in nightly review routine, once
         }
     }
 

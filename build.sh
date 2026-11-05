@@ -67,6 +67,8 @@ mkdir -p "$APP/Contents/Resources/one-learning-cap"
 cp tools/overlay/plugins/one-learning-cap/__init__.py tools/overlay/plugins/one-learning-cap/plugin.yaml "$APP/Contents/Resources/one-learning-cap/"
 # Skills that ship with One (skills/<category>/<name>/SKILL.md); One copies them into the engine (BundledSkills).
 cp -R skills "$APP/Contents/Resources/skills"
+# Routines that ship with One (routines/<name>.md); One adds them to the engine at launch (NightlyReview).
+cp -R routines "$APP/Contents/Resources/routines"
 # Sign in with Google is dropped from releases (email and calendar use the Mac's own accounts). Developer builds only: ONE_GOOGLE=1.
 if [ "${ONE_GOOGLE:-0}" = 1 ] && [ -f "$HOME/.hermes/google_client_secret.json" ]; then
   cp tools/google_signin.py "$APP/Contents/Resources/"

@@ -52,6 +52,8 @@ jobs:
           cd "$RUNNER_TEMP/fresh"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" ONE_INSTALL_ONLY=1 perl -e 'alarm 1200; exec @ARGV' "$APP/Contents/MacOS/One" --install-test | tee install.txt
           grep -q "^install: ok" install.txt
+      - name: The real engine loads the learning cap and holds the review's 6th edit
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
       - name: First launch on an empty brain (no questions, no git)
         run: |
           mkdir -p "$RUNNER_TEMP/fakebin"

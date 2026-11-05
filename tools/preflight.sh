@@ -106,6 +106,7 @@ grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "The engine's own learning stays under the nightly limits"
 check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
+[ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
 
 echo "Local models"
 mkdir -p "$T/local"

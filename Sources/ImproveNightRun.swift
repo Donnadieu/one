@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - The nightly review's commands (`One --improve night …`)
-// prepare   the routine's pre-run script: waits until nothing else is working (up to --wait minutes, 45 by default),
+// prepare   (--force: a run by hand, no waiting) the routine's pre-run script: waits until nothing else is working (up to --wait minutes, 45 by default),
 //           collects the score, closes the last night, runs the 7-day checks, copies what the night may edit, then
 //           prints everything the review needs. Still busy at the end: prints `{"wakeAgent": false}` (the engine then
 //           skips the AI run, silently).
@@ -16,7 +16,7 @@ enum ImproveNightRun {
         switch a.first ?? "" {
         case "prepare":
             let wait = Double(ImproveCLI.value(a, "--wait") ?? "") ?? 45
-            print(prepare(now: now, waitMinutes: wait), terminator: "")
+            print(prepare(now: now, waitMinutes: wait, force: a.contains("--force")), terminator: "")
             return 0
         case "end":
             let d = ImproveCLI.value(a, "--date") ?? today
@@ -38,7 +38,7 @@ enum ImproveNightRun {
             print(v.isEmpty ? "No recipe change is old enough to judge yet." : v.joined(separator: "\n"))
             return 0
         default:
-            print("usage: One --improve night prepare [--wait 45] | end [--date D] | undo [--date D] | morning | verdicts")
+            print("usage: One --improve night prepare [--wait 45] [--force] | end [--date D] | undo [--date D] | morning | verdicts")
             return 2
         }
     }
@@ -59,9 +59,10 @@ enum ImproveNightRun {
         return n > 0 ? "a chat or helper was working in the last 10 minutes" : nil
     }
 
-    static func prepare(now start: Date, waitMinutes: Double) -> String {
+    /// `force`: a run by hand (no waiting for quiet).
+    static func prepare(now start: Date, waitMinutes: Double, force: Bool = false) -> String {
         var now = start
-        while let why = busy(now: now) {
+        while !force, let why = busy(now: now) {
             guard now.timeIntervalSince(start) < waitMinutes * 60 else {
                 let d = Improve.dayKey(start)
                 try? FileManager.default.createDirectory(at: ImproveNight.reviewDir, withIntermediateDirectories: true)

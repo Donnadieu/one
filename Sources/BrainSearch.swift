@@ -141,7 +141,7 @@ enum BrainSearch {
             let s = Array(t.unicodeScalars)
             return (0...(s.count - 3)).map { i in "\"" + String(String.UnicodeScalarView(s[i..<(i + 3)])) + "\"" }
         }
-        let ids = (d.rows("SELECT rowid FROM grams WHERE grams MATCH ? ORDER BY bm25(grams) LIMIT 100", [Set(terms).joined(separator: " OR ")]) ?? [])
+        let ids = (d.rows("SELECT rowid FROM grams WHERE grams MATCH ? ORDER BY bm25(grams) LIMIT 60", [Set(terms).joined(separator: " OR ")]) ?? [])
             .compactMap { $0.first as? Int }
         guard !ids.isEmpty else { return [] }
         let rows =
@@ -277,9 +277,11 @@ enum Fuzzy {
     /// overall likeness. Nil unless every asked word has a word sharing 60% of its trios. `at` = where the first asked word's match is.
     static func match(_ text: String, _ qs: [[UInt32]]) -> (score: Double, at: Range<Int>?)? {
         let t = scalars(text)
-        let qg = qs.map { padded($0[...]) }
+        let qg = qs.map { Array(padded($0[...]).prefix(64)) }  // up to 64 trios per word: one bit each
         var best = Array(repeating: 0.0, count: qs.count)
         var at: Range<Int>?
+        var wg: [UInt64] = []
+        wg.reserveCapacity(48)
         var i = 0
         while i < t.count {
             guard isWord(t[i]) else {
@@ -288,12 +290,27 @@ enum Fuzzy {
             }
             var j = i
             while j < t.count, isWord(t[j]) { j += 1 }
-            if j - i >= 2 && j - i <= 40 {
-                let wg = padded(t[i..<j])
-                for (k, g) in qg.enumerated() where !g.isEmpty {
-                    let hit = Double(g.filter { wg.contains($0) }.count)
-                    let have = hit / Double(g.count)
-                    let s = have < 0.6 ? 0 : 0.7 * have + 0.3 * hit / Double(g.count + wg.count - Int(hit))
+            let n = j - i
+            if n >= 2 && n <= 40 {
+                // The word's trios (with a space on each side), built once without new arrays.
+                wg.removeAll(keepingCapacity: true)
+                var a: UInt32 = 32
+                var b = t[i]
+                for p in (i + 1)...j {
+                    let c = p < j ? t[p] : 32
+                    wg.append(UInt64(a) << 42 | UInt64(b) << 21 | UInt64(c))
+                    a = b
+                    b = c
+                }
+                for k in 0..<qg.count where !qg[k].isEmpty && Double(n) >= 0.6 * Double(qg[k].count) {
+                    var mask: UInt64 = 0
+                    for g in wg {
+                        if let x = qg[k].firstIndex(of: g) { mask |= 1 << UInt64(x) }
+                    }
+                    let hit = Double(mask.nonzeroBitCount)
+                    let have = hit / Double(qg[k].count)
+                    guard have >= 0.6 else { continue }
+                    let s = 0.7 * have + 0.3 * hit / (Double(qg[k].count + wg.count) - hit)
                     if s > best[k] {
                         best[k] = s
                         if k == 0 { at = i..<j }

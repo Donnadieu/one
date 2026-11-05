@@ -52,7 +52,9 @@ enum BrainIndexCheck {
             "rooms and privacy: no room.yaml and private: true are private (\(names.joined(separator: " ")))",
             names == ["Team", "assistant", "nyx-room*", "personal-room*", "work-room"])
         func find(_ q: String, _ room: String? = nil) -> SearchResult { BrainSearch.search(q, room: room, limit: 20, all: rooms) }
-        func files(_ r: SearchResult) -> [String] { r.hits.map(\.file) }
+        func real(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
+        func files(_ r: SearchResult) -> [String] { r.hits.map { real($0.file) } }
+        let tripPath = real(trip.path)
         let nyxDB = BrainRooms.file("nyx-room")
 
         // Privacy: a search that names no room never sees a private room or a locked drawer, and never opens their index.
@@ -89,8 +91,10 @@ enum BrainIndexCheck {
         let flight = find("porter flight", "work-room")
         check(
             "heading is the nearest one (Flights) and the path is absolute",
-            flight.hits.first.map { $0.heading == "Flights" && $0.file == trip.path && $0.snippet.contains("«") } ?? false)
-        check("stemming: 'planned' finds 'Planning'", files(find("planned", "work-room")).contains(trip.path))
+            flight.hits.first.map { $0.heading == "Flights" && real($0.file) == tripPath && $0.file.hasPrefix("/") && $0.snippet.contains("«") }
+                ?? false)
+        if let h = flight.hits.first { print("    first hit: \(h.room) | \(h.heading) | \(h.file) | \(h.snippet.prefix(80))") }
+        check("stemming: 'planned' finds 'Planning'", files(find("planned", "work-room")).contains(tripPath))
         let long = BrainIndex.chunks(BrainIndex.read(work.appendingPathComponent("brain/long.md")))
         check(
             "long notes split into pieces of 1,500 characters at most (\(long.count) pieces)",
@@ -100,7 +104,8 @@ enum BrainIndexCheck {
 
         // Close spellings (trigram) only when the words find nothing.
         let typo = find("Quebek")
-        check("a typo finds the note (close spelling)", typo.match == "close" && files(typo).contains(trip.path))
+        print("    typo: \(typo.match), \(typo.hits.map { "\($0.room):\(URL(fileURLWithPath: $0.file).lastPathComponent)" })")
+        check("a typo finds the note (close spelling)", typo.match == "close" && files(typo).contains(tripPath))
         check("part of a word finds it", files(find("Constructe")).contains { $0.hasSuffix("constructease.md") })
         check("close spellings keep private rooms out too", !find("Moonflowr").hits.contains { $0.room == "nyx-room" })
         check("some words only, when not all match", find("hedge spaceship", "work-room").match == "some")

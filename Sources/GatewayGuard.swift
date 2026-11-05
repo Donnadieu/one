@@ -28,8 +28,7 @@ enum GatewayGuard {
 
     static func verdict(_ pid: pid_t, previousEngine: pid_t?) -> Verdict {
         guard kill(pid, 0) == 0, let pp = parent(of: pid) else { return .none }
-        let a = arguments(of: pid)
-        guard a.contains("gateway"), a.contains("run") else { return .notGateway }
+        guard isGateway(arguments(of: pid)) else { return .notGateway }
         if pp <= 1 || pp == previousEngine || kill(pp, 0) != 0 { return .stale }
         return .healthy(parent: pp)
     }
@@ -61,11 +60,53 @@ enum GatewayGuard {
             usleep(250_000)
             waited += 1
         }
-        if kill(pid, 0) == 0, arguments(of: pid).contains("gateway") {
+        if kill(pid, 0) == 0, isGateway(arguments(of: pid)) {
             kill(pid, SIGKILL)
             usleep(300_000)
         }
         return v
+    }
+
+    /// Is this argv a Hermes gateway (`… gateway run …`)? Hermes can relaunch itself under its managed
+    /// Python as `python3 -I -I -c "import sys, runpy; …; sys.argv = ['-c', 'gateway', 'run', '--quiet']; …"`
+    /// (`hermes_cli/venv_sync.relaunch_command`), so the words live inside the script, not as their own
+    /// arguments. Missing that shape called the live gateway "not a gateway": a new folder never reached it
+    /// and the assistant kept getting "Operation not permitted" on a folder it had just been given (Nov 5 2026).
+    static func isGateway(_ argv: [String]) -> Bool {
+        let a = hermesArguments(argv)
+        return a.contains("gateway") && a.contains("run")
+    }
+
+    /// The arguments Hermes itself sees: the `sys.argv = [...]` list of a relaunch script, else argv as is.
+    static func hermesArguments(_ argv: [String]) -> [String] {
+        guard let c = argv.firstIndex(of: "-c"), c + 1 < argv.count,
+            let start = argv[c + 1].range(of: "sys.argv = [")
+        else { return argv }
+        var out: [String] = []
+        var cur = ""
+        var quote: Character?
+        var escaped = false
+        for ch in argv[c + 1][start.upperBound...] {
+            if let q = quote {
+                if escaped {
+                    cur.append(ch)
+                    escaped = false
+                } else if ch == "\\" {
+                    escaped = true
+                } else if ch == q {
+                    out.append(cur)
+                    cur = ""
+                    quote = nil
+                } else {
+                    cur.append(ch)
+                }
+            } else if ch == "'" || ch == "\"" {
+                quote = ch
+            } else if ch == "]" {
+                return out
+            }
+        }
+        return argv  // not a list we could read: never guess
     }
 
     static func parent(of pid: pid_t) -> pid_t? {

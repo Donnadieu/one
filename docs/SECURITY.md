@@ -64,6 +64,16 @@ boundaries today, not an aspirational version of them.
   closing a prompt-injection-to-exfiltration path a helper running inside
   the lock could otherwise use to read raw SSH keys or stored git
   passwords. Fixed in 0.9.81 — see Known findings for the prior state.
+- The lock is fixed when a process starts, and the engine's tools run in its
+  background helper (the Hermes gateway). So a newly approved folder only
+  reaches the engine once that helper is stopped and started again under the
+  new profile (`FolderWatch`, `GatewayGuard.stopForNewAccess`). Hermes can
+  relaunch itself as `python3 -I -c "…sys.argv = ['-c', 'gateway', 'run', …]…"`;
+  until 0.9.91 that shape was taken for "not a gateway", the old helper kept
+  the old lock, and an approved folder still said "Operation not permitted".
+  `GatewayGuard.isGateway` reads that script's argument list too
+  (`--test-restart` covers both, plus a granted folder with a space under
+  `~/Library/Application Support`).
 - `BrowserGuard.lockedPaths` are explicitly denied write access on top of the
   allow-list, so an engine-driven command cannot silently flip on a visible
   browser window without the person's yes. Since 0.9.89 that includes

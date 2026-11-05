@@ -7,5 +7,6 @@ enum Diagnostics {
         VoiceStress.main(args)  // `--test-voice-stress`: the real audio line under load (sanitizer builds)
         SoakCheck.main(args)  // `--test-soak`: the whole app under load for minutes (tools/soak-check.sh)
         Pulse.cli(args)  // `--crash-line <pid>`: the one-line crash summary Pulse logs after a crash
+        LinkGuard.cli(args)  // `--link-guard [--dry-run]`, `--test-link-guard`, `--test-rooms-privacy`, `--render-share-rooms`
     }
 }

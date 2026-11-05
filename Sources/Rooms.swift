@@ -185,7 +185,7 @@ struct ShareRoomSheet: View {
     @State var made: URL?
     @State var error: String?
     var shareable: [URL] {
-        RoomMap.roomFolders().filter { !$0.path.hasPrefix(Shared.cloud.path) && !["personal-room", "private-room"].contains($0.lastPathComponent) }
+        RoomPrivacy.shareable()  // only rooms whose room.yaml says private: false (RoomPrivacy.swift)
     }
     var alreadyShared: [URL] { RoomMap.roomFolders().filter { $0.path.hasPrefix(Shared.cloud.path) } }
     var body: some View {

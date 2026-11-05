@@ -143,15 +143,18 @@ enum LearningCheck {
         check("a tag half-written while streaming never shows", Helpers.strip("Done.\n[job-kind: movie ti") == "Done.")
         check("plain names", Learning.plain("movie-showtimes") == "Movie showtimes")
 
-        print("shared rooms stay out of the engine's reach")
+        print("private and shared rooms stay out of the engine's reach (more in --test-rooms-privacy)")
         let cloud = "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/One Rooms/Co-Founder"
         let rooms = [URL(fileURLWithPath: "/brain/personal-room"), URL(fileURLWithPath: "/brain/nyx-room"), URL(fileURLWithPath: cloud)]
         check(
-            "only private rooms' learned folders are wanted, never the shared room's",
-            LearnedDirs.wanted(rooms: rooms, shared: [cloud]) == ["/brain/personal-room/skills/learned", "/brain/nyx-room/skills/learned"])
+            "rooms with no room.yaml count as private, a shared room is never listed: nothing wanted",
+            LearnedDirs.wanted(rooms: rooms, shared: [cloud], brain: URL(fileURLWithPath: "/brain")).isEmpty)
+
         let merged = LearnedDirs.merged(
-            current: ["/keep/me", cloud + "/skills/learned", cloud + "/skills"], wanted: ["/brain/personal-room/skills/learned"], shared: [cloud])
-        check("anything inside a shared room is taken out, other folders kept", merged == ["/keep/me", "/brain/personal-room/skills/learned"])
+            current: ["/keep/me", cloud + "/skills/learned", cloud + "/skills", "/brain/nyx-room/skills"], wanted: ["/brain/work-room/skills"],
+            shared: [cloud],
+            brain: "/brain")
+        check("anything inside a shared room or the brain is taken out, other folders kept", merged == ["/keep/me", "/brain/work-room/skills"])
         check(
             "config list read",
             LearnedDirs.parseList("[]").isEmpty && LearnedDirs.parseList("- /a\n- \"/b c\"\n") == ["/a", "/b c"]

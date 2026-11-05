@@ -386,9 +386,14 @@ enum Learning {
     }
 }
 
-/// Skills saved into rooms count as skills: each PRIVATE room's `skills/learned` folder goes into the engine's
-/// `skills.external_dirs`. Never a shared room's: any chat can edit a skill it finds, so a personal job could
-/// write personal details into a skill the other members see. That is checked here in code, every time.
+/// Skills saved into rooms count as skills: `assistant/skills` and each room's `skills` folder go into the engine's
+/// `skills.external_dirs` (the engine walks each folder down, so `skills/<name>` and the older `skills/learned/<name>`
+/// are both found from `skills`; listing both would count every learned skill twice). Never a PRIVATE room's
+/// (room.yaml `private: true`, or no room.yaml): those are read only in that room's conversations, where One's room
+/// note points at them (RoomPrivacy.recipesNote). Never a shared room's: any chat can edit a skill it finds, so a
+/// personal job could write personal details into a skill the other members see. A room's own framework skills
+/// from the starter (setup, builder, backup…: their frontmatter has `tier:`) are switched off in the engine
+/// (`skills.disabled`); the room's AGENTS.md reads them by path. All checked here in code, every time.
 enum LearnedDirs {
     static func isShared(_ path: String, _ shared: [String] = Shared.paths) -> Bool {
         let p = URL(fileURLWithPath: path).standardizedFileURL.path
@@ -397,21 +402,78 @@ enum LearnedDirs {
             return p == r || p.hasPrefix(r + "/")
         }
     }
-    /// The folders One wants the engine to read: the brain's own rooms only, plus `assistant/skills` once the brain
-    /// has an `assistant/` folder (the recipe filer's home for recipes with no room, SkillFiler.swift).
-    // storage-guards also edits this
-    static func wanted(rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths, assistant: String? = assistantDir) -> [String] {
-        (assistant.map { [$0] } ?? []) + rooms.map { $0.appendingPathComponent("skills/learned").path }.filter { !isShared($0, shared) }
+    /// The folders One wants the engine to read: `assistant/skills` and every room's `skills` that's neither private nor shared.
+    static func wanted(rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths, brain: URL = Brain.root) -> [String] {
+        let mine = FileManager.default.fileExists(atPath: brain.appendingPathComponent("AGENTS.md").path) ? [BrainLayout.skills(brain).path] : []
+        return mine
+            + rooms.filter { !RoomPrivacy.isShared($0, shared: shared) && !RoomPrivacy.isPrivate($0, shared: shared) }.map {
+                $0.appendingPathComponent("skills").path
+            }
     }
-    static var assistantDir: String? {
-        let a = Brain.root.appendingPathComponent("assistant", isDirectory: true)
-        return FileManager.default.fileExists(atPath: a.path) ? a.appendingPathComponent("skills").standardizedFileURL.path : nil
-    }
-    /// Keeps whatever else is listed, drops One's old entries and anything inside a shared room, adds the private rooms.
-    static func merged(current: [String], wanted: [String], shared: [String] = Shared.paths) -> [String] {
-        var out = current.filter { !$0.hasSuffix("/skills/learned") && !$0.hasSuffix("/assistant/skills") && !isShared($0, shared) }
+    /// Keeps whatever else is listed; drops One's old entries (anything in the brain, any `skills/learned`) and
+    /// anything inside a shared room; adds what's wanted.
+    static func merged(current: [String], wanted: [String], shared: [String] = Shared.paths, brain: String = Brain.root.path) -> [String] {
+        let b = URL(fileURLWithPath: brain).standardizedFileURL.path
+        var out = current.filter { c in
+            let p = URL(fileURLWithPath: c).standardizedFileURL.path
+            return !c.hasSuffix("/skills/learned") && !isShared(c, shared) && p != b && !p.hasPrefix(b + "/")
+        }
         for w in wanted where !out.contains(w) { out.append(w) }
         return out
+    }
+
+    /// A room framework skill from the starter: its frontmatter has a top-level `tier:` key (recipes don't).
+    static func isFramework(_ text: String) -> Bool {
+        guard text.hasPrefix("---"), let end = text.range(of: "\n---", range: text.index(text.startIndex, offsetBy: 3)..<text.endIndex) else {
+            return false
+        }
+        return text[text.startIndex..<end.lowerBound].split(separator: "\n").contains { $0.hasPrefix("tier:") }
+    }
+    /// The names of the framework skills under these folders (declared name, else folder name). Never follows a link.
+    static func frameworkNames(_ dirs: [String]) -> [String] {
+        var out: [String] = []
+        func walk(_ d: String, _ depth: Int) {
+            guard depth < 4, let names = try? FileManager.default.contentsOfDirectory(atPath: d) else { return }
+            let skill = d + "/SKILL.md"
+            if names.contains("SKILL.md"), let t = try? String(contentsOfFile: skill, encoding: .utf8) {
+                if isFramework(t) {
+                    let n = RouteIndex.parse(t, path: skill).name
+                    if !out.contains(n) { out.append(n) }
+                }
+                return
+            }
+            for n in names.sorted() where !n.hasPrefix(".") {
+                var st = stat()
+                if lstat(d + "/" + n, &st) == 0, st.st_mode & S_IFMT == S_IFDIR { walk(d + "/" + n, depth + 1) }
+            }
+        }
+        for d in dirs { walk(d, 0) }
+        return out
+    }
+    /// `skills.disabled` with this guard's names: the person's own entries (and other guards') always stay; only the
+    /// names this guard added before are replaced.
+    static func disabledList(current: [String], off: [String], mine: [String]) -> [String] {
+        current.filter { !mine.contains($0) && !off.contains($0) } + off
+    }
+    /// Switches the room framework skills off in the engine (same route as ExperimentalGuard). Returns them.
+    @discardableResult
+    static func syncFramework(_ dirs: [String]) async -> [String] {
+        let off = frameworkNames(dirs)
+        let key = Env.selfTest ? "roomFrameworkOffTest" : "roomFrameworkOff"
+        if UserDefaults.standard.stringArray(forKey: key) == off { return off }
+        let mine = UserDefaults.standard.stringArray(forKey: key) ?? []
+        let (got, out) = await hermesRun(["config", "get", "skills.disabled"])
+        guard got == 0 else { return off }
+        let current = ExperimentalGuard.listed(out)
+        let next = disabledList(current: current, off: off, mine: mine)
+        var code: Int32 = 0
+        if next != current {
+            let yaml = "[" + next.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
+            code = await hermesRun(["config", "set", "skills.disabled", yaml, "--force"]).0
+        }
+        if code == 0 { UserDefaults.standard.set(off, forKey: key) }
+        Learning.log("room framework skills switched off: \(off.joined(separator: ", ")) (\(code))")
+        return off
     }
     /// `[]` or `- a\n- b` from `hermes config get`. Long items are folded onto indented next lines
     /// ("- /Users/x/Library/Application\n    Support/One/…"): those are joined back with a space.
@@ -433,6 +495,7 @@ enum LearnedDirs {
     static func sync() async -> [String] {
         let want = wanted()
         for w in want { try? FileManager.default.createDirectory(atPath: w, withIntermediateDirectories: true) }
+        await syncFramework(want)  // a room's starter skills (setup, backup…) stay out of the engine's list
         let key = Env.selfTest ? "learnedDirsTest" : "learnedDirs"
         let (gc, got) = await hermesRun(["config", "get", "skills.external_dirs"])
         let current = gc == 0 ? parseList(got) : []
@@ -441,7 +504,7 @@ enum LearnedDirs {
         let yaml = "[" + next.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
         let (code, _) = await hermesRun(["config", "set", "skills.external_dirs", yaml, "--force"])
         if code == 0 { UserDefaults.standard.set(next, forKey: key) }
-        Learning.log("external_dirs → \(next.count) folder(s), shared rooms left out (\(code))")
+        Learning.log("external_dirs → \(next.count) folder(s), private and shared rooms left out (\(code))")
         return next
     }
 

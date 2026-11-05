@@ -116,6 +116,7 @@ enum Brain {
                 y += "\n# Kept by the One app: rooms are local folders on this Mac. Backup is the app's job.\nstorage: local\n"
                 try? y.write(to: oy, atomically: true, encoding: .utf8)
             }
+            BrainLayout.addException(root.appendingPathComponent("AGENTS.md"))  // the assistant may write in assistant/
         }
         var all = Set(rooms)
         all.insert(.personal)
@@ -125,6 +126,7 @@ enum Brain {
             let dest = root.appendingPathComponent(k.folder)
             let tpl = st.appendingPathComponent(k == .cofounder ? "templates/cofounder-room" : "templates/room")
             do { try fm.copyItem(at: tpl, to: dest) } catch { return "Couldn't make the \(k.title): \(error.localizedDescription)" }
+            RoomYaml(title: k.title.capitalized, ai: ai, isPrivate: k == .personal || k == .privateRoom).writeIfMissing(dest)
             let others = ordered.filter { $0 != k }.map { "the \($0.title) (`../\($0.folder)/`)" }.joined(separator: ", ")
             let fill: [String: String] = [
                 "{{OWNER}}": owner, "{{AI}}": ai, "{{ROOM}}": k.folder, "{{ROOM_TITLE}}": k.title,
@@ -167,6 +169,7 @@ enum Brain {
                 try? line.write(to: mf, atomically: true, encoding: .utf8)
             }
         }
+        BrainLayout.ensure(root)  // assistant/: notes, recipes and routines read in every room
         return nil
     }
 }

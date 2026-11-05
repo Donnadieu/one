@@ -43,8 +43,8 @@ enum HelperRepos {
     /// The nearest folder at or above `path` that holds `.git`. The home folder itself never counts.
     static func root(of path: String) -> String? {
         let fm = FileManager.default
-        var u = URL(fileURLWithPath: path).standardizedFileURL
-        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        var u = URL(fileURLWithPath: norm(path))
+        let home = norm(NSHomeDirectory())
         for _ in 0..<12 {
             let p = u.path
             if p == home || p == "/" { return nil }
@@ -54,9 +54,10 @@ enum HelperRepos {
         return nil
     }
 
-    static func allowed(_ root: String) -> Bool {
-        let brain = Brain.root.standardizedFileURL.path
-        let support = Env.support.standardizedFileURL.path
+    static func allowed(_ path: String) -> Bool {
+        let root = norm(path)
+        let brain = norm(Brain.root.path)
+        let support = norm(Env.support.path)
         if root == brain || root.hasPrefix(brain + "/") { return false }
         if root.hasPrefix(support + "/") && !root.hasPrefix(support + "/work/") { return false }
         return true
@@ -156,6 +157,8 @@ enum HelperRepos {
 
     // MARK: Helpers
 
+    /// One spelling per folder (symlinks resolved, `/private/var` read as `/var`), so the same repo always matches.
+    static func norm(_ p: String) -> String { ((p as NSString).standardizingPath as NSString).resolvingSymlinksInPath }
     static func slugOf(_ title: String) -> String {
         let s = title.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
         let joined = String(s).split(separator: "-").prefix(4).joined(separator: "-")

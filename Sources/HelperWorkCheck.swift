@@ -63,8 +63,9 @@ enum HelperWorkCheck {
         m.helpers = []
 
         print("2. each helper gets its own copy of a repo")
-        let repo = Env.support.appendingPathComponent("work/proj").path
-        try? FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
+        let made0 = Env.support.appendingPathComponent("work/proj").path
+        try? FileManager.default.createDirectory(atPath: made0, withIntermediateDirectories: true)
+        let repo = HelperRepos.norm(made0)
         for a in [
             ["init", "-q", "-b", "main"], ["config", "user.name", "Test"], ["config", "user.email", "t@example.com"],
             ["config", "commit.gpgsign", "false"],

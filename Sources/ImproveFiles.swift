@@ -78,16 +78,15 @@ enum ImproveFiles {
             let k = "\(g[2]) \(Int(t / 60))"
             if undone.insert(k).inserted { out.append(ImproveEvent("correction", "undo", at: t, quote: "Undo on the skill \(g[2])")) }
         }
-        // Helpers cut off (picked back up) or stopped by an error.
+        // Helpers stopped by an error. (Helpers picked back up are read from the engine's history, where One's own
+        // "You were interrupted by a restart" note sits in the conversation itself: the guard's log repeats one pick-up
+        // for every engine that saw it.)
         for l in lines(logs.appendingPathComponent("one-gateway-guard.log")) {
-            guard let g = groups(l, #"^(\S+Z) (?:pid \d+ )?helper "(.*)" didn't finish \((.*)\): (picking it back up|stopped)$"#),
-                let t = utc(Substring(g[1])), inside(t)
+            guard let g = groups(l, #"^(\S+Z) (?:pid \d+ )?helper "(.*)" didn't finish \((.*)\): stopped$"#), let t = utc(Substring(g[1])), inside(t)
             else { continue }
-            let back = g[4] == "picking it back up"
             out.append(
                 ImproveEvent(
-                    "broke", back ? "picked_back_up" : "helper_failed", at: t, session: session(title: g[2], before: t, jobs), title: g[2],
-                    place: "helper", quote: g[3]))
+                    "broke", "helper_failed", at: t, session: session(title: g[2], before: t, jobs), title: g[2], place: "helper", quote: g[3]))
         }
         // The engine stopping (each stop cuts off whatever was working).
         let local = DateFormatter()

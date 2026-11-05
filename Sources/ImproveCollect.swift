@@ -129,15 +129,12 @@ enum ImproveCollect {
             guard build[k] != nil else { continue }
             build[k]!.events.append(e)
             let c: [String: String] = [
-                "stopped": ImproveCount.stops, "redo": ImproveCount.redos, "undo": ImproveCount.undos, "picked_back_up": ImproveCount.pickedBack,
-                "helper_failed": ImproveCount.helperFailed, "engine_stop": ImproveCount.engineStops, "handoff": ImproveCount.handoffs,
+                "stopped": ImproveCount.stops, "redo": ImproveCount.redos, "undo": ImproveCount.undos, "helper_failed": ImproveCount.helperFailed,
+                "engine_stop": ImproveCount.engineStops, "handoff": ImproveCount.handoffs,
                 "handoff_answered": ImproveCount.handoffs, "routine_not_done": ImproveCount.notDone, "routine_partly": ImproveCount.partly,
                 "routine_failed": ImproveCount.routineFailed,
             ]
             if let key = c[e.sub] { build[k]!.add(key) }
-            if e.sub == "picked_back_up", !build[k]!.events.contains(where: { $0.sub == "cut_off" && $0.session != nil && $0.session == e.session }) {
-                build[k]!.add(ImproveCount.pickedAlone)
-            }
             if e.sub == "handoff_answered" { build[k]!.add(ImproveCount.answered) }
         }
         let lessons = ImproveScore.sameAgain(days)
@@ -234,6 +231,9 @@ enum ImproveCollect {
         }
         var corrected = false
         var cut = false
+        var picked = false
+        var cutDays = Set<String>()  // days with a reply cut off by an engine shutdown
+        var pickedDays = Set<String>()  // days this conversation was picked back up after a restart
         var prev = ""  // the last message with words: "user" or "assistant"
         var streak = 0
         var lastCall: String?
@@ -244,6 +244,7 @@ enum ImproveCollect {
             case "assistant":
                 if r.content.hasPrefix(StepCheck.cutOff) {
                     cut = true
+                    cutDays.insert(k)
                     if inside {
                         build[k]!.add(ImproveCount.cutOff)
                         build[k]!.events.append(event("broke", "cut_off", r, nil))
@@ -267,6 +268,15 @@ enum ImproveCollect {
                 }
             case "user":
                 defer { prev = "user" }
+                // One picked the helper back up after a restart (once a conversation a day).
+                if r.content.hasPrefix(StepCheck.pickedBack), place == .helper || place == .resumed {
+                    if inside, pickedDays.insert(k).inserted {
+                        build[k]!.add(ImproveCount.pickedBack)
+                        build[k]!.events.append(event("broke", "picked_back_up", r, nil))
+                    }
+                    picked = true
+                    continue
+                }
                 guard place.personTalks, let said = Corrections.clean(r.content) else { continue }
                 if inside { build[k]!.add(ImproveCount.said) }
                 if prev == "assistant", let c = Corrections.find(r.content) {
@@ -301,10 +311,12 @@ enum ImproveCollect {
             default: break
             }
         }
+        // A pick-back-up counts toward "cut off" only when no reply of this conversation was cut off that day.
+        for d in pickedDays.subtracting(cutDays) where build[d] != nil { build[d]!.add(ImproveCount.pickedAlone) }
         // A helper counts on the day it started: right the first time, too long, too many steps.
         let day = Improve.dayKey(ts: started)
         guard place == .helper, started >= from, started < to, build[day] != nil else { return }
-        let right = !corrected && !cut && !spoiled
+        let right = !corrected && !cut && !picked && !spoiled
         build[day]!.add(ImproveCount.helpers)
         if right { build[day]!.add(ImproveCount.right) }
         let jk = jobKind ?? "other"

@@ -102,6 +102,8 @@ enum JobPlace: String {
 /// One tool step's result, read the strict way (design appendix): a step failed when it says so.
 enum StepCheck {
     static let cutOff = "Gateway shutting down: this turn was interrupted"
+    /// One's own note when it picks a helper back up after a restart (HelperTrail).
+    static let pickedBack = "You were interrupted by a restart"
 
     static func failed(_ c: String) -> Bool {
         let s = c.drop { $0 == " " || $0 == "\n" }
@@ -115,10 +117,19 @@ enum StepCheck {
         return false
     }
 
-    /// A command that hit the time limit.
+    /// A command that hit the time limit, in the engine's own words: the terminal's `[Command timed out after Ns]` with
+    /// exit code 124, a tool stopped with "Error executing tool '…': timed out after", or a code cell's `"status": "timeout"`.
+    /// A step whose output merely mentions a timeout (a log, a test run) doesn't count.
     static func timedOut(_ c: String) -> Bool {
-        (c.hasPrefix("Error executing tool") && c.contains("timed out after")) || c.contains("\"exit_code\": 124")
-            || c.hasPrefix("{\"output\": \"[Command timed out after")
+        guard c.contains("timed out") else { return false }
+        let s = c.drop { $0 == " " || $0 == "\n" }
+        if s.hasPrefix("Error executing tool") { return c.contains("timed out after") }
+        guard s.hasPrefix("{"), let d = c.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else {
+            return false
+        }
+        if (j["status"] as? String) == "timeout" { return true }
+        let code = j["exit_code"] as? Int
+        return code == 124 || (code != nil && code != 0 && ((j["output"] as? String) ?? "").contains("[Command timed out after"))
     }
 
     static let signedOut =

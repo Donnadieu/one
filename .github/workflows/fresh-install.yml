@@ -3,14 +3,17 @@ name: fresh-install
 # Installs the pinned engine into an empty One folder (`--install-test`, install only), then runs One's first-launch
 # steps on an empty test brain (`--test-first-launch`) and checks everything in the storage design's section 3c
 # appears with no questions. A stand-in `git` first on PATH records every call: the brain steps must make none.
-# Runs on release tags and by hand (Actions > fresh-install > Run workflow).
+# Branch and tag pushes build One with a stand-in brain starter (the real one is a private repo);
+# a published release is tested as shipped: its own One.zip, which carries the real starter.
 on:
   push:
     tags: ['v*']
     branches: ['release-*']
+  release:
+    types: [published]
   workflow_dispatch:
 concurrency:
-  group: fresh-install-${{ github.ref }}
+  group: fresh-install-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 jobs:
   fresh:
@@ -19,13 +22,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Use the newest Xcode on the runner
+        if: github.event_name != 'release'
         run: |
           X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
           sudo xcode-select -s "$X"
-      - name: Build
+      - name: Build (stand-in brain starter)
+        if: github.event_name != 'release'
         env:
           ONE_FAST_BUILD: '1'
-        run: ./build.sh
+        run: |
+          BS="$RUNNER_TEMP/brain-starter"
+          cp -R tests/fixtures/brain-starter-min "$BS"
+          git -C "$BS" init -q && git -C "$BS" add -A && git -C "$BS" -c user.name=ci -c user.email=ci@localhost commit -qm starter
+          BRAIN_STARTER="$BS" ./build.sh
+      - name: The released app, as shipped
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ github.event.release.tag_name }}" -p One.zip -D "$RUNNER_TEMP/rel"
+          mkdir -p build/app.noindex
+          ditto -x -k "$RUNNER_TEMP/rel/One.zip" build/app.noindex
+          test -d build/app.noindex/One.app/Contents/Resources/brain-starter
       - name: Install the engine into an empty One folder
         run: |
           APP=$(tools/test-copy.sh fresh "$RUNNER_TEMP/app")

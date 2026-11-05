@@ -111,9 +111,9 @@ enum ImproveNightCheck {
         f2.close()
         try? fm.removeItem(at: ImproveNight.recordFile(Improve.dayKey(now)))
         let idle = ImproveNightRun.prepare(now: now, waitMinutes: 0.1)
-        check(
-            "idle: the review gets its mode, files and recipes",
-            idle.contains("MODE: edit") && idle.contains(alpha.path) && idle.contains("REVIEW FILE"))
+        let ok = idle.contains("MODE: edit") && idle.contains(alpha.standardizedFileURL.path) && idle.contains("REVIEW FILE")
+        check("idle: the review gets its mode, files and recipes", ok)
+        if !ok { print("    got: \(idle.prefix(600))") }
         check("idle: never a private room's recipe", !idle.contains("nyx-room"))
 
         // 6. The 7-day check: a change whose jobs went worse is put back.

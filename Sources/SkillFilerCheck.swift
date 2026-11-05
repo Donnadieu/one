@@ -14,6 +14,8 @@ enum SkillFilerCheck {
         for r in [work, personal, shared] {
             try? fm.createDirectory(at: r.appendingPathComponent("skills/learned"), withIntermediateDirectories: true)
         }
+        RoomYaml(title: "Work", ai: "Ajax", isPrivate: false).writeIfMissing(work)  // privacy comes from room.yaml (RoomPrivacy)
+        RoomYaml(title: "Personal", ai: "Hestia", isPrivate: true).writeIfMissing(personal)
         Shared.paths = [shared.path]
         print("recipe filer")
         d.removeObject(forKey: SkillFiler.key)

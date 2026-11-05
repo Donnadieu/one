@@ -17,7 +17,7 @@ enum BrowserGuard {
     static var dir: URL { Env.support.appendingPathComponent("guard", isDirectory: true) }
     static var allowDir: URL { dir.appendingPathComponent("allow", isDirectory: true) }
     static var askFile: URL { dir.appendingPathComponent("ask.json") }
-    static var pluginDir: URL { Env.hermesHome.appendingPathComponent("plugins/\(plugin)", isDirectory: true) }
+    static var pluginDir: URL { EnginePlugins.dir(plugin) }
     static var logFile: URL { Env.hermesHome.appendingPathComponent("logs/one-browser-guard.log") }
     /// The plain ask the assistant uses (also in SOUL and the block message).
     static let ask = "I need to open <browser> to <reason>. Can I?"
@@ -32,55 +32,17 @@ enum BrowserGuard {
 
     // MARK: Install into the engine (at every engine start)
 
-    /// Copies the bundled plugin into One's Hermes home. Returns false when the app doesn't carry it.
+    /// Copies the bundled plugin into One's Hermes home (EnginePlugins.swift). Returns false when the app doesn't carry it.
     @discardableResult static func installPlugin(from src: URL? = Bundle.main.url(forResource: plugin, withExtension: nil)) -> Bool {
-        let fm = FileManager.default
-        guard let src, fm.fileExists(atPath: src.appendingPathComponent("__init__.py").path) else { return false }
-        try? fm.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        for f in ["__init__.py", "plugin.yaml"] {
-            let a = src.appendingPathComponent(f)
-            let b = pluginDir.appendingPathComponent(f)
-            if (try? Data(contentsOf: a)) != (try? Data(contentsOf: b)) {
-                try? fm.removeItem(at: b)
-                guard (try? fm.copyItem(at: a, to: b)) != nil else { return false }
-            }
-        }
-        try? fm.createDirectory(at: allowDir, withIntermediateDirectories: true)
-        try? fm.createDirectory(at: LookOnly.dir, withIntermediateDirectories: true)  // the engine reads it, never writes it
+        guard EnginePlugins.install(plugin, from: src) else { return false }
+        try? FileManager.default.createDirectory(at: allowDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: LookOnly.dir, withIntermediateDirectories: true)  // the engine reads it, never writes it
         return true
     }
 
     /// Items of `plugins.<key>` in config.yaml (block list or inline list).
-    static func enabledPlugins(_ config: String, key: String = "enabled") -> [String] {
-        var inPlugins = false
-        var inEnabled = false
-        var out: [String] = []
-        for raw in config.components(separatedBy: "\n") {
-            let line = raw.replacingOccurrences(of: "\t", with: "    ")
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty || t.hasPrefix("#") { continue }
-            let indent = line.prefix { $0 == " " }.count
-            if indent == 0 {
-                inPlugins = t.hasPrefix("plugins:")
-                inEnabled = false
-                continue
-            }
-            guard inPlugins else { continue }
-            if indent == 2 {
-                inEnabled = t.hasPrefix("\(key):")
-                if inEnabled, let open = t.firstIndex(of: "["), let close = t.lastIndex(of: "]"), open < close {
-                    out += t[t.index(after: open)..<close].split(separator: ",").map(clean).filter { !$0.isEmpty }
-                    inEnabled = false
-                }
-                continue
-            }
-            if inEnabled, t.hasPrefix("- ") { out.append(clean(t.dropFirst(2))) }
-        }
-        return out
-    }
-    static func clean<S: StringProtocol>(_ s: S) -> String {
-        String(s.split(separator: "#").first ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
-    }
+    static func enabledPlugins(_ config: String, key: String = "enabled") -> [String] { EnginePlugins.listed(config, key: key) }
+    static func clean<S: StringProtocol>(_ s: S) -> String { EnginePlugins.clean(s) }
     /// `browser.headed` as written, or nil when it isn't set.
     static func headed(_ config: String) -> String? {
         var inBrowser = false
@@ -98,17 +60,7 @@ enum BrowserGuard {
 
     /// What `hermes config set` must change so the guard is on and the browser tools stay hidden.
     static func configFixes(_ config: String) -> [[String]] {
-        var fixes: [[String]] = []
-        let on = enabledPlugins(config)
-        if !on.contains(plugin) {
-            let list = "[" + (on + [plugin]).map { "\"\($0)\"" }.joined(separator: ", ") + "]"
-            fixes.append(["config", "set", "plugins.enabled", list, "--force"])
-        }
-        let off = enabledPlugins(config, key: "disabled")
-        if off.contains(plugin) {
-            let list = "[" + off.filter { $0 != plugin }.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
-            fixes.append(["config", "set", "plugins.disabled", list, "--force"])
-        }
+        var fixes = EnginePlugins.enableFixes(config, plugin)
         if headed(config)?.lowercased() != "false" { fixes.append(["config", "set", "browser.headed", "false", "--force"]) }
         return fixes
     }
@@ -186,5 +138,5 @@ enum BrowserGuard {
     }
 
     /// Paths the engine may read but never write (added last to the folder lock, so they win).
-    static var lockedPaths: [String] { [allowDir.path, pluginDir.path, LookOnly.dir.path] }
+    static var lockedPaths: [String] { [allowDir.path, pluginDir.path, LookOnly.dir.path, LearningCap.pluginDir.path] }
 }

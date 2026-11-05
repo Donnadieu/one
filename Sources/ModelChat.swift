@@ -33,6 +33,7 @@ extension Model {
         Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
+        await LearningCap.sync()  // the engine's own skill edits stay under the nightly review's limits (EnginePlugins.swift)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }

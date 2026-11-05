@@ -204,6 +204,8 @@ rm -f "$SUP/guard/allow/preflight-probe.json"
 echo "No browser window without their yes"
 check "visible launches blocked (open -a, AppleScript, no --headless), logged, one window per yes" /usr/bin/python3 tools/browser-guard-check.py
 [ $CI = 0 ] && check "the real engine loads the guard and blocks a visible browser" tools/browser-guard-engine-check.sh
+check "the engine can't change its learning cap" bash -c "grep -F '(deny file-write*' '$T/one.sb' | grep -q 'plugins/one-learning-cap'"
+check "the engine's after-job skill edits stay under the nightly limits (5 a day, 1 per skill); the person and helpers never capped" /usr/bin/python3 tools/learning-cap-check.py
 
 echo "Updater"
 mkdir -p "$T/upd"; tools/test-copy.sh preflight-old "$T/upd" >/dev/null

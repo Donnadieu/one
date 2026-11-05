@@ -66,7 +66,7 @@ enum Bridge {
 
     /// Handles "--cal" / "--mail" command lines. Returns an exit code, or nil if this isn't a bridge call.
     static func run(_ a: [String]) -> Int32? {
-        if let code = FolderApprovals.bridge(a) { return code }
+        if let code = FolderApprovals.bridge(a) ?? BrainSearch.cli(a) { return code }  // `--search` too (BrainSearch.swift)
         guard let k = a.firstIndex(where: { $0 == "--cal" || $0 == "--mail" }) else { return nil }
         let rest = Array(a[(k + 1)...])
         let cmd = rest.first ?? "help"

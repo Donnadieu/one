@@ -30,6 +30,7 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | A shortcut that points to itself or a folder above it never survives a launch; the engine's skill walks never loop | `LinkGuard` + `SkillWalkFix` + preflight (`One --test-link-guard`, `tools/skill-walk-check.py` on the pinned engine's files) |
 | Privacy comes from room.yaml, never a folder name: a private room is never offered for sharing or put in the engine's recipe list | `RoomPrivacy` + `LearnedDirs` + preflight (`One --test-rooms-privacy`) |
 | Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
+| A search that names no room never looks in a private room (its index file isn't even opened) or a `confidential/` folder | `BrainSearch.rooms` + `BrainIndex.files` + preflight "Brain search" (`One --test-search`) |
 | Complaints are captured | `FrictionLog` + preflight "Guards" |
 | The three core jobs work end to end (sort files, inbox draft-only, price watch asks before buying) | `make jobs` (`tools/jobs-check.sh` → `One --test-jobs`) |
 | The mail bridge has no send command | `make jobs` ("bridge has no send command") |

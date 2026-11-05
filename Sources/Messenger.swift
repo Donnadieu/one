@@ -9,6 +9,8 @@ import Foundation
 /// It never stops a healthy helper (another One's, or one the engine started); it only fills the gap.
 enum Messenger {
     static let tokenKey = "TELEGRAM_BOT_TOKEN"
+    /// The engine's `sessions.source` for conversations from a phone chat (the score counts them as "phone").
+    static let phoneSources: Set<String> = ["telegram", "whatsapp", "signal", "imessage"]
     nonisolated(unsafe) static var proc: Process?
     nonisolated(unsafe) static var lastStart: Date?
 

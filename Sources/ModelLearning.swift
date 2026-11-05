@@ -93,6 +93,7 @@ extension Model {
     func tendLearning() {
         guard onboarded || Env.selfTest else { return }
         routeTend()
+        Improve.tend()  // the score, once a day (Improve.swift)
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {
             learning.started = true  // no log yet: nothing old to skip, so the very first line counts

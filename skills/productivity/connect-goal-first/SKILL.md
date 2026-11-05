@@ -1,7 +1,7 @@
 ---
 name: connect-goal-first
 description: Use when someone wants to connect an app, device or account.
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [connections, setup, experimental]
@@ -47,6 +47,7 @@ wanted: the assistant should be able to text THEM. That method could never do it
    - Save it as a skill in `skills/my-connections/<short-name>/SKILL.md`: the goal, how it works,
      what it can't do, what's off-limits.
    - Only if the test passed, add it to `connections.json` so it shows up as Experimental.
+   - Methods once the goal is agreed (sign-ins, setup pages, passwords, chat bots): `references/connecting-accounts-extra.md`.
 
 ## Worked example: Phone
 **Wrong path.** "What phone do you use?" "What do you want to reach on it: texts, notifications,

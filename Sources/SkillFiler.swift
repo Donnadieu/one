@@ -34,7 +34,7 @@ enum SkillFiler {
     static var file: URL { Env.support.appendingPathComponent(Env.selfTest ? "selftest-skill-filer.json" : "skill-filer.json") }
     static var logFile: URL { Env.hermesHome.appendingPathComponent("logs/one-skill-filer.log") }
     static var engineSkills: URL { Env.hermesHome.appendingPathComponent("skills", isDirectory: true) }
-    static var assistantSkills: URL { Brain.root.appendingPathComponent("assistant/skills", isDirectory: true) }
+    static var assistantSkills: URL { BrainLayout.skills() }
     static let key = "skillFiler"
     static var on: Bool { UserDefaults.standard.bool(forKey: key) }
 
@@ -93,16 +93,6 @@ enum SkillFiler {
         return out
     }
 
-    /// A room is private when its room.yaml says so; without one, the personal and private rooms are.
-    static func isPrivate(_ room: URL) -> Bool {
-        if let y = try? String(contentsOf: room.appendingPathComponent("room.yaml"), encoding: .utf8) {
-            for l in y.split(separator: "\n") where l.hasPrefix("private:") {
-                return l.dropFirst(8).trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("true")
-            }
-        }
-        return ["personal-room", "private-room"].contains(room.lastPathComponent)
-    }
-
     /// The room a job's words clearly point at (Router's claim; a private room named by its folder), or nil.
     static func room(for text: String?, rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths) -> URL? {
         guard let text, !text.isEmpty else { return nil }
@@ -118,7 +108,7 @@ enum SkillFiler {
             return nil
         }
         let t = text.lowercased()
-        for r in local where isPrivate(r) {
+        for r in local where RoomPrivacy.isPrivate(r, shared: shared) {
             let base = r.lastPathComponent.replacingOccurrences(of: "-room", with: "")
             guard base.count >= 3, !["personal", "private"].contains(base) else { continue }
             if Router.has(t, "\\b\(NSRegularExpression.escapedPattern(for: base))\\b") { return r }
@@ -131,19 +121,19 @@ enum SkillFiler {
         case leave(String)
     }
 
-    /// Where a recipe made in `room` goes. Only into a folder the engine reads (LearnedDirs.wanted) or a private
-    /// room's own `skills` (read in that room's chats only).
+    /// Where a recipe made in `room` goes: always `<room>/skills/<name>` (flat). A non-private room's only when that
+    /// `skills` folder is one the engine reads (LearnedDirs.wanted); a private room's is read in that room's chats only.
+    /// Privacy comes from room.yaml (`RoomPrivacy.isPrivate`).
     static func destination(room: URL?, name: String, wanted: [String], shared: [String]) -> Dest {
         guard let room else { return .move(assistantSkills.appendingPathComponent(name, isDirectory: true), room: "assistant") }
         if LearnedDirs.isShared(room.path, shared) { return .leave("its job was in a shared room; never filed by itself") }
-        if isPrivate(room) {
-            return .move(room.appendingPathComponent("skills/\(name)", isDirectory: true), room: room.lastPathComponent)
+        let home = room.appendingPathComponent("skills", isDirectory: true)
+        if RoomPrivacy.isPrivate(room, shared: shared) {
+            return .move(home.appendingPathComponent(name, isDirectory: true), room: room.lastPathComponent)
         }
         let reads = Set(wanted.map { std(URL(fileURLWithPath: $0)) })  // "a//b" and "a/b" are the same folder
-        for d in [room.appendingPathComponent("skills"), room.appendingPathComponent("skills/learned")] where reads.contains(std(d)) {
-            return .move(d.appendingPathComponent(name, isDirectory: true), room: room.lastPathComponent)
-        }
-        return .leave("\(room.lastPathComponent)'s recipes folder isn't one the engine reads")
+        guard reads.contains(std(home)) else { return .leave("\(room.lastPathComponent)'s recipes folder isn't one the engine reads") }
+        return .move(home.appendingPathComponent(name, isDirectory: true), room: room.lastPathComponent)
     }
 
     /// The skill folder a log line made, or why it stays where it is.

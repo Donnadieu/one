@@ -156,6 +156,10 @@ enum LearningCheck {
             brain: "/brain")
         check("anything inside a shared room or the brain is taken out, other folders kept", merged == ["/keep/me", "/brain/work-room/skills"])
         check(
+            "assistant/skills is listed once, even when the list already has it",
+            LearnedDirs.merged(current: ["/brain/assistant/skills", "/k"], wanted: ["/brain/assistant/skills"], shared: [], brain: "/brain")
+                == ["/k", "/brain/assistant/skills"])
+        check(
             "config list read",
             LearnedDirs.parseList("[]").isEmpty && LearnedDirs.parseList("- /a\n- \"/b c\"\n") == ["/a", "/b c"]
                 && LearnedDirs.parseList("  - /Users/x/Library/Application\n    Support/One/brain/personal-room/skills/learned\n  - /k\n")

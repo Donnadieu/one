@@ -15,6 +15,7 @@ struct SearchRoom {
 }
 
 /// Which rooms exist and which are private (storage design 3f: a private room is searched only when named).
+/// Privacy comes from room.yaml through `RoomPrivacy.isPrivate`, the one place that decides it.
 enum BrainRooms {
     /// Tests only: shared room folders instead of the saved list (`Shared.paths`).
     nonisolated(unsafe) static var sharedOverride: [String]?
@@ -31,7 +32,9 @@ enum BrainRooms {
         for u in local.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where u.lastPathComponent.hasSuffix("-room") {
             guard (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let n = u.lastPathComponent
-            out.append(SearchRoom(name: n, folder: u, shared: false, isPrivate: isPrivate(u), db: file(n)))
+            out.append(
+                SearchRoom(
+                    name: n, folder: u, shared: false, isPrivate: RoomPrivacy.isPrivate(u, shared: sharedOverride ?? Shared.paths), db: file(n)))
         }
         let mine = Brain.root.appendingPathComponent("assistant", isDirectory: true)
         if fm.fileExists(atPath: mine.path) {
@@ -48,22 +51,6 @@ enum BrainRooms {
     static func file(_ name: String) -> URL {
         let safe = String(name.map { "/:\\".contains($0) ? "-" : $0 })
         return indexDir.appendingPathComponent(safe + ".sqlite")
-    }
-
-    // TODO(storage): use RoomInfo.isPrivate once storage-guards lands
-    /// A room is private when its `room.yaml` says `private: true`. No room.yaml (or no clear `false`) = private:
-    /// the safe default. Shared rooms and the assistant's own folder are never private (they don't come here).
-    static func isPrivate(_ room: URL) -> Bool {
-        guard let s = try? String(contentsOf: room.appendingPathComponent("room.yaml"), encoding: .utf8) else { return true }
-        for line in s.split(separator: "\n") {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            guard t.hasPrefix("private:") else { continue }
-            var v = t.dropFirst("private:".count).trimmingCharacters(in: .whitespaces)
-            if let hash = v.firstIndex(of: "#") { v = String(v[..<hash]).trimmingCharacters(in: .whitespaces) }
-            v = v.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).lowercased()
-            return !(v == "false" || v == "no")
-        }
-        return true
     }
 }
 

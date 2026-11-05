@@ -98,7 +98,7 @@ enum ImproveMoments {
     }
 
     /// The 2 replies before the event and the 2 after (the event's own message marked), each trimmed to 300 characters.
-    static func around(_ rows: [ImproveRow], _ e: ImproveEvent, _ paths: [String]) -> [String] {
+    static func around(_ rows: [ImproveRow], _ e: ImproveEvent, _ paths: ImprovePrivate.Marks) -> [String] {
         let replies: [(ImproveRow, String, String)] = rows.compactMap { r in
             if r.role == "assistant", !r.content.isEmpty { return (r, "Assistant", r.content) }
             if r.role == "user", let t = Corrections.clean(r.content) { return (r, "Person", t) }

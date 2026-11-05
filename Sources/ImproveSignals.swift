@@ -138,26 +138,43 @@ enum StepCheck {
     static let polling: Set<String> = ["process_manage", "process", "todo", "todo_list", "process_wait"]
 }
 
-/// Never read, quote or show: the Nyx room, any locked drawer and the shared rooms. A whole conversation
-/// is private when the person's words, the assistant's words or any step it took mention one of them, or a
-/// step's result shows a file from one. One's own hidden notes don't count (they name every room).
+/// Never read, quote or show: a private room (room.yaml, through `RoomPrivacy`, e.g. a Nyx room), any
+/// locked drawer and the shared rooms. A whole conversation is private when the person's words, the assistant's
+/// words or any step it took mention one of them, or a step's result shows a file from one. One's own hidden notes
+/// don't count (they name every room).
 enum ImprovePrivate {
-    static var paths: [String] {
-        var m = ["nyx-room", "confidential/", "One Rooms/", "com~apple~CloudDocs"]
-        m += Shared.paths.filter { !$0.contains("One Rooms/") }
-        return m
+    /// What marks a private place: folder and path pieces (`paths`), and private rooms' titles and AI names as
+    /// whole words (`words`).
+    struct Marks {
+        var paths: [String]
+        var words: [String]
+        func contains(_ s: String) -> Bool { paths.contains { s.contains($0) } }
+    }
+    static var paths: Marks { marks() }
+    static func marks(rooms: [URL] = RoomMap.roomFolders(), shared: [String] = Shared.paths) -> Marks {
+        var m = ["confidential/", "One Rooms/", "com~apple~CloudDocs"]
+        m += shared.filter { !$0.contains("One Rooms/") }
+        var words: [String] = []
+        for r in RoomPrivacy.privateRooms(rooms, shared: shared) {
+            m.append(r.lastPathComponent)
+            let y = RoomYaml.read(r)
+            for w in [y?.title ?? RoomMap.roomTitle(r), y?.ai ?? ""] where w.count >= 3 && !words.contains(w) { words.append(w) }
+        }
+        return Marks(paths: m, words: words)
     }
     /// The person's (cleaned) words, the assistant's words and step arguments.
-    static func touches(_ text: String, _ paths: [String]) -> Bool {
-        if paths.contains(where: { text.contains($0) }) { return true }
-        guard text.range(of: "nyx", options: .caseInsensitive) != nil else { return false }
-        return text.range(of: #"\bnyx\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+    static func touches(_ text: String, _ marks: Marks) -> Bool {
+        if marks.contains(text) { return true }
+        return marks.words.contains { w in
+            text.range(of: w, options: .caseInsensitive) != nil
+                && text.range(of: "\\b" + NSRegularExpression.escapedPattern(for: w) + "\\b", options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
     /// A step's result: only a path from a private place counts (a word in a web page doesn't).
-    static func showsFile(_ output: String, _ paths: [String]) -> Bool { paths.contains { output.contains($0) } }
+    static func showsFile(_ output: String, _ marks: Marks) -> Bool { marks.contains(output) }
 
     /// True when any row of the conversation touches a private place.
-    static func conversation(_ rows: [ImproveRow], _ paths: [String]) -> Bool {
+    static func conversation(_ rows: [ImproveRow], _ paths: Marks) -> Bool {
         rows.contains { r in
             switch r.role {
             case "user": return Corrections.clean(r.content).map { touches($0, paths) } ?? false

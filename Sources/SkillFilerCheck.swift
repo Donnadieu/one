@@ -12,8 +12,11 @@ enum SkillFilerCheck {
         let personal = brain.appendingPathComponent("personal-room", isDirectory: true)
         let shared = Shared.cloud.appendingPathComponent("One Rooms/Co-Founder", isDirectory: true)
         for r in [work, personal, shared] {
-            try? fm.createDirectory(at: r.appendingPathComponent("skills/learned"), withIntermediateDirectories: true)
+            try? fm.createDirectory(at: r.appendingPathComponent("skills"), withIntermediateDirectories: true)
         }
+        // Privacy comes from room.yaml (RoomPrivacy): the work room says it isn't private, the personal room says it is.
+        FrontPageCheck.write("title: Work Room\nprivate: false\n", work.appendingPathComponent("room.yaml"))
+        FrontPageCheck.write("title: Personal Room\nprivate: true\n", personal.appendingPathComponent("room.yaml"))
         Shared.paths = [shared.path]
         print("recipe filer")
         d.removeObject(forKey: SkillFiler.key)
@@ -57,17 +60,23 @@ enum SkillFilerCheck {
         add("n8", "general/hand-made", "s-none", actor: "user")
         let wanted = LearnedDirs.wanted().map { SkillFiler.std(URL(fileURLWithPath: $0)) }
         check(
-            "assistant/skills is a folder the engine reads; the shared room's isn't",
-            wanted.contains(SkillFiler.std(SkillFiler.assistantSkills)) && !wanted.contains { $0.hasPrefix(SkillFiler.std(shared)) })
+            "assistant/skills is a folder the engine reads (once); the shared room's and the private room's aren't",
+            wanted.filter { $0 == SkillFiler.std(SkillFiler.assistantSkills) }.count == 1 && !wanted.contains { $0.hasPrefix(SkillFiler.std(shared)) }
+                && !wanted.contains(SkillFiler.std(personal.appendingPathComponent("skills"))))
         _ = SkillFiler.run(jobText: text, busy: true)
         check("while something is working, nothing moves", fm.fileExists(atPath: skills.appendingPathComponent("productivity/work-board").path))
         let moved = SkillFiler.run(jobText: text, busy: false)
-        // storage-guards makes the engine read <room>/skills; before it, <room>/skills/learned. Either way: a folder it reads.
-        let workHome = wanted.contains(SkillFiler.std(work.appendingPathComponent("skills"))) ? "skills" : "skills/learned"
-        let wb = work.appendingPathComponent("\(workHome)/work-board/SKILL.md")
+        let wb = work.appendingPathComponent("skills/work-board/SKILL.md")
         check(
-            "a work-room job's recipe → work-room/\(workHome)/work-board (a folder the engine reads)",
-            fm.fileExists(atPath: wb.path) && wanted.contains(SkillFiler.std(wb.deletingLastPathComponent().deletingLastPathComponent())))
+            "a work-room job's recipe → work-room/skills/work-board (flat, in a folder the engine reads)",
+            fm.fileExists(atPath: wb.path) && wanted.contains(SkillFiler.std(work.appendingPathComponent("skills")))
+                && !fm.fileExists(atPath: work.appendingPathComponent("skills/learned/work-board").path))
+        check(
+            "a non-private room whose skills folder the engine doesn't read: left where it is",
+            {
+                if case .leave = SkillFiler.destination(room: work, name: "x", wanted: [], shared: []) { return true }
+                return false
+            }())
         check(
             "…and no copy left in the engine's folder (its emptied category folder gone too)",
             !fm.fileExists(atPath: skills.appendingPathComponent("productivity/work-board").path)

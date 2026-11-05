@@ -218,7 +218,7 @@ enum ImproveCollect {
     /// Reads one conversation into the days it touches.
     static func session(
         _ sid: String, source: String, started: Double, title: String?, rows: [ImproveRow], from: Double, to: Double, past: [Past],
-        toolCalls: Int, spoiled: Bool, paths: [String], into build: inout [String: ImproveDayBuild]
+        toolCalls: Int, spoiled: Bool, paths: ImprovePrivate.Marks, into build: inout [String: ImproveDayBuild]
     ) {
         let first = rows.first { $0.role == "user" }?.content ?? ""
         let place = JobPlace.of(source: source, first: first)

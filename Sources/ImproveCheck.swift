@@ -198,6 +198,17 @@ enum ImproveCheck {
             print("  \(ok ? "✓" : "✗") \(name)")
             if !ok { fails += 1 }
         }
+        // Privacy comes from room.yaml (RoomPrivacy): a private Nyx room and a work room that isn't.
+        for (room, yaml) in [("nyx-room", "title: Nyx\nai: Nyx\nprivate: true\n"), ("work-room", "title: Work Room\nprivate: false\n")] {
+            let dir = Brain.root.appendingPathComponent(room, isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? yaml.write(to: dir.appendingPathComponent("room.yaml"), atomically: true, encoding: .utf8)
+        }
+        let marks = ImprovePrivate.paths
+        check(
+            "private places come from room.yaml: the Nyx room (folder and name) in, the work room out",
+            marks.paths.contains("nyx-room") && marks.words.contains("Nyx") && !marks.paths.contains("work-room")
+                && ImprovePrivate.touches("load nyx please", marks) && !ImprovePrivate.touches("the work room plan", marks))
         // The correction finder (also FrictionLog's).
         for s in [
             "No, that's not it", "I don't see the helper", "Where is the file?", "I told you twice", "you didn't save it", "Broken again?",

@@ -55,10 +55,10 @@ enum SkillFilerCheck {
         add("n6", "my-connections/feedly", "s-none")
         add("n7", "home/tea-timer", "s-personal")
         add("n8", "general/hand-made", "s-none", actor: "user")
-        let wanted = LearnedDirs.wanted()
+        let wanted = LearnedDirs.wanted().map { SkillFiler.std(URL(fileURLWithPath: $0)) }
         check(
             "assistant/skills is a folder the engine reads; the shared room's isn't",
-            wanted.contains(SkillFiler.std(SkillFiler.assistantSkills)) && !wanted.contains { $0.hasPrefix(shared.path) })
+            wanted.contains(SkillFiler.std(SkillFiler.assistantSkills)) && !wanted.contains { $0.hasPrefix(SkillFiler.std(shared)) })
         _ = SkillFiler.run(jobText: text, busy: true)
         check("while something is working, nothing moves", fm.fileExists(atPath: skills.appendingPathComponent("productivity/work-board").path))
         let moved = SkillFiler.run(jobText: text, busy: false)

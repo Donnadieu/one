@@ -139,7 +139,8 @@ enum SkillFiler {
         if isPrivate(room) {
             return .move(room.appendingPathComponent("skills/\(name)", isDirectory: true), room: room.lastPathComponent)
         }
-        for d in [room.appendingPathComponent("skills"), room.appendingPathComponent("skills/learned")] where wanted.contains(std(d)) {
+        let reads = Set(wanted.map { std(URL(fileURLWithPath: $0)) })  // "a//b" and "a/b" are the same folder
+        for d in [room.appendingPathComponent("skills"), room.appendingPathComponent("skills/learned")] where reads.contains(std(d)) {
             return .move(d.appendingPathComponent(name, isDirectory: true), room: room.lastPathComponent)
         }
         return .leave("\(room.lastPathComponent)'s recipes folder isn't one the engine reads")

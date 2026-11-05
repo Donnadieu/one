@@ -127,6 +127,7 @@ extension Model {
         }
     }
     func syncName() {
+        SkillFiler.settleDefault(fresh: !onboarded)  // the recipe filer: on for a new install, off for one set up before it
         if onboarded { Persona.refreshSoul(assistant: assistantName, user: userName) }
         if let n = Model.nameInOwner() {
             if n != assistantName { rename(n) }

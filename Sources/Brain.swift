@@ -243,20 +243,9 @@ enum Persona {
             If they ask what a skill is: a recipe you keep, so you don't have to figure it out from scratch next time.
             """
     }
+    /// USER.md is generated (FrontPage.swift): name, live connections, how they work, the newest "don't save" kinds.
+    /// `connections` and `passwords` are the setup answers, used only for what isn't really connected now.
     static func writeMemory(assistant: String, user: String, connections: [String], passwords: String) {
-        let mem = Env.hermesHome.appendingPathComponent("memories", isDirectory: true)
-        try? FileManager.default.createDirectory(at: mem, withIntermediateDirectories: true)
-        var facts = ["The user's name is \(user). They call their assistant \(assistant)."]
-        if !connections.isEmpty {
-            facts.append(
-                "They want these connected: \(connections.joined(separator: ", ")). Not connected yet; help them connect each one when it first comes up."
-            )
-        }
-        if !passwords.isEmpty { facts.append("For logins: \(passwords).") }
-        if let n = try? String(contentsOf: Env.hermesHome.appendingPathComponent("owner-notes.md"), encoding: .utf8), !n.isEmpty {
-            facts.append(n.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        if let d = Learning.declinedFact { facts.append(d) }
-        try? facts.joined(separator: "\n§\n").write(to: mem.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+        FrontPage.writeUser(assistant: assistant, user: user, wanted: connections, passwords: passwords)
     }
 }

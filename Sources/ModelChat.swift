@@ -15,7 +15,10 @@ extension Model {
 
     func ensureEngine() async {
         guard onboarded, !Engine.shared.running, !Env.commandLine else { return }
-        if backup == "icloud" { Task.detached { _ = Brain.backupToICloud() } }
+        if backup == "icloud" {  // the old plain copy to iCloud is gone: a yes to backup now means the locked copy
+            backup = "locked"
+            Task.detached { _ = Offsite.turnOn() }  // the recovery code waits on Home (OffsiteCard)
+        }
         Persona.write(assistant: assistantName, user: userName, connections: connections, passwords: passwords)
         FrontPage.atLaunch()  // MEMORY.md: the assistant's new lines filed into My Brain/assistant/this-mac.md, then rebuilt
         // Warn only if KeePass really isn't wired in after a retry, and never twice in a row

@@ -144,6 +144,13 @@
 | FolderWatch.swift | service | notices a changed folder list (`folders`, `connectorReads`) and restarts the engine and its helper under the new lock once nothing is mid-reply, then carries on |
 | RestartCheck.swift | dev only | `One --test-restart`, run by preflight |
 | GatewayCheck.swift | dev only | `One --test-gateway`, run by preflight |
+| History.swift | service | hourly instant copies (APFS clones) of the brain, shared rooms (files on this Mac only, never downloads) and the engine files the front page is rebuilt from, into `history/<YYYY-MM-DD HHMM>[ label]/` with `snapshot.json`; skipped when nothing changed; pruning (2 days hourly, 30 days daily, 6 months weekly, labeled 30 days) only ever touches folders named like a copy; `One --snapshot [label]`; the hourly loop (`History.loop`, off the main thread) |
+| HistoryRestore.swift | service | earlier versions of a note (`History.versions`), putting one back (`One --restore <path> [--from|--before]`, `--restore --list`, `--restore --snapshot <copy>` = undo everything): the version there now is copied first (`before restore`), files the copy doesn't have move to `<now> removed-by-restore`, never deleted; new files in a shared room stay |
+| Offsite.swift | service | the opt-in nightly locked copy: `aa archive` locked with a 32-byte key (Keychain "One backup key") straight into `iCloud Drive/One Backups/One brain <date>.aea`; 14 nightly + 1 a month for a year; recovery code (`<support>/backup/recovery-code.txt`, owner-only, gone after "I saved it"); `One --offsite on\|off\|status\|now\|verify <archive> <folder> [--code]` |
+| EarlierVersions.swift | UI | "Earlier versions" in the rooms map's note reader (clock icon) and the file reader: versions that differ, newest first ("Today 3:00 PM"), open one, "Put this one back" |
+| OffsiteCard.swift | UI | the one-time Home card "Keep a locked copy of your brain in your iCloud? [Yes, keep a copy \| Not now]" (never without iCloud Drive), then the recovery code to save (Show / Copy inside One only, I saved it) |
+| HistoryRender.swift | dev only | `One --render-history <prefix>` (test copy, scratch ONE_SUPPORT_DIR): `earlier-versions`, `earlier-versions-open`, `offsite-card`, `offsite-code` |
+| HistoryCheck.swift | dev only | `One --test-history` (preflight): copies (clones, what's in and out), nothing changed = no copy, versions, put back + `before restore`, undo everything, pruning over 7 months never touching `before-move`, the locked copy opens with its key and its retention |
 | App.swift | entry | `@main`, app delegate, CLI test hooks |
 | JobsCheck.swift | dev only | `One --test-jobs` (three core jobs end to end, run by `make jobs`) and `FakeMail`, the test inbox behind `ONE_FAKE_MAIL` |
 

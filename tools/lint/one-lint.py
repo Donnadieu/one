@@ -77,7 +77,7 @@ def r_messaging(path, lines):
 # Messenger: keeps the engine's background helper running while a phone bot is set up.
 # BrowserKeeper: starts the hidden browser again (same saved profile) when it's down; One is outside the lock.
 # Learning: a read-only sqlite3 lookup of which chat a subagent belongs to (state.db).
-PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck|LocalModels|HelperRepos)')  # HelperRepos: git worktree add/remove for a helper's own copy of a repo (One itself, outside the lock); ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight; LocalModels: probes/starts the person's own local model server on loopback only
+PROCESS_OK = re.compile(r'(Installer|Engine|Bridge|Speaker|Voice|GoogleSignIn|SignIn|Updater|Access|hermesRun|Brain|Shared|JobsCheck|GatewayCheck|RestartCheck|Messenger|BrowserKeeper|Learning|ScreenGrab|BlockedAskCheck|LocalModels|HelperRepos|Offsite)')  # Offsite: Apple's own /usr/bin/aa locks and opens the nightly copy (no other program); HelperRepos: git worktree add/remove for a helper's own copy of a repo (One itself, outside the lock); ScreenGrab: the ask box's + › Screenshot runs Apple's screencapture -i; BlockedAskCheck: a stand-in browser list (python3 http.server) in preflight; LocalModels: probes/starts the person's own local model server on loopback only
 def r_process_outside(path, lines):
     owner = None
     for i, l in enumerate(lines, 1):
@@ -148,7 +148,8 @@ SERVICE_FILES = {
     "Sources/QuitHold.swift", "Sources/SharedRooms.swift", "Sources/BundledSkills.swift", "Sources/Learning.swift",
     "Sources/Guards.swift", "Sources/BrowserKeeper.swift", "Sources/HumanCheck.swift", "Sources/MyChrome.swift",
     "Sources/ChromeCheck.swift", "Sources/ChromeBridge.swift", "Sources/BrowserGuard.swift",
-    "Sources/GatewayGuard.swift", "Sources/FolderWatch.swift",
+    "Sources/GatewayGuard.swift", "Sources/FolderWatch.swift", "Sources/History.swift", "Sources/HistoryRestore.swift",
+    "Sources/Offsite.swift",
 }
 REVERSE_DEP = re.compile(r'\bModel\.shared\b|:\s*View\b')
 def r_dependency_direction(path, lines):

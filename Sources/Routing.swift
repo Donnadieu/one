@@ -62,7 +62,7 @@ struct RouteIndex: Sendable {
         for dir in dirs {
             guard let e = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { continue }
             for case let u as URL in e where u.lastPathComponent == "SKILL.md" {
-                guard let t = try? String(contentsOf: u, encoding: .utf8) else { continue }
+                guard let t = try? String(contentsOf: u, encoding: .utf8), !LearnedDirs.isFramework(t) else { continue }
                 let s = parse(t, path: u.path)
                 if seen.insert(s.name).inserted { out.append(s) }
             }

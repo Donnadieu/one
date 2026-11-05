@@ -47,6 +47,18 @@ enum TestWorld {
         }
     }
 
+    /// A render that needs made-up files (a scratch brain): a test copy only, with ONE_SUPPORT_DIR set to a scratch
+    /// folder. Renders open no window, so unlike `enter()` they may run on the Mac. False = refused (and said why).
+    static func enterRender() -> Bool {
+        let s = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"]
+        guard Bundle.main.bundleIdentifier != productionID, let s, !isProduction(URL(fileURLWithPath: s)) else {
+            print("refusing: run this render from a test copy (tools/test-copy.sh) with ONE_SUPPORT_DIR set to a scratch folder.")
+            return false
+        }
+        Env.selfTest = true
+        return true
+    }
+
     /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), the only place tests may run.
     static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
 

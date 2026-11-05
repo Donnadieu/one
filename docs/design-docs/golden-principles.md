@@ -27,6 +27,8 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | Old copies see updates | preflight "Updater" |
 | Screens render | preflight "Screens" |
 | Private notes don't leak into shared rooms | `SharedGuard` + preflight "Guards" |
+| A shortcut that points to itself or a folder above it never survives a launch; the engine's skill walks never loop | `LinkGuard` + `SkillWalkFix` + preflight (`One --test-link-guard`, `tools/skill-walk-check.py` on the pinned engine's files) |
+| Privacy comes from room.yaml, never a folder name: a private room is never offered for sharing or put in the engine's recipe list | `RoomPrivacy` + `LearnedDirs` + preflight (`One --test-rooms-privacy`) |
 | Experimental connections are off until tested | `ExperimentalGuard` (`skills.disabled`) + preflight "Guards" |
 | Complaints are captured | `FrictionLog` + preflight "Guards" |
 | The three core jobs work end to end (sort files, inbox draft-only, price watch asks before buying) | `make jobs` (`tools/jobs-check.sh` → `One --test-jobs`) |

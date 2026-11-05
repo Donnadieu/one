@@ -183,11 +183,10 @@ enum LearningLiveCheck {
         check("a Learned card that opens the recipe", m.shelf.contains { $0.title.hasPrefix("Learned: ") && $0.path == skillMD?.path })
         check("no tag shows, Undo offered", !r.contains("[learned") && Choices.split(r).choices == [Learning.undo])
         let (_, dirs) = await hermesRun(["config", "get", "skills.external_dirs"])
-        check("the room's learned folder counts as skills for the engine", LearnedDirs.parseList(dirs).contains(learnedDir.path))
-        if let name = saved.first {
-            let (_, list) = await hermesRun(["skills", "list"])
-            check("the engine lists it (`hermes skills list`)", list.contains(name))
-        }
+        // The personal room is private (room.yaml): its recipes are read only in its own conversations, never listed for all.
+        check(
+            "a private room's recipes stay out of the engine's list",
+            !LearnedDirs.parseList(dirs).contains { $0.hasPrefix(Brain.root.appendingPathComponent("personal-room").path) })
         handled = await m.learnPick(Learning.undo)
         await wait(10) { m.bubbles.last?.text.contains(Learning.forgot) == true }
         check(

@@ -141,7 +141,7 @@ enum BrainSearch {
             let s = Array(t.unicodeScalars)
             return (0...(s.count - 3)).map { i in "\"" + String(String.UnicodeScalarView(s[i..<(i + 3)])) + "\"" }
         }
-        let ids = (d.rows("SELECT rowid FROM grams WHERE grams MATCH ? ORDER BY bm25(grams) LIMIT 60", [Set(terms).joined(separator: " OR ")]) ?? [])
+        let ids = (d.rows("SELECT rowid FROM grams WHERE grams MATCH ? ORDER BY bm25(grams) LIMIT 40", [Set(terms).joined(separator: " OR ")]) ?? [])
             .compactMap { $0.first as? Int }
         guard !ids.isEmpty else { return [] }
         let rows =

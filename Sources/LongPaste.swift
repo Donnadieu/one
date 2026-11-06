@@ -6,7 +6,7 @@ import SwiftUI
 // orb and the ask box. "As a file" keeps the text as a file the assistant reads (a "Pasted text, 214 lines" chip
 // above the ask box, like any attached file); "As text" puts it in the box as before. The X, a click outside
 // and Esc close it without pasting. Short pastes, pictures and files paste exactly as before.
-// Since 0.9.94 the question lives in the box itself (`AskTextView.shouldChangeText`), so every road in asks the
+// Since 0.9.96 the question lives in the box itself (`AskTextView.shouldChangeText`), so every road in asks the
 // same once: ⌘V with any flags (Caps Lock), Edit › Paste, right-click Paste, Paste and Match Style, a drop,
 // Services, dictation and apps that type for you. Until then only a plain ⌘V key press asked.
 

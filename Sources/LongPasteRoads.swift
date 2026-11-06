@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // MARK: - Check: every road a long text takes into the box asks the same question, once (part of `--test-long-paste`)
-// Since 0.9.94 the question lives in the box (`AskTextView.shouldChangeText`). Before, only a plain ⌘V key press asked,
+// Since 0.9.96 the question lives in the box (`AskTextView.shouldChangeText`). Before, only a plain ⌘V key press asked,
 // so a paste with Caps Lock on, from Edit › Paste or the right-click menu, a drop, dictation, an app that types for
 // you (Wispr Flow) or ⌘V with the focus on a chat message went straight in. Each road below runs on the real ask box
 // in the real window: the menu items are AppKit's own (the app's Edit menu and the box's right-click menu), keys go

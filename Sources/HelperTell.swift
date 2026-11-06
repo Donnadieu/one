@@ -70,6 +70,15 @@ extension Model {
     /// (which reopens it if it had already finished or stopped, same as opening its orb and typing would).
     func tellHelper(_ id: UUID, message: String) {
         guard helpers.contains(where: { $0.id == id }) else { return }
+        if let c = Goals.command(message) {
+            // A /goal command passed on ("/goal resume", "/goal turns 50") runs as one in that helper, the same as typed in
+            // its orb: never wrapped in "From …, via …", which made it plain words and left the goal paused.
+            Task { @MainActor in
+                if await goalTyped(c, text: message, helper: id) { return }
+                followUp(Composed(display: message, engine: message, images: [], typed: message), helper: id, hidden: false)
+            }
+            return
+        }
         let who = userName.isEmpty ? "Omar" : userName
         let mark = "From \(who), via \(assistantName): "
         let c = Composed(display: mark + message, engine: mark + message, images: [], typed: message)

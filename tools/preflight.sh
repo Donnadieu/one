@@ -70,18 +70,25 @@ printf 'def other():\n    pass\n' > "$T/ovl/engine/agent/vault_backends/base.py"
 check "reports failure when Hermes changed" bash -c "ONE_SUPPORT_DIR=$T/ovl $BIN --apply-overlay | grep -q 'overlay failed'"
 
 echo "Standing goals (/goal)"
-check "the goals overlay is bundled" test -f "$APP/Contents/Resources/one_goals.py"
-mkdir -p "$T/goalovl/engine/acp_adapter"
+check "the goals overlay is bundled" test -f "$APP/Contents/Resources/one_goals.py" -a -f "$APP/Contents/Resources/one_goal_progress.py"
+mkdir -p "$T/goalovl/engine/acp_adapter" "$T/goalovl/engine/hermes_cli"
 cp tests/fixtures/acp_gateway_server_pristine.py "$T/goalovl/engine/acp_adapter/gateway_server.py"
+cp tests/fixtures/hermes_goals_pristine.py "$T/goalovl/engine/hermes_cli/goals.py"
+: > "$T/goalovl/engine/hermes_cli/__init__.py"
 check "hooks into a clean engine's connection (pinned Hermes)" bash -c "ONE_SUPPORT_DIR=$T/goalovl $BIN --apply-overlay | grep -q 'goals overlay ok'"
 check "and copies the module next to it" cmp tools/overlay/acp_adapter/one_goals.py "$T/goalovl/engine/acp_adapter/one_goals.py"
+check "and hooks the engine's own goal loop (pinned Hermes)" grep -q "_one_goal_progress_install" "$T/goalovl/engine/hermes_cli/goals.py"
+check "with the progress module next to it" cmp tools/overlay/hermes_cli/one_goal_progress.py "$T/goalovl/engine/hermes_cli/one_goal_progress.py"
 cp "$T/goalovl/engine/acp_adapter/gateway_server.py" "$T/goalovl/once.py"
+cp "$T/goalovl/engine/hermes_cli/goals.py" "$T/goalovl/once-goals.py"
 ONE_SUPPORT_DIR="$T/goalovl" "$BIN" --apply-overlay >/dev/null
 check "second run changes nothing" cmp "$T/goalovl/once.py" "$T/goalovl/engine/acp_adapter/gateway_server.py"
+check "second run changes nothing in the goal loop either" cmp "$T/goalovl/once-goals.py" "$T/goalovl/engine/hermes_cli/goals.py"
 check "the hooked connection still loads" /usr/bin/python3 -c "import ast,sys; ast.parse(open('$T/goalovl/engine/acp_adapter/gateway_server.py').read())"
-check "notes kept out of the goal, the yes rule added, held only while its goal works, Stop pauses it, mid-goal messages reach it" /usr/bin/python3 tools/goal-overlay-check.py
+check "goals keep going while they make progress: more turns while the count moves, the ceiling, a stall pauses, waiting for you, no count (the judge), its own helpers at work" /usr/bin/python3 tools/goal-progress-check.py "$T/goalovl/engine"
+check "notes kept out of the goal, the yes rule added, held only while its goal works, Stop pauses it, mid-goal messages reach it, an answer picks a waiting goal back up, held while its own helpers work" /usr/bin/python3 tools/goal-overlay-check.py
 check "typed /goal commands, Goal: helper jobs, the engine's goal row in plain words, the goal line, Stop" bash -c "ONE_SUPPORT_DIR=$T/goals $TBIN --test-goals | tee $T/goals-out.txt | grep -q '^goals ok'"
-[ $CI = 0 ] && LIMIT=600 check "the real engine with a stand-in model: done, budget, Stop, pause/resume, a helper's goal, a send waiting for a yes" tools/goal-engine-check.sh
+[ $CI = 0 ] && LIMIT=600 check "the real engine with a stand-in model: done, budget, Stop, pause/resume, a helper's goal, a send waiting for a yes, more turns while moving, ceiling, stall, waiting for you then an answer" tools/goal-engine-check.sh
 
 echo "Skill folders: a link back up never loops the engine"
 mkdir -p "$T/sw/engine/agent"

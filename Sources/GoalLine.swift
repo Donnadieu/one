@@ -48,11 +48,16 @@ struct GoalLine: View {
 enum GoalRender {
     static let sample = GoalLive(
         goal: "Find the cheapest flight from PHL or Newark to Quebec City, Dec 20 to 24", status: "active", turns: 2, max: 20)
+    /// A goal that counts its progress: the turn and the count, no limit (it grows while the count moves).
+    static let counted = GoalLive(
+        goal: "Build EK's Intake Tool, every requirement built", status: "active", turns: 33, max: 40, done: 120, total: 282)
+    static let extended = GoalLive(
+        goal: "Build EK's Intake Tool, every requirement built", status: "active", turns: 40, max: 60, done: 150, total: 282, extendedBy: 20)
 
     /// Draws `name` into `<out>-<name>.png`; false when the name isn't one of these.
     static func draw(_ name: String, _ out: String) -> Bool {
         switch name {
-        case "goal-line": png(line(), "\(out)-\(name).png", width: 720, height: 300)
+        case "goal-line": png(line(), "\(out)-\(name).png", width: 760, height: 430)
         case "home-goal": HomeRender.png(home(helperOpen: false), "\(out)-\(name).png", height: 760)
         case "helper-goal": HomeRender.png(home(helperOpen: true), "\(out)-\(name).png", height: 760)
         default: return false
@@ -67,6 +72,9 @@ enum GoalRender {
         AnyView(
             VStack(spacing: 26) {
                 StepLine(text: "Checking Google Flights for Dec 20…").foregroundStyle(.secondary)
+                GoalLine(g: counted) {}
+                GoalLine(g: extended) {}
+                GoalLine(g: GoalLive(goal: "Fix the failing tests", status: "active", turns: 11, max: 20, done: 37)) {}
                 GoalLine(g: sample) {}
                 GoalLine(g: GoalLive(goal: "Tidy my Downloads folder", status: "active", turns: 11, max: 20)) {}
             }
@@ -81,13 +89,13 @@ enum GoalRender {
         let v = HomeRender.scene(4)
         if helperOpen {
             var h = Helper(
-                title: "Flight to Quebec", task: "Goal: " + sample.goal, sid: "render-helper", state: "working",
-                line: "Checking Google Flights for Dec 20…")
-            h.reply = "Dec 20 from PHL: $312 on United (1 stop). Next, Newark the same day."
+                title: "Build EK intake tool", task: "Goal: " + counted.goal, sid: "render-helper", state: "working",
+                line: "Running the retainer tests…")
+            h.reply = "Retainers are in: 12 more requirements built, all their tests pass.\n\nProgress: 150/282"
             h.asked = nil
             m.helpers.insert(h, at: 0)
             m.openHelper = h.id
-            m.goals = [h.id.uuidString: sample]
+            m.goals = [h.id.uuidString: extended]
         } else {
             m.bubbles = [
                 Bubble(

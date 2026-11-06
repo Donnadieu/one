@@ -340,7 +340,8 @@ def install(goals):
             known = True
         else:
             moved, known = flag is True, flag is not None
-            rec["source"] = rec.get("source") if rec.get("done") is not None else ("judge" if known else None)
+            if known and rec.get("done") is None:
+                rec["source"] = "judge"  # a turn the judge didn't rate (its last, judged done) keeps what was known
         if moved:
             rec["last_progress"], rec["streak"] = rec["seen"], 0
         elif known and decision.get("verdict") not in ("wait", "waiting"):

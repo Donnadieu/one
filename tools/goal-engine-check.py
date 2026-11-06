@@ -225,8 +225,9 @@ def turns_since(t0):
 
 
 def goal_turns_since(t0, words):
-    """The agent turns since t0 of the conversation whose goal has these words (other goals' stragglers left out)."""
-    return [r for r in turns_since(t0) if words in r[3]]
+    """The goal's own turns since t0 in the conversation whose goal has these words: the engine's after-job review
+    (its "Review the conversation above…" fork, which starts after 10 turns) is not a turn of the goal."""
+    return [r for r in turns_since(t0) if words in r[3] and not r[2].startswith("Review the conversation above")]
 
 
 def judged_since(t0):

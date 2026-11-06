@@ -173,6 +173,10 @@ extension LongPasteCheck {
         undo.u.endUndoGrouping()
         pump(0.4)
         check("…As text goes in at the cursor", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
+        tv.breakUndoCoalescing()
+        if !undo.u.canUndo || tv.undoManager !== undo.u {
+            print("  (undo list: the box's own: \(tv.undoManager === undo.u), has a step: \(undo.u.canUndo))")
+        }
         undo.u.undo()
         pump(0.3)
         check("…undo takes it out", box.text == "Hello world" && m.pasteOffer == nil)

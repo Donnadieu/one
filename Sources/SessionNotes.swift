@@ -33,5 +33,5 @@ enum SessionNotes {
             + History.note + RoomPrivacy.crossRoomNote + ImproveNightRun.note
     }
     /// Every main-assistant prompt: the same notes, plus the browser rule.
-    static var main: String { helper + BrowserGuard.note }
+    static var main: String { helper + BrowserGuard.note + Goals.note }
 }

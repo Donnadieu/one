@@ -250,6 +250,8 @@ final class Model: ObservableObject {
     @Published var pulses: [UUID: HelperPulse] = [:]  // what each working helper is doing right now (HelperProgress.swift)
     var pulseWired = false
     @Published var openHelper: UUID?
+    @Published var goals: [String: GoalLive] = [:]  // each conversation's standing goal while at work: "main" or a helper's id (ModelGoals.swift)
+    var goalReading = false
     var helperTurnEnded: [UUID: Date] = [:]  // when each helper's last engine turn ended (checks read it)
     @Published var shelf: [ShelfItem] = Shelf.load() { didSet { Shelf.save(shelf) } }
     var shelfScanning = false

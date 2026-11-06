@@ -98,6 +98,9 @@ struct HomeView: View {
                                 StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
                                     .starCalm(floor: 0.2).transition(.opacity)
                             }
+                            if m.openHelper == nil && !historyShown, let g = m.goals["main"], g.active {
+                                GoalLine(g: g) { m.stopGoal(nil) }.starCalm(floor: 0.2).transition(.opacity)  // a standing goal at work (Goals.swift)
+                            }
                             if !HomeView.still { UpdateCard().starCalm() }  // also inside an opened helper, so an update is never missed
                             if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {
                                 VStack(alignment: .leading, spacing: 12) {

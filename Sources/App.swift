@@ -105,7 +105,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
-        if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() { return }  // in preflight
+        if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() || GoalsCheck.launch() { return }  // in preflight
         if FrontPageCheck.launch() || ImproveCheck.launch() || ImproveNightCheck.launch() { return }  // in preflight
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
@@ -174,6 +174,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             for tick in 0... {
                 Model.shared.tendHumanSteps()
                 Model.shared.tendKeepAwake()  // the Mac stays awake while anything works (KeepAwake.swift)
+                if tick % 2 == 0 { Model.shared.tendGoals() }  // a standing goal's line: its turn (ModelGoals.swift)
                 if tick % 4 == 0 { Task { await Model.shared.tendBlocked() } }
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -220,7 +221,6 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
     /// Closing the window keeps One running as the orb, so it can still listen and talk. Quit with ⌘Q.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
-
 struct OneApp: App {
     @NSApplicationDelegateAdaptor(OneDelegate.self) var delegate
     var body: some Scene { WindowGroup("One") { RootView() }.windowResizability(.contentSize) }
@@ -425,13 +425,13 @@ struct Entry {
                     ("long-panel", AnyView(EmptyView())),
                     ("message-history", MessageHistoryRender.scene(open: true)), ("message-history-closed", MessageHistoryRender.scene(open: false)),
                 ]
-                for (name, v) in views + HelperStopScene.renders {
+                for (name, v) in views + HelperStopScene.renders + GoalRender.names.map { ($0, AnyView(EmptyView())) } {
                     if name.hasPrefix("rooms-") {
                         RoomsRender.png(v, "\(out)-\(name).png")
                         print("wrote \(out)-\(name).png")
                         continue
                     }
-                    if LongMessageRender.draw(name, out) { continue }
+                    if LongMessageRender.draw(name, out) || GoalRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
                         let n = Int(name.dropFirst(5)) ?? 10
                         HomeRender.pointFirst = name == "home-pointed"
@@ -485,7 +485,7 @@ struct Entry {
         }
         if args.contains("--apply-overlay") {
             print(Installer.applyOverlay() ? "overlay ok" : "overlay failed")
-            print(Installer.applyHumanStep() ? "human-step overlay ok" : "human-step overlay failed")
+            print(Installer.hooksReport())  // human step + standing goals
             exit(0)
         }
         if args.contains("--install-test") {

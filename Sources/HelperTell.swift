@@ -21,44 +21,21 @@ enum HelperTell {
         + "Match titles case-insensitively; if the name is unclear, ask which one."
 
     /// Pull "[tell-helper: Title | message]" lines out of the assistant's reply. Like a helper line, the whole tag is
-    /// opaque: this only runs on what `Helpers.read` has left after helper lines come out, so a tell quoted inside a
-    /// helper's own job text (as in the Oct 28 fix for stop/close) is part of that job, never acted on here.
+    /// opaque: it runs to the "]" that balances its own "[" (TagLines.swift), so a [choices: …] tag, a link or code
+    /// inside the message reaches the helper whole and nothing of it shows or is spoken. This runs on what
+    /// `Helpers.read` has left after helper lines come out, so a tell quoted inside a helper's own job text (as in
+    /// the Oct 28 fix for stop/close) is part of that job, never acted on here.
     static func extract(_ text: String) -> (String, [(String, String)]) {
-        guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[tell-helper:([^\\]]*)\\][ \\t]*", options: [.caseInsensitive]) else {
-            return (text, [])
-        }
-        let ns = text as NSString
+        let (rest, bodies) = TagLines.extract(text, tag: "tell-helper")
         var tells: [(String, String)] = []
-        var out = ""
-        var at = 0
-        for r in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            let body = ns.substring(with: r.range(at: 1))
-            let parts = body.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        for body in bodies {
+            let parts = body.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { tells.append((parts[0], parts[1])) }
-            out += ns.substring(with: NSRange(location: at, length: r.range.location - at))
-            let before = out.last
-            let after = r.range.upperBound < ns.length ? ns.substring(with: NSRange(location: r.range.upperBound, length: 1)) : "\n"
-            if let b = before, b != "\n", after != "\n" { out += "\n" }  // run into a sentence: keep the two sentences apart
-            at = r.range.upperBound
         }
-        guard !tells.isEmpty else { return (text, []) }
-        out += ns.substring(from: at)
-        var lines = out.components(separatedBy: "\n")
-        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-        while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() }
-        return (lines.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n"), tells)
+        return (rest, tells)
     }
-    /// While a reply streams in: hide a tell line, even half-written.
-    static func hide(_ text: String) -> String {
-        var t = extract(text).0
-        if let k = t.lastIndex(of: "[") {
-            let tail = t[k...].lowercased()
-            if "[tell-helper".hasPrefix(tail) || (tail.hasPrefix("[tell-helper") && !tail.contains("]")) {
-                t = String(t[..<k]).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return t
-    }
+    /// While a reply streams in: hide a tell line, even half-written, nested brackets and all.
+    static func hide(_ text: String) -> String { TagLines.hide(text, tags: ["tell-helper"]) }
 
     /// Which helpers a tell line means: "all" = every one still at work or waiting for their yes; a name matches
     /// that exact title (any case, the most recently sent on ties) in ANY state — the same helper typing in its

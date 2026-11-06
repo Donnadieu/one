@@ -8,12 +8,15 @@ import Foundation
 // Checked by `One --test-helpers` (HelperCheck.swift) and `make helpers-check` (HelperStress.swift).
 
 extension Helpers {
-    /// The tags in a finished reply, read in the only safe order: helper lines first, whole; then the stop, close
-    /// and tell lines in what's left. A stop, close or tell quoted inside a helper's job is part of that job,
-    /// never acted on.
+    /// The tags in a finished reply, read in the only safe order: helper lines first, whole; then tell lines, whole;
+    /// then the stop and close lines in what's left. A stop, close or tell quoted inside a helper's job (or a stop or
+    /// close quoted inside a tell's message) is part of that job or message, never acted on.
     static func read(_ reply: String) -> (said: String, jobs: [(String, String)], stops: [String], closes: [String], tells: [(String, String)]) {
         let (clean, jobs) = extract(reply)
         var said = jobs.isEmpty && !reply.components(separatedBy: "\n").contains(where: isLine) ? reply : clean
+        // Tell lines next, whole: a message to a helper may quote a stop, close or choices tag; it goes to the helper.
+        let (untold, tells) = HelperTell.extract(said)
+        said = untold  // one with no "|" never shows either
         let (unstopped, stops) = HelperStop.extract(said)
         if !stops.isEmpty { said = unstopped }
         var closes: [String] = []
@@ -22,8 +25,6 @@ extension Helpers {
             if !names.isEmpty { said = unclosed }
             closes += names
         }
-        let (untold, tells) = HelperTell.extract(said)
-        if !tells.isEmpty { said = untold }
         return (said, jobs, stops, closes, tells)
     }
 

@@ -76,7 +76,7 @@ enum Helpers {
     /// inside one never splits it.
     static func strip(_ text: String) -> String {
         let rest = lines(text).keep.joined(separator: "\n")
-        return Learning.hideTags(HelperTell.hide(HelperStop.hide(rest))).components(separatedBy: "\n").filter {
+        return Learning.hideTags(HelperStop.hide(HelperTell.hide(rest))).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper") && !l.hasPrefix("[done-helper")
                 && !l.hasPrefix("[tell-helper")

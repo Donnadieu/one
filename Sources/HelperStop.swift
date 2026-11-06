@@ -19,47 +19,19 @@ enum HelperStop {
         + HelperClose.rule
 
     /// Pull "[stop-helper: Title]" and "[stop-helper: all]" out of the assistant's reply, on their own line or
-    /// in the middle of one (the assistant sometimes runs it into its sentence).
+    /// in the middle of one (the assistant sometimes runs it into its sentence). Each tag ends at the "]" that
+    /// balances its own "[" (TagLines.swift), never at a bracket inside it.
     /// `tag: "done-helper"` (or the older "close-helper") reads the lines that take an orb off the screen the same way.
     static func extract(_ text: String, tag: String = "stop-helper") -> (String, [String]) {
-        guard let re = try? NSRegularExpression(pattern: "[ \\t]*\\[\(tag):([^\\]\\n]*)\\][ \\t]*", options: [.caseInsensitive]) else {
-            return (text, [])
-        }
-        let ns = text as NSString
-        var names: [String] = []
-        var out = ""
-        var at = 0
-        for r in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            let n = ns.substring(with: r.range(at: 1)).trimmingCharacters(in: .whitespaces)
-            if !n.isEmpty { names.append(n) }
-            out += ns.substring(with: NSRange(location: at, length: r.range.location - at))
-            let before = out.last
-            let after = r.range.upperBound < ns.length ? ns.substring(with: NSRange(location: r.range.upperBound, length: 1)) : "\n"
-            if let b = before, b != "\n", after != "\n" { out += "\n" }  // run into a sentence: keep the two sentences apart
-            at = r.range.upperBound
-        }
-        guard !names.isEmpty else { return (text, []) }
+        let (rest, bodies) = TagLines.extract(text, tag: tag)
         var seen = Set<String>()
-        names = names.filter { seen.insert($0.lowercased()).inserted }  // the same line twice stops it once
-        out += ns.substring(from: at)
-        var lines = out.components(separatedBy: "\n")
-        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-        while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() }
-        return (lines.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n"), names)
+        let names = bodies.map { $0.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }  // the same line twice stops it once
+        guard !names.isEmpty else { return (text, []) }
+        return (rest, names)
     }
     /// While a reply streams in: hide a stop line, even half-written.
-    static func hide(_ text: String) -> String {
-        var t = extract(extract(extract(text).0, tag: "close-helper").0, tag: "done-helper").0
-        if let k = t.lastIndex(of: "[") {
-            let tail = t[k...].lowercased()
-            for tag in ["[stop-helper", "[close-helper", "[done-helper"]
-            where (tag + ":").hasPrefix(tail) || (tail.hasPrefix(tag) && !tail.contains("]")) {
-                t = String(t[..<k]).trimmingCharacters(in: .whitespaces)
-                break
-            }
-        }
-        return t
-    }
+    static func hide(_ text: String) -> String { TagLines.hide(text, tags: ["stop-helper", "close-helper", "done-helper"]) }
 
     /// Which helpers a stop line means: "all" = every one still at work; otherwise the exact title
     /// (any case), the most recently sent on ties. Only helpers still at work (or waiting to pick back up) count;

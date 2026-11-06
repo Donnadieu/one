@@ -50,7 +50,7 @@ enum LongRender {
         let out = args[k + 1]
         ChatText.still = true
         HistoryStrip.still = true
-        let states = ["folded", "open", "reply", "history", "pages", "find", "ask", "chip", "sent"]
+        let states = ["folded", "open", "reply", "history", "pages", "find", "ask", "ask-writing", "chip", "sent"]
         for s in states {
             for wide in [true, false] {
                 let p = "\(out)-\(s)-\(wide ? "wide" : "narrow").png"
@@ -93,10 +93,11 @@ enum LongRender {
                 ]
             ChatPager.shared.sync(live: Array(m.bubbles.dropLast()))
             FindPanel.stillQuery = state == "find" ? "flight" : ""
-        case "ask", "chip":
+        case "ask", "ask-writing", "chip":
             m.bubbles = older
             HomeView.stillDraft = "Here's today's call with Ek. What did we decide?"
-            if state == "ask" {
+            HomeView.stillWriting = state == "ask-writing"  // pasted into the big writing space: asks on top of it
+            if state != "chip" {
                 m.pasteOffer = PasteOffer(text: transcript, lines: LongPaste.lines(transcript), into: nil)
             } else {
                 m.files = [
@@ -116,6 +117,7 @@ enum LongRender {
         }
         defer {
             HomeView.stillDraft = ""
+            HomeView.stillWriting = false
             m.pasteOffer = nil
             m.files = []
             PopupLook.behind = nil
@@ -132,7 +134,7 @@ enum LongRender {
             HomeView.stillHistory = false
             HomeView.stillBottom = false
         }
-        if state == "ask" {
+        if state.hasPrefix("ask") {
             // The pop-up's glass blurs what's behind it, like the real window: draw home once without it first.
             let offer = m.pasteOffer
             m.pasteOffer = nil

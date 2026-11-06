@@ -158,20 +158,27 @@ struct SharedFile: Identifiable {
     /// ⌘V with a picture on the clipboard attaches it (text pastes stay normal).
     static func installPaste() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            guard e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, e.charactersIgnoringModifiers == "v",
-                Model.shared.onboarded
-            else { return e }
-            let pb = NSPasteboard.general
-            let hasText = pb.string(forType: .string) != nil && pb.availableType(from: [.png, .tiff, .fileURL]) == nil
-            if hasText { return e }
-            if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-                return addURLs(urls) > 0 ? nil : e
-            }
-            let pics = Picture.fromPasteboard(pb)
-            if pics.isEmpty { return e }
-            add(pics)
-            return nil
+            guard isPasteKey(e), Model.shared.onboarded else { return e }
+            return attach(NSPasteboard.general) ? nil : e
         }
+    }
+    /// ⌘V, also with Caps Lock on (it adds its own flag) or a capital V.
+    nonisolated static func isPasteKey(_ e: NSEvent) -> Bool {
+        e.type == .keyDown && e.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function]) == .command
+            && e.charactersIgnoringModifiers?.lowercased() == "v"
+    }
+    /// Files and pictures on the clipboard attach as chips; true when they did. Text (with no picture or file) is left
+    /// to the box, which asks first when it's long (`AskTextView`).
+    static func attach(_ pb: NSPasteboard) -> Bool {
+        let hasText = pb.string(forType: .string) != nil && pb.availableType(from: [.png, .tiff, .fileURL]) == nil
+        if hasText { return false }
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            return addURLs(urls) > 0
+        }
+        let pics = Picture.fromPasteboard(pb)
+        if pics.isEmpty { return false }
+        add(pics)
+        return true
     }
 }
 

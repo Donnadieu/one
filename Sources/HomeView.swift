@@ -278,7 +278,6 @@ struct HomeView: View {
             }
         }
         .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
-        .pasteAsk(m)  // a long paste: as a file or as text? (LongPaste.swift)
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
             if m.writingPanel || (HomeView.still && HomeView.stillWriting) {
@@ -296,6 +295,7 @@ struct HomeView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: m.writingPanel)
+        .pasteAsk(m)  // a long paste: as a file or as text? On top of the writing panel too (LongPaste.swift)
         .background(
             GeometryReader { g in Color.clear.onAppear { windowHeight = g.size.height }.onChange(of: g.size.height) { _, h in windowHeight = h } }
         )

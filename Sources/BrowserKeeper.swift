@@ -62,7 +62,7 @@ enum BrowserKeeper {
             .first { FileManager.default.fileExists(atPath: $0) }
     }
 
-    /// Chrome's own switches (started by `HiddenBrowser.launch`, never `open`: it stays out of the Dock and the front).
+    /// Chrome's own switches (started by `HiddenBrowser.launch`: hidden, never brought forward).
     static func launchArguments(_ p: Plan, app: String) -> [String] {
         // Hidden no matter what the plan says: no browser window on their screen without their yes.
         var a = ["--headless=new"]

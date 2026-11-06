@@ -12,8 +12,8 @@ import Foundation
 // window at all, pushing their windows aside. Chrome has no flag for this, `chrome-headless-shell` can't read the
 // saved sign-ins (it uses the "Chromium Safe Storage" key, not Chrome's), and a stand-in app bundle breaks
 // Chrome's own signature checks. So One keeps every hidden browser in line from outside, in three layers:
-// 1. Start: every hidden browser One starts goes through `launch` (the Mac's own launcher, told not to bring it
-//    forward and to start it hidden), never `open`, and never as a child of the folder lock.
+// 1. Start: every hidden browser One starts goes through `launch` (the Mac's own launcher, run by One outside the
+//    folder lock, told not to bring it forward and to start it hidden), never as a child of the folder lock.
 // 2. Front: the moment any headless Chrome becomes the front app, One hides it, which hands the front back.
 // 3. Dock: a headless Chrome macOS has turned into a normal app is hidden at once and, if it's one of One's,
 //    closed politely as soon as no helper, routine or person's step is using it; it starts again fresh, hidden.
@@ -28,29 +28,23 @@ enum HiddenBrowser {
 
     // MARK: 1. Start
 
-    /// How every hidden browser is started: a new copy, not brought forward, hidden, kept out of Recent Items.
-    static func configuration(_ arguments: [String]) -> NSWorkspace.OpenConfiguration {
-        let c = NSWorkspace.OpenConfiguration()
-        c.arguments = arguments
-        c.activates = false
-        c.hides = true
-        c.createsNewApplicationInstance = true
-        c.addsToRecentItems = false
-        c.promptsUserIfNeeded = false
-        return c
-    }
+    /// How every hidden browser is started, through the Mac's own launcher (One runs outside the folder lock, where
+    /// `open` keeps the switches): a new copy (-n), never brought forward (-g), started hidden (-j).
+    static func openArguments(app: String, arguments: [String]) -> [String] { ["-g", "-j", "-n", "-a", app, "--args"] + arguments }
 
     /// Starts Chrome with these switches. It isn't One's child, so it keeps running if One quits. nil = started.
     static func launch(app: String, arguments: [String]) -> String? {
-        let out = Box<String?>("the Mac didn't answer")
-        let sem = DispatchSemaphore(value: 0)
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: configuration(arguments)) { a, e in
-            out.v = e?.localizedDescription
-            if let pid = a?.processIdentifier { DispatchQueue.main.async { ours.insert(pid) } }
-            sem.signal()
+        if let e = BrowserKeeper.openApp(openArguments(app: app, arguments: arguments)) { return e }
+        if let prof = value(arguments, "--user-data-dir") {
+            for _ in 0..<20 {
+                if let pid = HumanCheck.mainChrome(profile: prof) {
+                    DispatchQueue.main.async { ours.insert(pid) }
+                    break
+                }
+                usleep(250_000)
+            }
         }
-        if sem.wait(timeout: .now() + 20) == .timedOut { return "the Mac didn't start it within 20 seconds" }
-        return out.v
+        return nil
     }
 
     // MARK: 2 + 3. Front and Dock (every second, from the main loop)

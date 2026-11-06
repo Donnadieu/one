@@ -111,6 +111,8 @@ enum HiddenBrowserCheck {
             check(false, "the hidden browser answers")
             return
         }
+        let pa = GatewayGuard.arguments(of: pid)
+        print("  started: pid \(pid), headless \(HiddenBrowser.isHeadless(pa)), policy \(r.activationPolicy.rawValue), hidden \(r.isHidden)")
         check(BrowserKeeper.alive(port), "the hidden browser answers on its port")
         check(!frontSeen, "never the front app while it starts")
         check(!regularSeen && r.activationPolicy != .regular, "not a normal app once started: no Dock icon, not in Stage Manager")

@@ -180,6 +180,7 @@ final class Model: ObservableObject {
                 ["me": $0.fromMe, "t": $0.text, "f": $0.followUps, "d": $0.date.timeIntervalSince1970] as [String: Any]
             },
             forKey: "bubbles")
+        ChatArchive.keep(bubbles)  // everything, by day, so earlier messages go all the way back
     }
     @Published var step: Step = .pickAI
     @Published var signedIn: [Provider: Bool] = [:]

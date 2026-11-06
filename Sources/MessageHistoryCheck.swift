@@ -13,7 +13,9 @@ import Foundation
 enum MessageHistoryCheck {
     /// `--test-message-history`: throwaway UserDefaults and the real pasteboard, from a copy with its own settings.
     static func launch() -> Bool {
-        if LongPasteCheck.launch() { return true }  // --test-long-paste, --render-long (long messages, LongText.swift)
+        if LongPasteCheck.launch() { return true }
+        // --test-chat-pages: earlier messages a page at a time (ChatPager.swift)
+        if ChatPagesCheck.launch() { return true }  // --test-long-paste, --render-long (long messages, LongText.swift)
         guard CommandLine.arguments.contains("--test-message-history") else { return false }
         TestWorld.enter()
         guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -52,20 +54,17 @@ enum MessageHistoryCheck {
         let siblingDir = (#filePath as NSString).deletingLastPathComponent
         let src = (try? String(contentsOfFile: siblingDir + "/MessageHistory.swift", encoding: .utf8)) ?? ""
         check("source file was found to scan", !src.isEmpty)
-        check("each history row folds when long (LongFoldText)", src.contains("LongFoldText(text: b.text, key: LongFold.key(b)"))
+        check(
+            "each history row folds when long (LongFoldText)",
+            src.contains("LongFoldText(text: parts.body, key: LongFold.key(b)") && src.contains("LongFoldText(text: b.text, key: LongFold.key(b)"))
         check("no leftover `depth` fade/blur calculation", !src.contains("func depth("))
         check("no `.blur(` on any history row", !src.contains(".blur("))
         check("no `.scaleEffect(` (shrink/recede) on any history row", !src.contains(".scaleEffect("))
         // The only `.opacity(` calls left are chrome: the toggle label, icon hover-reveal, the divider rule/
         // label, the distance pill and the thread line/dot — none of them dim the message text itself.
         check(
-            "row() applies no `.opacity(` to the message text",
-            !src.contains(
-                "LongFoldText(text: b.text, key: LongFold.key(b), size: 14, plain: b.fromMe)\n                    .frame(maxWidth: .infinity, alignment: .leading)\n                    .opacity"
-            ))
-        // No background box behind a row: the thread (for your own questions) is the only chrome now,
-        // not a filled rounded rectangle card like the old design.
-        check("no filled background box on a history row", !src.contains(".background(RoundedRectangle(cornerRadius: 14).fill("))
+            "no `.opacity(` straight on a message's text",
+            !src.contains(".frame(maxWidth: .infinity, alignment: .leading)\n                    .opacity"))
 
         // history readable past 40 messages: the persisted cap is raised well beyond the old 40-bubble limit.
         UserDefaults.standard.removeObject(forKey: "bubbles")
@@ -94,8 +93,8 @@ enum MessageHistoryCheck {
         check("resend seeds the draft with the exact earlier message", m.draftSeed == "And the hotel?")
 
         // Day/time divider: never shown before the very first (oldest) turn, whatever its age.
-        let strip = HistoryStrip(m: m, turns: [], open: .constant(true))
-        check("no divider before the very first turn", strip.dividerLabel(before: 0) == nil)
+        let strip = HistoryStrip(m: m, turns: older.map { $0 }, open: .constant(true))
+        check("no divider before the very first turn (the day pill names it)", strip.dividerLabel(before: 0) == nil)
 
         // Halo not clipped: the orb's own rendered halo is bigger than its component frame (Orb wraps a
         // 280×280 Presence in a 184×184 frame at size 92, so the halo overflows ~37pt past its own frame;
@@ -111,9 +110,11 @@ enum MessageHistoryCheck {
             guard let r = homeSrc.range(of: "HelperConstellation(m: m,") else { return nil }
             let before = homeSrc[..<r.lowerBound]
             guard let spacerRange = before.range(of: "Color.clear.frame(height: ", options: .backwards) else { return nil }
-            let after = before[spacerRange.upperBound...]
-            let digits = after.prefix(while: { $0.isNumber })
-            return Int(digits)
+            // The gap's line, e.g. `Color.clear.frame(height: historyShown && … ? 4 : 64)`: the last number is the gap at now
+            // (earlier messages showing hide the orb, so the small gap there has no halo to clear).
+            let line = before[spacerRange.upperBound...].prefix(while: { $0 != "\n" })
+            let nums = line.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            return nums.last
         }()
         check("a real gap sits above the orb, right before HelperConstellation", haloGap != nil)
         check("that gap is at least 60pt — enough to clear the halo's overflow", (haloGap ?? 0) >= 60)

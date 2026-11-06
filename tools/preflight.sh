@@ -226,6 +226,11 @@ if true; then  # a real window on the CI runner's own screen
   grep "✗" "$T/lp/out.txt" 2>/dev/null | sed 's/^/    /'
 fi
 
+echo "Earlier messages"
+mkdir -p "$T/cp"
+check "earlier messages load 20 at a time and keep your place, the chat is kept by day all the way back, Find and day jumps land on the message, folded messages lay out only their first lines" bash -c "ONE_SUPPORT_DIR=$T/cp perl -e 'alarm 120; exec @ARGV' $TBIN --test-chat-pages | tee $T/cp/out.txt | grep -q '^chat pages: all checks passed'"
+grep "✗" "$T/cp/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"

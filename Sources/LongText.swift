@@ -38,6 +38,14 @@ enum LongFold {
         return ks.suffix(maxRemembered).joined(separator: "\n")
     }
     /// Height of `keep` lines of chat text at this size (same font and spacing `ChatText` draws with).
+    /// What a folded message hands to the text view: its first lines only. The fold shows 4 lines; laying out
+    /// the whole message and clipping it was most of the wait when earlier messages opened (routine reports
+    /// held 88% of the text in Omar's chat).
+    static func head(_ t: String) -> String {
+        let lines = t.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n").prefix(keep + 4)
+        let h = lines.joined(separator: "\n")
+        return h.count > 900 ? String(h.prefix(900)) : h
+    }
     static func foldedHeight(_ size: CGFloat) -> CGFloat {
         (NSLayoutManager().defaultLineHeight(for: NSFont.systemFont(ofSize: size)) + 1.5) * CGFloat(keep)
     }
@@ -54,6 +62,8 @@ struct LongFoldText: View {
     var accent = false
     /// The reply being written right now never folds under the reader's eyes.
     var live = false
+    /// Hug the words (a pill around your own message) instead of taking the whole width.
+    var hug = false
     @AppStorage(LongFold.key) var raw = ""
     @State var openHere = false
 
@@ -68,7 +78,8 @@ struct LongFoldText: View {
                 if open {
                     message
                 } else {
-                    message.frame(height: LongFold.foldedHeight(size), alignment: .top).clipped()
+                    ChatText(text: LongFold.head(text), size: size, plain: plain, center: center, accent: accent, copy: text)
+                        .frame(height: LongFold.foldedHeight(size), alignment: .top).clipped()
                         .mask(
                             VStack(spacing: 0) {
                                 Color.black
@@ -80,7 +91,7 @@ struct LongFoldText: View {
         }
     }
 
-    var message: some View { ChatText(text: text, size: size, plain: plain, center: center, accent: accent) }
+    var message: some View { ChatText(text: text, size: size, plain: plain, center: center, accent: accent, hug: hug) }
 
     func control(hide: Bool) -> some View {
         Button {

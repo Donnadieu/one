@@ -33,7 +33,13 @@ struct HomeView: View {
     @State var micLatched = false
     @State var dropping = false
     @State var typing = false
-    @State var historyOpen = HomeView.stillHistory
+    /// Earlier messages, a page at a time (ChatPager.swift); the day pill's Find panel; where the page is.
+    @ObservedObject var pager = ChatPager.shared
+    @State var finding = HomeView.stillFinding
+    /// Renders only: the Find panel shown open.
+    nonisolated(unsafe) static var stillFinding = false
+    @State var chatHeight: CGFloat = 600
+    @State var dayNow = "Today"
     /// Renders only: Message history shown open.
     nonisolated(unsafe) static var stillHistory = false
     /// Renders only: the page shown scrolled to its end (the newest messages), not its top.
@@ -55,115 +61,183 @@ struct HomeView: View {
         guard let cutoff = m.bubbles.lastIndex(where: { $0.fromMe }) else { return [] }
         return m.bubbles[..<cutoff].filter { !$0.text.isEmpty }
     }
+    /// Earlier messages are showing (renders: `stillHistory`, with the last page of `olderTurns`).
+    var historyShown: Bool { HomeView.still ? HomeView.stillHistory : pager.open }
+    var historyRows: [Bubble] { HomeView.still ? Array(olderTurns.suffix(ChatPager.page)) : pager.rows }
+    var historyBinding: Binding<Bool> {
+        Binding(get: { historyShown }, set: { $0 ? pager.openNow() : pager.close() })
+    }
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 // Pinned above the scrolling part, so the greeting can never slide up under the title row.
-                Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
-                    .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
-                StillScroll(bottom: HomeView.stillBottom) {
-                    VStack(spacing: 12) {
-                        // Extra room above the orb only: its own halo/aura is bigger than its component frame
-                        // (by design, elsewhere in the app too), and this is the one place the halo can sit at
-                        // the very top of a scrolling column. Without this gap the ScrollView's own clip
-                        // boundary cuts a flat edge straight through the circular halo the moment there's
-                        // nothing above it to scroll past (Omar, 2026-10-29: "we cannot desecrate the halo").
-                        // The orb/HelperConstellation themselves are untouched — this is only breathing room.
-                        Color.clear.frame(height: 64)
-                        HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
-                        if m.isReady && m.thinking && m.openHelper == nil {
-                            StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
-                                .starCalm(floor: 0.2).transition(.opacity)
-                        }
-                        if !HomeView.still { UpdateCard().starCalm() }  // also inside an opened helper, so an update is never missed
-                        if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Label("\(info.createdBy) invited you into a room", systemImage: "person.2.fill").font(.headline)
-                                Text(
-                                    "\"\(info.title)\": a room you both add to, each with your own assistant. It stays in sync through iCloud. Nothing from your other rooms goes in without your OK."
-                                )
-                                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                                HStack(spacing: 8) {
-                                    Button("Add it to my brain") { m.joinRoom(inv) }
-                                        .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                                    Button("Not now") {
-                                        Shared.leave(inv)
-                                        m.roomInvites.removeAll { $0 == inv }
-                                    }.buttonStyle(.bordered)
-                                }
-                            }
-                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
-                        }
-                        if m.openHelper == nil && !m.interviewOffered && !m.thinking && Brain.exists {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Want me to get to know you?").font(.headline)
-                                Text(
-                                    "A few questions, one at a time, so I know what your personal room is for and how to help. You can skip any question, or stop whenever you like."
-                                )
-                                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                                HStack(spacing: 8) {
-                                    Button("Let's start") {
-                                        guard m.isReady else { return }
-                                        m.interviewOffered = true
-                                        Task { await m.send("Let's do the welcome interview. Get to know me.", toNova: true) }
-                                    }
-                                    .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                                    Button("Maybe later") {
-                                        m.interviewOffered = true
-                                        m.bubbles.append(Bubble(fromMe: false, text: "Any time. Just say \"get to know me\"."))
-                                    }.buttonStyle(.bordered)
-                                }
-                            }
-                            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
-                        }
-                        if OffsiteCard.shows(m) { OffsiteCard(m: m).starCalm() }  // the locked copy in iCloud, offered once
-                        if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
-                            AwayCard(m: m, hs: away).starCalm().transition(.opacity)
-                        }
-                        ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
-                        ForEach(m.folderAsks) { a in FolderAskCard(a: a) { m.answerFolderAsk(a.id, approved: $0) }.starCalm() }
-                        if !m.asks.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)
-                                ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
-                            }.starCalm()
-                        }
-                        if let h = m.openedHelper {
-                            HelperCard(m: m, h: h).disabled(!m.isReady || m.asleep(h)).opacity(m.isReady ? 1 : 0.55).starCalm()
-                                .transition(.opacity.combined(with: .offset(y: 8)))
-                            FollowUpList(m: m, helper: h.id).starCalm()
-                        } else if let ask = lastAsk {
-                            VStack(spacing: 8) {
-                                HistoryStrip(m: m, turns: olderTurns, open: $historyOpen).equatable()
-                                LongFoldText(text: ask.text, key: LongFold.key(ask), size: ChatText.callout, plain: true, center: true).opacity(0.55)
-                                    .frame(maxWidth: .infinity)
-                                // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
-                                FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
-                                ForEach(sinceAsk) { r in
-                                    let parts = Choices.split(Helpers.strip(r.text))
-                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                        MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                                        LongFoldText(text: parts.body, key: LongFold.key(r), size: 15, live: m.thinking && r.id == lastReply?.id)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .frame(maxWidth: 620).padding(.horizontal, 4)
-                                    .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
-                                    if r.id == lastReply?.id && !parts.choices.isEmpty && !m.thinking {
-                                        ChoiceRow(choices: parts.choices, disabled: m.paused || !m.isReady) { c in
-                                            Task { await m.choose(c) }
-                                        } onOther: {
-                                            typing = true
-                                        }
-                                        .transition(.opacity)
-                                    }
-                                }
-                            }.starCalm(feather: 26, floor: 0.2).animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
-                        }
-                    }.padding(.horizontal, 28).padding(.bottom, 8)
+                if historyShown && m.openHelper == nil {
+                    // Going back: the greeting steps aside for the day you're looking at (+ Find), and the orb with it.
+                    DayPill(day: HomeView.still ? ChatPager.longDay(historyRows.first?.date ?? Date()) : dayNow, finding: $finding)
+                        .starCalm(feather: 20).padding(.top, 18).padding(.bottom, 10).frame(height: 66)
+                } else {
+                    Text("\(greeting), \(m.userName).").font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+                        .foregroundStyle(WorldLook.cream).lineLimit(1).starCalm(feather: 30, floor: 0.25).padding(.top, 18).padding(.bottom, 12)
                 }
-                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
+                ScrollViewReader { proxy in
+                    StillScroll(bottom: HomeView.stillBottom) {
+                        VStack(spacing: 12) {
+                            // Extra room above the orb only: its own halo/aura is bigger than its component frame
+                            // (by design, elsewhere in the app too), and this is the one place the halo can sit at
+                            // the very top of a scrolling column. Without this gap the ScrollView's own clip
+                            // boundary cuts a flat edge straight through the circular halo the moment there's
+                            // nothing above it to scroll past (Omar, 2026-10-29: "we cannot desecrate the halo").
+                            // The orb/HelperConstellation themselves are untouched — this is only breathing room.
+                            Color.clear.frame(height: historyShown && m.openHelper == nil ? 4 : 64).id("page-top")
+                                .background(
+                                    GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in pager.pageTop = y } })
+                            if !(historyShown && m.openHelper == nil) {
+                                HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
+                            }
+                            if m.isReady && m.thinking && m.openHelper == nil && !historyShown {
+                                StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+                                    .starCalm(floor: 0.2).transition(.opacity)
+                            }
+                            if !HomeView.still { UpdateCard().starCalm() }  // also inside an opened helper, so an update is never missed
+                            if m.openHelper == nil, let inv = m.roomInvites.first, let info = Shared.info(inv) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Label("\(info.createdBy) invited you into a room", systemImage: "person.2.fill").font(.headline)
+                                    Text(
+                                        "\"\(info.title)\": a room you both add to, each with your own assistant. It stays in sync through iCloud. Nothing from your other rooms goes in without your OK."
+                                    )
+                                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                    HStack(spacing: 8) {
+                                        Button("Add it to my brain") { m.joinRoom(inv) }
+                                            .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                                        Button("Not now") {
+                                            Shared.leave(inv)
+                                            m.roomInvites.removeAll { $0 == inv }
+                                        }.buttonStyle(.bordered)
+                                    }
+                                }
+                                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
+                            }
+                            if m.openHelper == nil && !m.interviewOffered && !m.thinking && Brain.exists {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Want me to get to know you?").font(.headline)
+                                    Text(
+                                        "A few questions, one at a time, so I know what your personal room is for and how to help. You can skip any question, or stop whenever you like."
+                                    )
+                                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                    HStack(spacing: 8) {
+                                        Button("Let's start") {
+                                            guard m.isReady else { return }
+                                            m.interviewOffered = true
+                                            Task { await m.send("Let's do the welcome interview. Get to know me.", toNova: true) }
+                                        }
+                                        .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+                                        Button("Maybe later") {
+                                            m.interviewOffered = true
+                                            m.bubbles.append(Bubble(fromMe: false, text: "Any time. Just say \"get to know me\"."))
+                                        }.buttonStyle(.bordered)
+                                    }
+                                }
+                                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
+                            }
+                            if OffsiteCard.shows(m) { OffsiteCard(m: m).starCalm() }  // the locked copy in iCloud, offered once
+                            if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
+                                AwayCard(m: m, hs: away).starCalm().transition(.opacity)
+                            }
+                            ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
+                            ForEach(m.folderAsks) { a in FolderAskCard(a: a) { m.answerFolderAsk(a.id, approved: $0) }.starCalm() }
+                            if !m.asks.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("NEEDS YOUR YES").font(.caption.bold()).foregroundStyle(.orange)
+                                    ForEach(m.asks) { a in AskCard(a: a) { m.answer(a, $0) } }
+                                }.starCalm()
+                            }
+                            if let h = m.openedHelper {
+                                HelperCard(m: m, h: h).disabled(!m.isReady || m.asleep(h)).opacity(m.isReady ? 1 : 0.55).starCalm()
+                                    .transition(.opacity.combined(with: .offset(y: 8)))
+                                FollowUpList(m: m, helper: h.id).starCalm()
+                            } else if let ask = lastAsk {
+                                if historyShown {
+                                    VStack(spacing: 0) {
+                                        EarlierEdge(more: HomeView.still || pager.moreAbove)
+                                            .background(
+                                                GeometryReader { g in
+                                                    Color.clear.onChange(of: g.frame(in: .named("chat")).maxY) { _, y in topSeen(y) }
+                                                })
+                                        HistoryStrip(m: m, turns: historyRows, open: historyBinding, lit: pager.lit).equatable()
+                                        if !HomeView.still && !pager.atNow {
+                                            EarlierEdge(more: true).id("newer-edge")
+                                                .background(
+                                                    GeometryReader { g in
+                                                        Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in bottomSeen(y) }
+                                                    })
+                                        }
+                                    }
+                                }
+                                if !historyShown || HomeView.still || pager.atNow {
+                                    VStack(spacing: 8) {
+                                        if !historyShown { HistoryStrip(m: m, turns: Array(olderTurns.suffix(1)), open: historyBinding) }
+                                        Color.clear.frame(height: 0).id("now")
+                                        LongFoldText(text: ask.text, key: LongFold.key(ask), size: ChatText.callout, plain: true, center: true)
+                                            .opacity(0.55)
+                                            .frame(maxWidth: .infinity)
+                                        // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
+                                        FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
+                                        ForEach(sinceAsk) { r in
+                                            let parts = Choices.split(Helpers.strip(r.text))
+                                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                                MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                                                LongFoldText(
+                                                    text: parts.body, key: LongFold.key(r), size: 15, live: m.thinking && r.id == lastReply?.id
+                                                )
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            }
+                                            .frame(maxWidth: 620).padding(.horizontal, 4)
+                                            .id(r.id).transition(.opacity.combined(with: .offset(y: 10)))
+                                            if r.id == lastReply?.id && !parts.choices.isEmpty && !m.thinking {
+                                                ChoiceRow(choices: parts.choices, disabled: m.paused || !m.isReady) { c in
+                                                    Task { await m.choose(c) }
+                                                } onOther: {
+                                                    typing = true
+                                                }
+                                                .transition(.opacity)
+                                            }
+                                        }
+                                    }.starCalm(feather: 26, floor: 0.2).animation(.easeOut(duration: 0.9), value: lastReply?.text.isEmpty)
+                                }
+                            }
+                        }.padding(.horizontal, 28).padding(.bottom, 8)
+                    }
+                    .coordinateSpace(name: "chat")
+                    .background(
+                        GeometryReader { g in
+                            Color.clear.onAppear { chatHeight = g.size.height }.onChange(of: g.size.height) { _, h in chatHeight = h }
+                        }
+                    )
+                    .onPreferenceChange(DayMarkKey.self) { marks in
+                        if let d = (marks.last { $0.y <= 70 } ?? marks.first)?.label, d != dayNow { dayNow = d }
+                    }
+                    .onChange(of: pager.scroll) { _, s in
+                        guard let s else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            proxy.scrollTo(s.target, anchor: s.anchor)
+                        }
+                    }
+                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
+                    .overlay(alignment: .bottom) {
+                        if historyShown && m.openHelper == nil && !HomeView.still {
+                            BackToNow { pager.close() }.padding(.bottom, 10).transition(.opacity)
+                        }
+                    }
+                    .onePopup(
+                        finding && historyShown, close: { finding = false }, align: .top,
+                        inset: EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0)
+                    ) { _ in
+                        FindPanel(pager: pager) { finding = false }
+                    }
+                }
                 // Pinned under the scrolling part, so a long message can never push the box out of view.
                 askBox.starCalm().padding(.horizontal, 28).padding(.top, 4).padding(.bottom, 20).layoutPriority(1)
             }
@@ -238,6 +312,18 @@ struct HomeView: View {
                 return .systemAction
             }
         )
+        .onAppear {
+            pager.sync(live: olderTurns)
+            ScrollUpOpener.install(
+                ready: {
+                    let p = ChatPager.shared
+                    let m = Model.shared
+                    return !p.open && m.openHelper == nil && m.openedShelf == nil && m.viewing == nil && p.pageTop >= -2
+                },
+                open: { ChatPager.shared.openNow() })
+        }
+        .onChange(of: olderTurns.count) { _, _ in pager.sync(live: olderTurns) }
+        .onChange(of: m.openHelper) { _, h in if h != nil, pager.open { pager.close() } }
         .onChange(of: m.draftSeed) { _, v in
             if let v {
                 if !v.isEmpty { draft = v }
@@ -268,6 +354,16 @@ struct HomeView: View {
                     .padding(10).allowsHitTesting(false)
             }
         }
+    }
+    /// The top edge of earlier messages came into view: 20 more above, the first row kept where it is.
+    func topSeen(_ y: CGFloat) {
+        guard pager.open, y > -40, y < chatHeight, Date().timeIntervalSince(pager.movedAt) > 0.6 else { return }
+        pager.older(keepAt: y / max(chatHeight, 1))
+    }
+    /// After a jump, the bottom edge came into view: 20 newer below.
+    func bottomSeen(_ y: CGFloat) {
+        guard pager.open, y < chatHeight + 80, Date().timeIntervalSince(pager.movedAt) > 0.6 else { return }
+        pager.newer()
     }
     /// Hold the mic to talk (let go to send), or click once to start and again to send.
     var micButton: some View {

@@ -50,7 +50,7 @@ enum LongRender {
         let out = args[k + 1]
         ChatText.still = true
         HistoryStrip.still = true
-        let states = ["folded", "open", "reply", "history", "ask", "chip", "sent"]
+        let states = ["folded", "open", "reply", "history", "pages", "find", "ask", "chip", "sent"]
         for s in states {
             for wide in [true, false] {
                 let p = "\(out)-\(s)-\(wide ? "wide" : "narrow").png"
@@ -82,6 +82,17 @@ enum LongRender {
             m.bubbles = older + [Bubble(fromMe: true, text: "What did Ek and I decide on today's call?"), Bubble(fromMe: false, text: reply)]
         case "history":
             m.bubbles = [ask, Bubble(fromMe: false, text: reply), Bubble(fromMe: true, text: "Thanks. Put the open questions in the room.")]
+        case "pages", "find":
+            // Earlier messages a page at a time (ChatPager): two days, a routine report, a picked choice, a long reply.
+            m.bubbles =
+                MessageHistoryRender.sample + [
+                    Bubble(fromMe: true, text: "What did Ek and I decide on today's call?"), Bubble(fromMe: false, text: reply),
+                    Bubble(fromMe: true, text: "Thanks. Put the open questions in the room."),
+                    Bubble(fromMe: false, text: "Done. They're in the Co-Founder room under today's date."),
+                    Bubble(fromMe: true, text: "Is the promo video ready to share?"),
+                ]
+            ChatPager.shared.sync(live: Array(m.bubbles.dropLast()))
+            FindPanel.stillQuery = state == "find" ? "flight" : ""
         case "ask", "chip":
             m.bubbles = older
             HomeView.stillDraft = "Here's today's call with Ek. What did we decide?"
@@ -109,7 +120,12 @@ enum LongRender {
             m.files = []
             PopupLook.behind = nil
         }
-        let history = state == "history"
+        let history = ["history", "pages", "find"].contains(state)
+        HomeView.stillFinding = state == "find"
+        defer {
+            HomeView.stillFinding = false
+            FindPanel.stillQuery = ""
+        }
         // Read while the still is drawn (not when the view is built), so they stay set until the end of draw().
         HomeView.stillBottom = true
         defer {

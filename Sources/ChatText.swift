@@ -14,6 +14,10 @@ struct ChatText: View {
     var plain = false
     var center = false
     var accent = false
+    /// The whole message for Copy, when only its first lines are shown (a folded message).
+    var copy: String?
+    /// Take only the width the words need (your own message's pill), not the whole column.
+    var hug = false
     @Environment(\.openURL) var openURL
 
     /// Set while `--render-world` draws stills.
@@ -28,7 +32,10 @@ struct ChatText: View {
                 MarkdownText(text: text, size: size)
             }
         } else {
-            ChatTextBox(shown: ChatText.attributed(text, size: size, plain: plain, center: center, accent: accent), markdown: text, plain: plain) {
+            ChatTextBox(
+                shown: ChatText.attributed(text, size: size, plain: plain, center: center, accent: accent), markdown: copy ?? text, plain: plain,
+                hug: hug
+            ) {
                 openURL($0)
             }
         }
@@ -147,6 +154,7 @@ struct ChatTextBox: NSViewRepresentable {
     let shown: NSAttributedString
     let markdown: String
     var plain = false
+    var hug = false
     let open: (URL) -> Void
 
     func makeNSView(context: Context) -> ChatTextView {
@@ -172,7 +180,7 @@ struct ChatTextBox: NSViewRepresentable {
         let w = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 100_000
         if let h = context.coordinator.fits[w] { return h }
         var s = ChatText.measure(shown, width: max(w, 1))
-        if proposal.width != nil && w < 100_000 { s.width = w }
+        if proposal.width != nil && w < 100_000 && !hug { s.width = w }
         context.coordinator.fits[w] = s
         return s
     }

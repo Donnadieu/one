@@ -25,6 +25,8 @@ extension Model {
             return false
         case .status:
             goalAnswer(text, Goals.statusWords(await read()), helper: helper)
+        case .turns(let asked):
+            await goalTurns(asked, text: text, sid: sid, helper: helper, read: read)
         case .pause, .stop:
             let g = await read()
             guard let g, g.active || (c == .stop && g.status == "paused") else {
@@ -36,6 +38,21 @@ extension Model {
             goalAnswer(text, c == .stop ? "Stopped, and that goal is cleared." : "Paused. Say /goal resume to pick it back up.", helper: helper)
         }
         return true
+    }
+
+    /// "/goal turns N": the engine overlay gives the goal here its new limit at once, beside any turn at work (never a
+    /// turn of its own, never a new goal); One reads the goal back and answers in plain words.
+    func goalTurns(_ asked: Int, text: String, sid: String?, helper: UUID?, read: () async -> GoalLive?) async {
+        guard let sid, let g = await read(), g.status == "active" || g.status == "paused" else {
+            return goalAnswer(text, Goals.turnsWords(asked: asked, after: nil), helper: helper)
+        }
+        guard Goals.overlayKnowsTurns else {
+            return goalAnswer(text, "I can't change the limit of this goal. It has \(g.max) turns.", helper: helper)
+        }
+        let command = "/goal turns \(Goals.clamp(asked))"
+        let busy = helper.map { id in helpers.first { $0.id == id }?.state == "working" } ?? thinking
+        if await Engine.shared.steer(command, session: sid, raw: true).hasPrefix("error"), !busy { await goalBare(sid, command, helper: helper) }
+        goalAnswer(text, Goals.turnsWords(asked: asked, after: await read()), helper: helper)
     }
 
     /// One's own answer to a goal command, shown like a reply (nothing sent to the engine for it).

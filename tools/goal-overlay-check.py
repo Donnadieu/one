@@ -66,9 +66,15 @@ db.execute("pragma journal_mode=wal")
 db.execute("create table state_meta (key text primary key, value text)")
 
 
-def set_goal(sid, status, turns=0, reason=None):
+def set_goal(sid, status, turns=0, reason=None, max_turns=20, created=0.0, goal="x"):
     db.execute("insert or replace into state_meta values (?, ?)",
-               ("goal:" + sid, json.dumps({"goal": "x", "status": status, "turns_used": turns, "max_turns": 20, "paused_reason": reason})))
+               ("goal:" + sid, json.dumps({"goal": goal, "status": status, "turns_used": turns, "max_turns": max_turns,
+                                           "paused_reason": reason, "created_at": created})))
+
+
+def row(sid):
+    r = db.execute("select value from state_meta where key = ?", ("goal:" + sid,)).fetchone()
+    return json.loads(r[0]) if r else {}
 
 
 class Conn:
@@ -116,6 +122,8 @@ class Agent:
         if text.strip().startswith("/goal status") or text.strip() == "/goal pause":
             return True, None
         if text.startswith("/goal "):
+            if getattr(self, "sets_goals", False):  # what the engine does: the goal set with the default limit
+                set_goal(session_id, "active", goal=text[6:].split("\n")[0], created=time.time())
             return False, "KICKOFF"
         return False, text
 
@@ -230,6 +238,65 @@ async def main():
     _, said = await asyncio.gather(a.prompt("/goal count", "s9"), steer())
     check("a message mid-goal reaches the turn at work", said == "steered" and steered[-1] == ("s9", "t9", "make it Dec 21"))
     check("and leaves no stale turn behind", "s9" not in a._admissions)
+
+    # 10. A goal's own turn limit: each way of writing it, the bounds, no number = the default.
+    P = g.parse_limit
+    check("\"/goal 50 turns: <goal>\" carries 50", P("/goal 50 turns: Find a flight") == ("set", "/goal Find a flight", 50, 50))
+    check("\"/goal --turns 50 <goal>\" too", P("/goal --turns 50 Find a flight") == ("set", "/goal Find a flight", 50, 50)
+          and P("/goal --turns=50 Find a flight")[2] == 50)
+    check("and plain words (\"up to 50 tries:\")", P("/goal up to 50 tries: Find a flight") == ("set", "/goal Find a flight", 50, 50))
+    check("a goal that only starts with a number is just a goal", P("/goal 3 kids' lunches packed")[0] is None
+          and P("/goal 10 rounds of edits on the essay")[0] is None)
+    check("\"/goal turns 50\" changes the limit", P("/goal turns 50")[:3] == ("change", "/goal turns 50", 50)
+          and P("/goal 30 turns")[2] == 30 and P("/goal turns: 7")[2] == 7)
+    check("more than 200 is capped at 200", P("/goal 500 turns: x")[2:] == (200, 500) and P("/goal turns 9999")[2] == 200)
+    check("less than 1 becomes 1", P("/goal 0 turns: x")[2] == 1)
+    check("controls and plain goals have no limit", P("/goal pause")[0] is None and P("/goal Tidy")[0] is None)
+
+    a = Agent()
+    a.sets_goals = True
+    answered, submit = await a._run_slash("h10", "s10", "/goal 50 turns: Find a flight\n\n(One app note, not from the user: RULES)")
+    r10 = row("s10")
+    check("the engine sets the goal without the number in it", a.slash_seen[-1].startswith("/goal Find a flight\nstop when:") and r10.get("goal") == "Find a flight")
+    check("and it gets its own limit", r10.get("max_turns") == 50 and not answered and submit.startswith("KICKOFF"))
+    check("a limit asked for in range isn't remarked on", not [t for _, t in a._conn.sent if "at most" in t])
+    await a._run_slash("h11", "s11", "/goal 500 turns: Find a flight")
+    check("a capped number gets 200", row("s11").get("max_turns") == 200)
+    check("and the reply says so plainly, first", any(sid == "h11" and t.startswith("A goal can take at most 200 turns") for sid, t in a._conn.sent))
+    await a._run_slash("h12", "s12", "/goal Find a flight")
+    check("no number = the engine's default limit", row("s12").get("max_turns") == 20 and row("s12").get("goal") == "Find a flight")
+
+    # 11. Changing the limit of the goal here: answered at once, never a turn or a new goal.
+    a = Agent()
+    set_goal("s13", "active", turns=3, created=111.0, goal="Plan")
+    t = time.time()
+    r = await a.prompt("/goal turns 30", "s13")
+    check("/goal turns 30 is answered at once", r.stop_reason == "end_turn" and time.time() - t < 0.5)
+    check("the goal keeps everything and gets 30", row("s13").get("max_turns") == 30 and row("s13").get("turns_used") == 3 and row("s13").get("goal") == "Plan")
+    check("it never reached the engine as a goal", not a.slash_seen)
+    check("its answer is the notice One keeps off the screen", a._conn.sent[-1][1].startswith(g.LIMIT_NOTICE + ": 30 turns"))
+    set_goal("s14", "paused", turns=20, reason="turn budget exhausted (20/20)", created=5.0)
+    await a.prompt("/goal turns 40", "s14")
+    check("a paused goal's limit changes too (for its resume)", row("s14").get("max_turns") == 40 and row("s14").get("status") == "paused")
+    await a.prompt("/goal turns 40", "s15")
+    check("no goal: nothing is made up", row("s15") == {} and a._conn.sent[-1][1].startswith(g.LIMIT_NOTICE + ": no goal"))
+
+    # 12. Mid-goal: a judge that loaded the goal before the change and saves the old limit back loses to the new one.
+    a = Agent()
+    set_goal("s16", "active", created=222.0)
+    async def mid():
+        await asyncio.sleep(0.3)
+        await event(a, "s16", "message.delta", "t16", "one")
+        r = await a.prompt("/goal turns 60", "s16")  # beside the goal's turn, like One's steer
+        set_goal("s16", "active", turns=1, max_turns=20, created=222.0)  # the stale save
+        await asyncio.sleep(1.0)
+        fixed = row("s16").get("max_turns")
+        await event(a, "s16", "message.complete", "t16")
+        set_goal("s16", "done", turns=2, max_turns=60, created=222.0)
+        return r.stop_reason, fixed
+    held, (quick, fixed) = await asyncio.gather(a.prompt("/goal count", "s16"), mid())
+    check("a change mid-goal is answered while the goal works", quick == "end_turn" and held.stop_reason == "end_turn")
+    check("and holds against a stale save", fixed == 60)
 
 
 asyncio.run(main())

@@ -109,7 +109,7 @@ enum Helpers {
     /// A job that starts with "Goal:" goes out as a standing goal (Goals.swift): the engine sets it from its /goal line.
     static func brief(assistant: String, user: String, task: String) -> String {
         let b = job(assistant: assistant, user: user, task: task)
-        return Goals.helperGoal(task).map { Goals.helperPrompt(goal: $0, brief: b) } ?? b
+        return Goals.helperGoal(task).map { Goals.helperPrompt(goal: $0.goal, turns: $0.turns, brief: b) } ?? b
     }
     static func job(assistant: String, user: String, task: String) -> String {
         """

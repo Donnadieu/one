@@ -108,6 +108,7 @@ enum HelperCheck {
         check("and it stays stopped after another restart", relaunch(relaunch([mine]))[0].state == "stopped")
 
         quotedTags(check)
+        nestedTags(check)
 
         // Stop by chat: the assistant's [stop-helper: …] line.
         let (said, names) = HelperStop.extract("Stopped Flight to Quebec.\n[stop-helper: Flight to Quebec]\n[STOP-HELPER: all]\n")

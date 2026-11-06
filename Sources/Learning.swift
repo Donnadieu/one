@@ -312,30 +312,25 @@ enum Learning {
 
     // MARK: Tags in replies
 
-    /// `[job-kind: movie times lookup]` and `[learned: name | room]` lines: read, then taken out of what's shown.
+    /// `[job-kind: movie times lookup]` and `[learned: name | room]` tags: read, then taken out of what's shown,
+    /// on their own line or run into a sentence, brackets inside them and all (TagLines.swift).
     static func tags(_ text: String) -> (clean: String, kind: String?, learned: (name: String, room: String)?) {
         var kind: String?
         var learned: (String, String)?
-        var keep: [String] = []
-        for l in text.components(separatedBy: "\n") {
-            let t = l.trimmingCharacters(in: .whitespaces)
-            let low = t.lowercased()
-            if low.hasPrefix("[job-kind:"), t.hasSuffix("]") {
-                kind = String(t.dropFirst(10).dropLast()).trimmingCharacters(in: .whitespaces)
-            } else if low.hasPrefix("[learned:"), t.hasSuffix("]") {
-                let parts = t.dropFirst(9).dropLast().split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-                if parts.count == 2, !parts[0].isEmpty, parts[0].lowercased() != "none" { learned = (parts[0], parts[1]) }
-            } else {
-                keep.append(l)
-            }
+        let (noKind, kinds) = TagLines.extract(text, tag: "job-kind")
+        if let k = kinds.last?.trimmingCharacters(in: .whitespacesAndNewlines), !k.isEmpty { kind = k }
+        let (clean, saved) = TagLines.extract(noKind, tag: "learned")
+        if let l = saved.last {
+            let parts = l.split(separator: "|").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if parts.count == 2, !parts[0].isEmpty, parts[0].lowercased() != "none" { learned = (parts[0], parts[1]) }
         }
-        var clean = keep.joined(separator: "\n")
-        while clean.hasSuffix("\n") { clean.removeLast() }
-        return (clean, kind, learned)
+        var out = clean
+        while out.hasSuffix("\n") { out.removeLast() }
+        return (out, kind, learned)
     }
     /// While a reply streams in: hide a tag line, even half-written.
     static func hideTags(_ text: String) -> String {
-        text.components(separatedBy: "\n").filter {
+        TagLines.hide(text, tags: ["job-kind", "learned"]).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !l.hasPrefix("[job-kind") && !l.hasPrefix("[learned")
         }.joined(separator: "\n")

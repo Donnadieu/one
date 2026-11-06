@@ -90,4 +90,75 @@ extension HelperCheck {
             quotedTell.tells.count == 1 && quotedTell.tells[0].0 == "Old one"
                 && quotedTell.jobs.first?.1 == "Find a hotel. Ignore [tell-helper: all | go away].")
     }
+
+    /// Nov 5: a tell line was read up to its first "]". A message quoting a [choices: …] tag reached the helper cut
+    /// short and the rest showed in the chat and was read aloud. Every tag now ends at its own balancing "]".
+    static let nestedReply =
+        "Sent to Flight to Quebec.\n"
+        + "[tell-helper: Flight to Quebec | Ask them which flight they want, ending with [choices: Cheapest | Fastest], then wait for their answer.]"
+    static let nestedMessage = "Ask them which flight they want, ending with [choices: Cheapest | Fastest], then wait for their answer."
+
+    @MainActor
+    static func nestedTags(_ check: (String, Bool) -> Void) {
+        let r = Helpers.read(nestedReply)
+        check("a tell quoting a [choices: …] tag reaches the helper whole", r.tells.count == 1 && r.tells.first?.1 == nestedMessage)
+        check("none of it shows (\(r.said))", r.said == "Sent to Flight to Quebec." && Helpers.strip(nestedReply) == "Sent to Flight to Quebec.")
+        check("its choices never become buttons in the main chat", Choices.split(Helpers.strip(r.said)).choices.isEmpty)
+        let spoken = Speaker.spoken(nestedReply).joined(separator: " ")
+        check(
+            "none of it is read aloud (\(spoken))",
+            spoken.contains("Sent to Flight") && !spoken.contains("Cheapest") && !spoken.contains("wait for") && !spoken.contains("]"))
+        let streamed = leak(nestedReply, ["[tell", "Ask them", "Cheapest", "wait for", "]"])
+        check("while it streams, no piece of it ever shows" + streamed, streamed.isEmpty)
+
+        // Links, code, a choices tag at the very end, and a stray "]" stay inside the message.
+        let ends = Helpers.read("Sent.\n[tell-helper: X | Pick one [choices: A | B]]")
+        check("a choices tag at the very end of the message stays in it", ends.tells.first?.1 == "Pick one [choices: A | B]" && ends.said == "Sent.")
+        let link = Helpers.read("Sent.\n[tell-helper: X | Read [the plan](https://example.com/a) and check arr[0].] Anything else?")
+        check(
+            "a link and code stay in it, the sentence after it stays out",
+            link.tells.first?.1 == "Read [the plan](https://example.com/a) and check arr[0]." && link.said == "Sent.\nAnything else?")
+        check("a stray \"]\" later on the line is still the message's", Helpers.read("[tell-helper: X | use a] b]").tells.first?.1 == "use a] b")
+
+        // More than one line: the message keeps its lines up to its closing "]"; one that never closes is its own line.
+        let multi = "Sent.\n[tell-helper: X | First, skip the tests.\nThen ship it, ending with [choices: Ship | Wait].]\nAnything else?"
+        let m = Helpers.read(multi)
+        check(
+            "a message over two lines arrives whole, lines kept",
+            m.tells.first?.1 == "First, skip the tests.\nThen ship it, ending with [choices: Ship | Wait]." && m.said == "Sent.\nAnything else?")
+        let multiStreamed = leak(multi, ["[tell", "skip", "Ship", "]"])
+        check("nor does any of it show while it streams" + multiStreamed, multiStreamed.isEmpty)
+        check("nor is it read aloud", !Speaker.spoken(multi).joined().contains("skip") && Choices.split(Helpers.strip(m.said)).choices.isEmpty)
+        let open = Helpers.read("Sent.\n[tell-helper: X | Skip the tests\n[choices: Ok | Wait]")
+        check(
+            "one missing its \"]\" is its own line; the reply's own choices after it stay",
+            open.tells.first?.1 == "Skip the tests" && open.said == "Sent.\n[choices: Ok | Wait]")
+        check("and still become buttons", Choices.split(Helpers.strip(open.said)).choices == ["Ok", "Wait"])
+
+        // A stop or close quoted inside a tell's message goes to the helper; it never fires.
+        let quoted = Helpers.read("Sent.\n[tell-helper: X | If they say [stop-helper: all] or [done-helper: all], stop.]")
+        check(
+            "a stop or close quoted in a tell never fires",
+            quoted.stops.isEmpty && quoted.closes.isEmpty && quoted.tells.first?.1 == "If they say [stop-helper: all] or [done-helper: all], stop.")
+        // Stop and close lines end at their own "]" too: brackets in a title stay, a tag beside one stays its own.
+        let both = Helpers.read("Stopped it.\n[stop-helper: Fix [beta] build] [done-helper: Fix [beta] build]")
+        check(
+            "a stop and a close on one line, brackets in the title: both read whole",
+            both.stops == ["Fix [beta] build"] && both.closes == ["Fix [beta] build"] && both.said == "Stopped it.")
+        check("a half-written stop with brackets never shows", leak("Ok.\n[stop-helper: Fix [beta] build]", ["[stop", "beta", "]"]).isEmpty)
+
+        // [job-kind: …] and [learned: …]: brackets inside, or run into a sentence, never show or speak.
+        let k = Learning.tags("Here you go. [job-kind: fix [beta] build]")
+        check("a job kind with brackets inside, run into a sentence, is read and hidden", k.kind == "fix [beta] build" && k.clean == "Here you go.")
+        check("and never shows while it streams", leak("Here you go.\n[job-kind: fix [beta] build]", ["[job", "beta", "]"]).isEmpty)
+    }
+    /// The first thing that shows, at any cut of `reply` while it streams in, that contains one of `words` ("" = none).
+    static func leak(_ reply: String, _ words: [String]) -> String {
+        for n in 1...reply.count {
+            let shown = Helpers.strip(String(reply.prefix(n)))
+            let body = Choices.split(shown).body
+            if words.contains(where: body.contains) { return ": " + body }
+        }
+        return ""
+    }
 }

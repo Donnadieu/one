@@ -49,6 +49,7 @@ extension LongPasteCheck {
             return asked
         }
 
+        let t0 = Date()
         print("every road in asks once:")
         reset("Hi ")
         NSPasteboard.general.clearContents()
@@ -157,20 +158,27 @@ extension LongPasteCheck {
         check("one line of 2,000 characters is not", !LongPaste.isLong(String(repeating: "a", count: 2000)))
 
         // An already filled box: As text goes in where the cursor was, once; undo and redo never ask again.
+        // (The test window's own undo list, grouped by hand: this check runs inside one long event, where AppKit's
+        // automatic per-event group never closes and an undo would refuse.)
+        let undo = UndoKeeper()
+        w.delegate = undo
         reset("Hello world")
         tv.setSelectedRange(NSRange(location: 6, length: 0))
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcript, forType: .string)
         key(w, "v", code: 9, cmd: true)
         check("a filled box asks too", m.pasteOffer != nil && box.text == "Hello world")
+        undo.u.beginUndoGrouping()
         LongPaste.asText()
+        undo.u.endUndoGrouping()
         pump(0.4)
         check("…As text goes in at the cursor", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
-        tv.undoManager?.undo()
+        undo.u.undo()
         pump(0.3)
         check("…undo takes it out", box.text == "Hello world" && m.pasteOffer == nil)
-        tv.undoManager?.redo()
+        undo.u.redo()
         pump(0.3)
+        w.delegate = nil
         check("…redo puts it back without asking", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
 
         // Typing never asks, however long the message gets.
@@ -178,6 +186,16 @@ extension LongPasteCheck {
         for _ in 0..<5 { tv.insertText(String(repeating: "word ", count: 100), replacementRange: tv.selectedRange()) }
         check("a message written a bit at a time never asks, however long", m.pasteOffer == nil && box.text.count == 2500)
         reset("")
+        print("  (every road took \(Int(Date().timeIntervalSince(t0))) s)")
+    }
+
+    final class UndoKeeper: NSObject, NSWindowDelegate {
+        let u: UndoManager = {
+            let u = UndoManager()
+            u.groupsByEvent = false
+            return u
+        }()
+        func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { u }
     }
 
     static func chatView(in v: NSView?) -> ChatTextView? {

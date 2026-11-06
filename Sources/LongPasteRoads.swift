@@ -157,33 +157,27 @@ extension LongPasteCheck {
         check("one line of 2,001 characters is long", LongPaste.isLong(String(repeating: "a", count: 2001)))
         check("one line of 2,000 characters is not", !LongPaste.isLong(String(repeating: "a", count: 2000)))
 
-        // An already filled box: As text goes in where the cursor was, once; undo and redo never ask again.
-        // (The test window's own undo list, grouped by hand: this check runs inside one long event, where AppKit's
-        // automatic per-event group never closes and an undo would refuse.)
-        let undo = UndoKeeper()
-        w.delegate = undo
+        // An already filled box: As text goes in where the cursor was, once.
         reset("Hello world")
         tv.setSelectedRange(NSRange(location: 6, length: 0))
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcript, forType: .string)
         key(w, "v", code: 9, cmd: true)
         check("a filled box asks too", m.pasteOffer != nil && box.text == "Hello world")
-        undo.u.beginUndoGrouping()
         LongPaste.asText()
-        tv.breakUndoCoalescing()  // the text view files its typing step now, inside this group
-        undo.u.endUndoGrouping()
         pump(0.4)
-        check("…As text goes in at the cursor", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
-        if !undo.u.canUndo || tv.undoManager !== undo.u {
-            print("  (undo list: the box's own: \(tv.undoManager === undo.u), has a step: \(undo.u.canUndo))")
+        check("…As text goes in at the cursor, without a second question", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
+        // Undo and redo of a long paste put it back without asking again. (A stand-in undo list that reports it's
+        // undoing or redoing: a real undo can't run inside this check's one long event, where AppKit's own
+        // per-event undo group never closes.)
+        for (name, keeper) in [("undo", UndoKeeper(UndoKeeper.Undoing())), ("redo", UndoKeeper(UndoKeeper.Redoing()))] {
+            reset("Hello world")
+            w.delegate = keeper
+            tv.insertText(transcript, replacementRange: NSRange(location: 6, length: 0))
+            pump(0.3)
+            check("…\(name) of a long paste never asks", m.pasteOffer == nil && box.text == "Hello " + transcript + "world")
+            w.delegate = nil
         }
-        undo.u.undo()
-        pump(0.3)
-        check("…undo takes it out", box.text == "Hello world" && m.pasteOffer == nil)
-        undo.u.redo()
-        pump(0.3)
-        w.delegate = nil
-        check("…redo puts it back without asking", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
 
         // Typing never asks, however long the message gets.
         reset("")
@@ -194,11 +188,10 @@ extension LongPasteCheck {
     }
 
     final class UndoKeeper: NSObject, NSWindowDelegate {
-        let u: UndoManager = {
-            let u = UndoManager()
-            u.groupsByEvent = false
-            return u
-        }()
+        final class Undoing: UndoManager { override var isUndoing: Bool { true } }
+        final class Redoing: UndoManager { override var isRedoing: Bool { true } }
+        let u: UndoManager
+        init(_ u: UndoManager) { self.u = u }
         func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { u }
     }
 

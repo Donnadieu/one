@@ -69,6 +69,20 @@ check "second run changes nothing" cmp "$T/once.py" "$T/ovl/engine/agent/vault_b
 printf 'def other():\n    pass\n' > "$T/ovl/engine/agent/vault_backends/base.py"
 check "reports failure when Hermes changed" bash -c "ONE_SUPPORT_DIR=$T/ovl $BIN --apply-overlay | grep -q 'overlay failed'"
 
+echo "Standing goals (/goal)"
+check "the goals overlay is bundled" test -f "$APP/Contents/Resources/one_goals.py"
+mkdir -p "$T/goalovl/engine/acp_adapter"
+cp tests/fixtures/acp_gateway_server_pristine.py "$T/goalovl/engine/acp_adapter/gateway_server.py"
+check "hooks into a clean engine's connection (pinned Hermes)" bash -c "ONE_SUPPORT_DIR=$T/goalovl $BIN --apply-overlay | grep -q 'goals overlay ok'"
+check "and copies the module next to it" cmp tools/overlay/acp_adapter/one_goals.py "$T/goalovl/engine/acp_adapter/one_goals.py"
+cp "$T/goalovl/engine/acp_adapter/gateway_server.py" "$T/goalovl/once.py"
+ONE_SUPPORT_DIR="$T/goalovl" "$BIN" --apply-overlay >/dev/null
+check "second run changes nothing" cmp "$T/goalovl/once.py" "$T/goalovl/engine/acp_adapter/gateway_server.py"
+check "the hooked connection still loads" /usr/bin/python3 -c "import ast,sys; ast.parse(open('$T/goalovl/engine/acp_adapter/gateway_server.py').read())"
+check "notes kept out of the goal, the yes rule added, held only while its goal works, Stop pauses it, mid-goal messages reach it" /usr/bin/python3 tools/goal-overlay-check.py
+check "typed /goal commands, Goal: helper jobs, the engine's goal row in plain words, the goal line, Stop" bash -c "ONE_SUPPORT_DIR=$T/goals $TBIN --test-goals | tee $T/goals-out.txt | grep -q '^goals ok'"
+[ $CI = 0 ] && LIMIT=600 check "the real engine with a stand-in model: done, budget, Stop, pause/resume, a helper's goal, a send waiting for a yes" tools/goal-engine-check.sh
+
 echo "Skill folders: a link back up never loops the engine"
 mkdir -p "$T/sw/engine/agent"
 cp tests/fixtures/skill_walk/skill_utils.py tests/fixtures/skill_walk/prompt_builder.py "$T/sw/engine/agent/"

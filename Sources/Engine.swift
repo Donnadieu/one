@@ -564,7 +564,7 @@ final class Engine: @unchecked Sendable {
                     lock.unlock()
                     break
                 }
-                textCB?(t)
+                if !Goals.isNotice(t) { textCB?(t) }  // the goal line says it already (Goals.swift)
             case "tool_call":
                 if let t = u["title"] as? String { toolCB?(t) }
             default: break

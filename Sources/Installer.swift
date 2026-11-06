@@ -105,6 +105,42 @@ enum Installer {
         t += humanStepHook
         return (try? t.write(to: vault, atomically: true, encoding: .utf8)) != nil
     }
+    /// Hook appended to the engine's `acp_adapter/gateway_server.py`: a standing goal (/goal) keeps One's prompt open for
+    /// all of its turns (`acp_adapter/one_goals.py`, copied next to it; Goals.swift). Never breaks One's connection.
+    static let goalsHook = """
+
+        # One: a standing goal (/goal) keeps One's prompt open for all of its turns (acp_adapter/one_goals.py, added by One).
+        try:
+            from acp_adapter.one_goals import install as _one_goals_install
+            _one_goals_install(GatewayACPAgent)
+        except Exception as _one_exc:  # never break One's connection
+            logger.warning("one_goals not installed: %s", _one_exc)
+
+        """
+    /// Copies the goals module into the engine and hooks it into One's ACP connection (idempotent). False when the
+    /// engine's connection no longer has the pieces it wraps (a Hermes bump changed them): goals then run as before.
+    @discardableResult static func applyGoals() -> Bool {
+        let fm = FileManager.default
+        let dir = Env.engineDir.appendingPathComponent("acp_adapter")
+        let server = dir.appendingPathComponent("gateway_server.py")
+        guard let src = Bundle.main.url(forResource: "one_goals", withExtension: "py"), fm.fileExists(atPath: server.path) else { return false }
+        let dst = dir.appendingPathComponent("one_goals.py")
+        if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
+            try? fm.removeItem(at: dst)
+            guard (try? fm.copyItem(at: src, to: dst)) != nil else { return false }
+        }
+        guard var t = try? String(contentsOf: server, encoding: .utf8) else { return false }
+        if t.contains("_one_goals_install") { return true }
+        let parts = ["class GatewayACPAgent", "async def prompt(", "async def _run_slash(", "async def _project(", "async def cancel(", "logger = "]
+        guard parts.allSatisfy({ t.contains($0) }) else { return false }
+        t += goalsHook
+        return (try? t.write(to: server, atomically: true, encoding: .utf8)) != nil
+    }
+    /// `One --apply-overlay`'s lines for the hooks One adds to the engine.
+    static func hooksReport() -> String {
+        (applyHumanStep() ? "human-step overlay ok" : "human-step overlay failed") + "\n"
+            + (applyGoals() ? "goals overlay ok" : "goals overlay failed")
+    }
     /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
     static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
         guard let script = Bundle.main.url(forResource: "hermes-install", withExtension: "sh") else {
@@ -166,6 +202,7 @@ enum Installer {
                     try? FileManager.default.removeItem(at: scratch)
                     applyOverlay()
                     applyHumanStep()
+                    applyGoals()
                     BundledSkills.sync()
                     _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)

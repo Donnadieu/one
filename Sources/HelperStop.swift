@@ -188,6 +188,7 @@ struct HelperCard: View {
             if let a = h.asked, !a.isEmpty { LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true) }
             if h.state == "working" {
                 HelperProgressView(m: m, h: h)  // the real step, its time, its plan line; Nudge when it's gone quiet
+                if let g = m.goals[h.id.uuidString], g.active { GoalLine(g: g, stop: nil) }  // its standing goal (Goals.swift)
                 if !h.reply.isEmpty { ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading) }
             } else if h.reply.isEmpty {
                 Text(h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)

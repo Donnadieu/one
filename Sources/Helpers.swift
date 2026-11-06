@@ -106,7 +106,12 @@ enum Helpers {
         let first = t.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? "Done"
         return short(first, n)
     }
+    /// A job that starts with "Goal:" goes out as a standing goal (Goals.swift): the engine sets it from its /goal line.
     static func brief(assistant: String, user: String, task: String) -> String {
+        let b = job(assistant: assistant, user: user, task: task)
+        return Goals.helperGoal(task).map { Goals.helperPrompt(goal: $0, brief: b) } ?? b
+    }
+    static func job(assistant: String, user: String, task: String) -> String {
         """
         You're one of \(assistant.isEmpty ? "the assistant" : assistant)'s helpers, sent to do one job in the background while \(user.isEmpty ? "they" : user) keep talking to \(assistant.isEmpty ? "the assistant" : assistant). Don't send helpers yourself; do the job.
 

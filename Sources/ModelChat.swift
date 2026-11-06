@@ -35,7 +35,7 @@ extension Model {
                     text: warn
                 ))
         }
-        Installer.applyHumanStep()  // codes, passkeys, human checks: shown to the person, never typed in chat
+        _ = Installer.hooksReport()  // codes, passkeys, human checks shown to the person; standing goals (Goals.swift)
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
         await LearningCap.sync()  // the engine's own after-job learning stays under the nightly limits (LearningCap.swift)
@@ -241,7 +241,7 @@ extension Model {
         update(id) { h in
             // Only the main assistant sends helpers: a helper's own [helper: …] line is dropped, logged, never started.
             let had = !h.reply.isEmpty
-            h.reply = Helpers.dropStrayLines(h.reply, helper: h.title)
+            h.reply = Helpers.dropStrayLines(h.reply, helper: h.title) + self.goalEnd(id)  // a goal out of turns says so
             if had && h.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 h.reply = "I tried to hand this to another helper instead of doing it. Ask me again and I'll do it myself."
             }
@@ -381,7 +381,7 @@ extension Model {
     }
 
     /// toNova: the floating orb always talks to Nova, never to an open helper.
-    func send(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
+    func sendNow(_ text: String, toNova: Bool = false, hidden: Bool = false) async {
         if !hidden { Idle.mark() }  // they're here: notices stay quiet for a while (SayQueue.swift)
         if !isReady { gateCheck() }  // the engine may be up a moment before its news arrives
         if !toNova, let hid = openHelper, let h = openedHelper {
@@ -496,7 +496,7 @@ extension Model {
             let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
             for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
         }
-        full = learnFinish(full, stop: stop, idx: idx)  // [job-kind:] / [learned:] read and hidden; the job recorded
+        full = learnFinish(full, stop: stop, idx: idx) + goalEnd(nil)  // [job-kind:]/[learned:] hidden, the job recorded; a goal out of turns
         detectFolderAsk(full)  // "I don't have access to <path>. Want me to add it?" -> a card, ACP only
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."

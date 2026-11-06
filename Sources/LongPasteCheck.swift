@@ -9,6 +9,7 @@ import SwiftUI
 // "As a file" makes a "Pasted text, N lines" chip whose file holds the exact text, and the sent message carries the
 // path (not the text); "As text" pastes the exact text; Return answers "As a file" and never sends; pictures still
 // attach; long messages fold past 12 lines, open state is remembered per message and survives saved bubbles.
+// Every other road in (Caps Lock, Edit › Paste, right-click, a drop, dictation, focus elsewhere…): LongPasteRoads.swift.
 
 @MainActor
 enum LongPasteCheck {
@@ -35,6 +36,9 @@ enum LongPasteCheck {
         @StateObject var metrics = AskMetrics()
         var body: some View {
             VStack(spacing: 8) {
+                // A reply on screen: a click on it takes the typing focus off the box (the ⌘V-elsewhere road).
+                ChatTextBox(shown: NSAttributedString(string: "Here's what I found."), markdown: "Here's what I found.", open: { _ in })
+                    .frame(height: 40)
                 Spacer()
                 PictureStrip(m: m)
                 AskEditor(text: $box.text, focused: $box.focused, metrics: metrics, onSubmit: { box.text = "SENT" }).frame(height: 120)
@@ -44,11 +48,13 @@ enum LongPasteCheck {
         }
     }
 
-    static func key(_ w: NSWindow, _ chars: String, code: UInt16, cmd: Bool = false) {
+    static func key(_ w: NSWindow, _ chars: String, code: UInt16, cmd: Bool = false, caps: Bool = false) {
         front(w)
+        var flags: NSEvent.ModifierFlags = cmd ? .command : []
+        if caps { flags.insert(.capsLock) }
         for t: NSEvent.EventType in [.keyDown, .keyUp] {
             if let e = NSEvent.keyEvent(
-                with: t, location: .zero, modifierFlags: cmd ? [.command] : [], timestamp: ProcessInfo.processInfo.systemUptime,
+                with: t, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: w.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
             {
                 NSApp.postEvent(e, atStart: false)
@@ -238,6 +244,8 @@ enum LongPasteCheck {
         key(w, "v", code: 9, cmd: true)
         check("a copied picture still attaches as a picture", m.pictures.count == 1 && m.pasteOffer == nil)
         m.pictures = []
+
+        roads(w, box, check)  // every other road in (LongPasteRoads.swift)
 
         w.close()
         print(fails == 0 ? "long paste: all checks passed" : "long paste: \(fails) check(s) failed")

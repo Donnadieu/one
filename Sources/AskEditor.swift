@@ -143,6 +143,37 @@ final class AskScrollView: NSScrollView {
 
 final class AskTextView: NSTextView {
     weak var coordinator: AskEditor.Coordinator?
+    /// The newest ask box put on screen (the writing panel's while it's open): a ⌘V made with the typing focus
+    /// elsewhere in the window goes there (`LongPaste.install`).
+    static weak var latest: AskTextView?
+    /// True while "As text" puts an asked-about paste in: it goes straight in, no second question.
+    var letThrough = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { AskTextView.latest = self }
+    }
+
+    // Every road text takes into the box comes through here: ⌘V (any flags), Edit › Paste, right-click Paste,
+    // Paste and Match Style, a drop, Services, dictation and apps that type for you (Wispr Flow). A long one asks first.
+    override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool {
+        if asks(replacementStrings?.joined(), at: affectedRanges.first?.rangeValue) { return false }
+        return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
+    override func shouldChangeText(in range: NSRange, replacementString s: String?) -> Bool {
+        if asks(s, at: range) { return false }
+        return super.shouldChangeText(in: range, replacementString: s)
+    }
+    private func asks(_ s: String?, at range: NSRange?) -> Bool {
+        guard !letThrough, let s, !(undoManager?.isUndoing ?? false), !(undoManager?.isRedoing ?? false) else { return false }
+        return LongPaste.ask(s, into: self, at: range)
+    }
+    /// Pictures and files on the clipboard attach as chips from the menus too (⌘V does it in `PictureIn.installPaste`).
+    override func paste(_ sender: Any?) {
+        if PictureIn.attach(NSPasteboard.general) { return }
+        super.paste(sender)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok { coordinator?.focusChanged(true) }

@@ -236,7 +236,7 @@ fi
 echo "Long messages and pastes"
 if true; then  # a real window on the CI runner's own screen
   mkdir -p "$T/lp"
-  check "long messages fold and stay open once opened; a long paste asks as a file or as text (Esc, click outside, Return), the file holds the exact text, short pastes and pictures unchanged" bash -c "ONE_SUPPORT_DIR=$T/lp perl -e 'alarm 120; exec @ARGV' $TBIN --test-long-paste | tee $T/lp/out.txt | grep -q '^long paste: all checks passed'"
+  LIMIT=300 check "long messages fold and stay open once opened; a long paste asks as a file or as text by every road in (⌘V, Caps Lock, Edit › Paste, right-click, a drop, dictation, focus on a message), once (Esc, click outside, Return), the file holds the exact text, short pastes and pictures unchanged" bash -c "ONE_SUPPORT_DIR=$T/lp perl -e 'alarm 280; exec @ARGV' $TBIN --test-long-paste > $T/lp/out.txt 2>&1; grep -q '^long paste: all checks passed' $T/lp/out.txt || { grep -E '✗|refusing|stopped' $T/lp/out.txt; tail -4 $T/lp/out.txt; exit 1; }"
   grep "✗" "$T/lp/out.txt" 2>/dev/null | sed 's/^/    /'
 fi
 

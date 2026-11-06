@@ -192,8 +192,8 @@ grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "A hidden browser never shows in the Dock or Stage Manager and never comes to the front"
 mkdir -p "$T/hb"
-LIMIT=180 check "started hidden through the Mac, never in front, background-only; still hidden when the Mac opens Chrome; a start request only on an allowed profile" bash -c "ONE_SUPPORT_DIR=$T/hb $TBIN --test-hidden-browser | tee $T/hb/out.txt | grep -q '^hidden browser ok'"
-grep -E "✗|macOS sent" "$T/hb/out.txt" 2>/dev/null | sed 's/^/    /'
+LIMIT=180 check "started hidden through the Mac, never in front, background-only; still hidden when the Mac opens Chrome; a start request only on an allowed profile" bash -c "ONE_SUPPORT_DIR=$T/hb $TBIN --test-hidden-browser 2>&1 | tee $T/hb/out.txt | grep -q '^hidden browser ok'"
+grep -E "✗|macOS sent|…" "$T/hb/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Restart by itself after a new folder is allowed"
 wait $RS_PID

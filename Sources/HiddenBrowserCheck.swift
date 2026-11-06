@@ -7,7 +7,19 @@ import Foundation
 /// person's screen is in the way: it also opens "Google Chrome" the way a Dock click would while only the hidden one
 /// runs, which is what turned Project Ledger's hidden browser into a normal app with a Dock icon (Nov 2026).
 enum HiddenBrowserCheck {
+    nonisolated(unsafe) static var step = "starting"
+    static func say(_ s: String) {
+        step = s
+        FileHandle.standardError.write(Data("  … \(s)\n".utf8))
+    }
+
     static func run() -> Int32 {
+        setvbuf(stdout, nil, _IONBF, 0)
+        Task.detached {
+            try? await Task.sleep(for: .seconds(150))
+            print("✗ stuck at: \(step)")
+            exit(1)
+        }
         MainActor.assumeIsolated {
             NSApplication.shared.setActivationPolicy(.accessory)
             Task { @MainActor in exit(await checks()) }
@@ -68,6 +80,7 @@ enum HiddenBrowserCheck {
     }
 
     @MainActor static func live(app: String, _ check: (Bool, String) -> Void) async {
+        say("live part: starting a hidden Chrome")
         HiddenBrowser.testing = true
         HiddenBrowser.watch()
         let port = 9871
@@ -76,6 +89,7 @@ enum HiddenBrowserCheck {
         let plan = BrowserKeeper.Plan(port: port, profile: prof, headless: true)
         let e = await Task.detached { HiddenBrowser.launch(app: app, arguments: BrowserKeeper.launchArguments(plan, app: app)) }.value
         check(e == nil, "started through the Mac (\(e ?? "ok"))")
+        say("waiting for it to answer")
         var pid: pid_t?
         var frontSeen = false
         var regularSeen = false
@@ -102,13 +116,23 @@ enum HiddenBrowserCheck {
         check(!regularSeen && r.activationPolicy != .regular, "not a normal app once started: no Dock icon, not in Stage Manager")
 
         // Someone opens "Google Chrome" (a Dock click, Spotlight, a script) while only the hidden one runs.
+        say("opening Google Chrome while only the hidden one runs")
         let c = NSWorkspace.OpenConfiguration()
         c.activates = true
         c.createsNewApplicationInstance = false
-        let opened = await withCheckedContinuation { (k: CheckedContinuation<pid_t?, Never>) in
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: c) { a, _ in k.resume(returning: a?.processIdentifier) }
+        let got = Box<pid_t?>(nil)
+        let answered = Box(false)
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: c) { a, e in
+            got.v = a?.processIdentifier
+            answered.v = true
+            if let e { print("  the Mac said: \(e.localizedDescription)") }
         }
+        let asked = Date()
+        while !answered.v && Date().timeIntervalSince(asked) < 15 { try? await Task.sleep(for: .milliseconds(100)) }
+        if !answered.v { print("  the Mac didn't answer that launch within 15 s") }
+        let opened = got.v
         let reused = opened == pid
+        say("watching the front for 4 s")
         print("  macOS sent that launch to the hidden browser: \(reused ? "yes" : "no, it started their Chrome")")
         var frontAfter = false
         var hiddenOrBackground = true
@@ -131,6 +155,7 @@ enum HiddenBrowserCheck {
             check(kill(pid, 0) != 0, "a hidden browser macOS made a normal app is closed once nothing uses it")
         }
         // Tidy up: the hidden browser and any Chrome that launch started.
+        say("tidying up")
         await HiddenBrowser.close(pid: pid, port: port)
         for x in NSRunningApplication.runningApplications(withBundleIdentifier: HiddenBrowser.chromeID) where !before.contains(x.processIdentifier) {
             x.forceTerminate()

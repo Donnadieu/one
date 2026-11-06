@@ -175,6 +175,9 @@ enum HiddenBrowserCheck {
             try? await Task.sleep(for: .milliseconds(100))
         }
         if let r = NSRunningApplication(processIdentifier: pid), r.activationPolicy == .regular, !r.isHidden { hiddenOrBackground = false }
+        if let r = NSRunningApplication(processIdentifier: pid) {
+            print("  … after that launch: policy \(r.activationPolicy.rawValue) (0 = normal app), hidden \(r.isHidden), front \(frontAfter)")
+        }
         check(!frontAfter, "the hidden browser doesn't stay in front (One hides it within a second)")
         check(hiddenOrBackground, "and stays out of Stage Manager (background-only, or hidden)")
         if reused, NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular {
@@ -185,6 +188,7 @@ enum HiddenBrowserCheck {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             check(kill(pid, 0) != 0, "a hidden browser macOS made a normal app is closed once nothing uses it")
+            print("  … closed once idle: \(kill(pid, 0) != 0)")
         }
         // Tidy up: the hidden browser and any Chrome that launch started.
         say("tidying up")

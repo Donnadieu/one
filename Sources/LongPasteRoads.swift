@@ -171,8 +171,10 @@ extension LongPasteCheck {
         // undoing or redoing: a real undo can't run inside this check's one long event, where AppKit's own
         // per-event undo group never closes.)
         for (name, keeper) in [("undo", UndoKeeper(UndoKeeper.Undoing())), ("redo", UndoKeeper(UndoKeeper.Redoing()))] {
-            reset("Hello world")
             w.delegate = keeper
+            w.makeFirstResponder(nil)
+            reset("Hello world")
+            if tv.undoManager !== keeper.u { print("  (the box's undo list isn't the stand-in: \(String(describing: tv.undoManager)))") }
             tv.insertText(transcript, replacementRange: NSRange(location: 6, length: 0))
             pump(0.3)
             check("…\(name) of a long paste never asks", m.pasteOffer == nil && box.text == "Hello " + transcript + "world")

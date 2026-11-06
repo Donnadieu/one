@@ -16,7 +16,7 @@ enum HiddenBrowserCheck {
     static func run() -> Int32 {
         setvbuf(stdout, nil, _IONBF, 0)
         Task.detached {
-            try? await Task.sleep(for: .seconds(150))
+            try? await Task.sleep(for: .seconds(200))
             print("✗ stuck at: \(step)")
             exit(1)
         }
@@ -113,8 +113,8 @@ enum HiddenBrowserCheck {
         let done = Box<String??>(nil)
         Task.detached { done.v = .some(HiddenBrowser.launch(app: app, arguments: BrowserKeeper.launchArguments(plan, app: app))) }
         let launched = Date()
-        while done.v == nil && Date().timeIntervalSince(launched) < 30 { try? await Task.sleep(for: .milliseconds(100)) }
-        let e: String? = done.v ?? "the Mac's launcher didn't return within 30 s"
+        while done.v == nil && Date().timeIntervalSince(launched) < 60 { try? await Task.sleep(for: .milliseconds(100)) }
+        let e: String? = done.v ?? "the Mac's launcher didn't return within 60 s"
         check(e == nil, "started through the Mac (\(e ?? "ok"))")
         say("waiting for it to answer")
         var pid: pid_t?

@@ -50,6 +50,10 @@ jobs:
       - name: Doc drift (sensitive code changed without its matching doc)
         if: github.event_name == 'pull_request'
         run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+      - name: Chrome opens through the Mac's launcher without its first-open check (the hidden-browser check needs it)
+        run: |
+          xattr -l "/Applications/Google Chrome.app" | cut -c1-120 || true
+          sudo xattr -dr com.apple.quarantine "/Applications/Google Chrome.app" || true
       - name: Preflight (no login needed)
         env:
           ONE_FAST_BUILD: '1'

@@ -27,11 +27,53 @@ enum GoalsCheck {
         check("clear and done also stop it", Goals.command("/goal clear") == .stop && Goals.command("/goal done") == .stop)
         check("anything else sets a goal", Goals.command("/goal Find the cheapest flight") == .set("Find the cheapest flight"))
         check(
+            "a goal with its own limit goes to the engine as typed (its overlay reads the number)",
+            Goals.command("/goal 50 turns: Find a flight") == .set("50 turns: Find a flight")
+                && Goals.command("/goal --turns 50 Find a flight") == .set("--turns 50 Find a flight"))
+        check(
+            "/goal turns 50 changes the limit of the goal here",
+            Goals.command("/goal turns 50") == .turns(50) && Goals.command("/goal turns: 7") == .turns(7)
+                && Goals.command("/goal 30 turns") == .turns(30) && Goals.command("/goal turns") == .status)
+        check("numbers are kept between 1 and 200", Goals.clamp(500) == 200 && Goals.clamp(0) == 1 && Goals.clamp(50) == 50)
+        let at50 = GoalLive(goal: "x", status: "active", turns: 3, max: 50)
+        check("a new limit is said in plain words", Goals.turnsWords(asked: 50, after: at50) == "Done. This goal can take up to 50 turns now.")
+        check(
+            "a capped number says so",
+            Goals.turnsWords(asked: 900, after: GoalLive(goal: "x", status: "active", turns: 3, max: 200)).contains("200 is the most a goal can have")
+        )
+        check(
+            "a limit the goal already passed stops it after this turn",
+            Goals.turnsWords(asked: 2, after: GoalLive(goal: "x", status: "active", turns: 3, max: 2)).contains("stops after the turn at work"))
+        check(
+            "a paused goal is told how to go on",
+            Goals.turnsWords(asked: 40, after: GoalLive(goal: "x", status: "paused", turns: 20, max: 40)).hasSuffix("Say /goal resume to keep going.")
+        )
+        check(
+            "an engine that didn't take it is said plainly",
+            Goals.turnsWords(asked: 50, after: GoalLive(goal: "x", status: "active", turns: 3, max: 20)).hasPrefix("I couldn't change"))
+        check("no goal, no change", Goals.turnsWords(asked: 50, after: nil).hasPrefix("No goal is running"))
+        check(
             "ordinary words aren't commands",
             Goals.command("keep at it") == nil && Goals.command("/goals x") == nil && Goals.command("a /goal b") == nil)
 
         // Helpers that carry a goal.
-        check("a \"Goal:\" job is a goal", Goals.helperGoal("Goal: tidy Downloads; done when it's empty.") == "tidy Downloads; done when it's empty.")
+        check(
+            "a \"Goal:\" job is a goal, with the default limit",
+            Goals.helperGoal("Goal: tidy Downloads; done when it's empty.")?.goal == "tidy Downloads; done when it's empty."
+                && Goals.helperGoal("Goal: tidy")?.turns == nil)
+        let limited = Goals.helperGoal("Goal (50 turns): tidy Downloads")
+        check("a \"Goal (50 turns):\" job carries its own limit", limited?.goal == "tidy Downloads" && limited?.turns == 50)
+        check(
+            "and so do other ways of writing it",
+            Goals.helperGoal("Goal (up to 50 tries): x")?.turns == 50 && Goals.helperGoal("goal(7 turns): x")?.turns == 7
+                && Goals.helperGoal("Goals: x") == nil)
+        let lb = Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal (50 turns): tidy Downloads")
+        check(
+            "its first prompt sets the goal with that limit",
+            lb.hasPrefix("/goal --turns 50 tidy Downloads\n\n(One app note") && lb.contains("up to 50 turns"))
+        check(
+            "a helper asking for too many is told the most",
+            Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal (900 turns): x").contains("up to 200 turns"))
         check("other jobs aren't", Goals.helperGoal("Look only: check the build") == nil && Goals.helperGoal("Goal:") == nil)
         let b = Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal: tidy Downloads")
         check("a goal helper's first prompt sets the goal from its first line", b.hasPrefix("/goal tidy Downloads\n\n(One app note"))
@@ -74,6 +116,10 @@ enum GoalsCheck {
         sql("create table state_meta (key text primary key, value text);")
         sql(#"insert into state_meta values ('goal:h-1', '{"goal": "Tidy Downloads", "status": "active", "turns_used": 4, "max_turns": 20}');"#)
         check("the goal is read from the engine's state", Goals.read("h-1") == GoalLive(goal: "Tidy Downloads", status: "active", turns: 4, max: 20))
+        sql(#"insert into state_meta values ('goal:h-2', '{"goal": "Plan", "status": "active", "turns_used": 2, "max_turns": 50}');"#)
+        check("a goal's own limit is what its line shows", Goals.read("h-2").map(Goals.line) == "Turn 3 of 50")
+        sql(#"insert into state_meta values ('goal:h-3', '{"goal": "Plan", "status": "active", "turns_used": 2}');"#)
+        check("no limit in the row = the default", Goals.read("h-3")?.max == Goals.defaultTurns)
         check("a conversation with no goal has none", Goals.read("nope") == nil)
 
         let m = Model.shared
@@ -102,11 +148,17 @@ enum GoalsCheck {
             m.bubbles.last?.text.hasPrefix("No goal is running") == true && m.bubbles.first?.fromMe == true)
         await m.send("/goal pause")
         check("/goal pause with no goal says so", m.bubbles.last?.text == "No goal is running here.")
+        await m.send("/goal turns 50")
+        check("/goal turns with no goal says so", m.bubbles.last?.text.hasPrefix("No goal is running") == true)
         check("neither started the engine", !Engine.shared.running)
 
         // What the assistant is told.
         check("SOUL tells it how standing goals work", Persona.soul(assistant: "Ava", user: "Omar").contains("Standing goals:"))
         check("so does every main prompt", SessionNotes.main.contains("STANDING GOALS"))
+        check(
+            "and the limit syntax",
+            SessionNotes.main.contains("Goal (50 turns):") && SessionNotes.main.contains("/goal 50 turns:")
+                && SessionNotes.main.contains("/goal turns 50"))
         check("helpers aren't told to send goal helpers", !SessionNotes.helper.contains("STANDING GOALS"))
         print(failures == 0 ? "goals ok" : "goals: \(failures) failed")
         return failures == 0 ? 0 : 1

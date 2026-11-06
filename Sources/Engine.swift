@@ -447,13 +447,15 @@ final class Engine: @unchecked Sendable {
     /// MESSAGE …]"). If it lands after the last step, the engine answers it before the turn ends.
     /// "taken": the running turn took it. "ran": no turn was left, so the engine answered it as its own
     /// (its words stream like any reply). "error: …": nothing was delivered.
-    func steer(_ text: String, session: String? = nil) async -> String {
+    /// raw: the text goes as it is ("/goal turns 50" beside a goal's turn, answered by One's overlay at once).
+    func steer(_ text: String, session: String? = nil, raw: Bool = false) async -> String {
         lock.lock()
         let sid = session ?? sessionID
         let before = sid.map { steerAcks[$0, default: 0] } ?? 0
         lock.unlock()
         guard let sid else { return "error: not started" }
-        let r = await call("session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": "/steer " + text]]], timeout: 1800, alive: sid)
+        let r = await call(
+            "session/prompt", ["sessionId": sid, "prompt": [["type": "text", "text": (raw ? "" : "/steer ") + text]]], timeout: 1800, alive: sid)
         if let e = r["error"] as? [String: Any] { return "error: \(e["message"] ?? "unknown")" }
         if let e = r["error"] { return "error: \(e)" }
         lock.lock()

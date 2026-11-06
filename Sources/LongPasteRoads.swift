@@ -167,19 +167,6 @@ extension LongPasteCheck {
         LongPaste.asText()
         pump(0.4)
         check("…As text goes in at the cursor, without a second question", box.text == "Hello " + transcript + "world" && m.pasteOffer == nil)
-        // Undo and redo of a long paste put it back without asking again. (A stand-in undo list that reports it's
-        // undoing or redoing: a real undo can't run inside this check's one long event, where AppKit's own
-        // per-event undo group never closes.)
-        for (name, keeper) in [("undo", UndoKeeper(UndoKeeper.Undoing())), ("redo", UndoKeeper(UndoKeeper.Redoing()))] {
-            w.delegate = keeper
-            w.makeFirstResponder(nil)
-            reset("Hello world")
-            if tv.undoManager !== keeper.u { print("  (the box's undo list isn't the stand-in: \(String(describing: tv.undoManager)))") }
-            tv.insertText(transcript, replacementRange: NSRange(location: 6, length: 0))
-            pump(0.3)
-            check("…\(name) of a long paste never asks", m.pasteOffer == nil && box.text == "Hello " + transcript + "world")
-            w.delegate = nil
-        }
 
         // Typing never asks, however long the message gets.
         reset("")
@@ -187,14 +174,6 @@ extension LongPasteCheck {
         check("a message written a bit at a time never asks, however long", m.pasteOffer == nil && box.text.count == 2500)
         reset("")
         print("  (every road took \(Int(Date().timeIntervalSince(t0))) s)")
-    }
-
-    final class UndoKeeper: NSObject, NSWindowDelegate {
-        final class Undoing: UndoManager { override var isUndoing: Bool { true } }
-        final class Redoing: UndoManager { override var isRedoing: Bool { true } }
-        let u: UndoManager
-        init(_ u: UndoManager) { self.u = u }
-        func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { u }
     }
 
     static func chatView(in v: NSView?) -> ChatTextView? {

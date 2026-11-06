@@ -298,6 +298,55 @@ async def main():
     check("a change mid-goal is answered while the goal works", quick == "end_turn" and held.stop_reason == "end_turn")
     check("and holds against a stale save", fixed == 60)
 
+    # 13. A goal waiting for them picks back up by itself when they answer in that conversation.
+    a = Agent()
+    set_goal("s17", "paused", turns=2, reason="waiting for you: it asked them to pick a direction", created=7.0, goal="Build")
+    seen = {}
+    async def answer_then_done():
+        await asyncio.sleep(0.4)
+        seen["status"], seen["turns"] = row("s17").get("status"), row("s17").get("turns_used")
+        await event(a, "s17", "message.delta", "t17", "On it with Direction D.")
+        await event(a, "s17", "message.complete", "t17")
+        set_goal("s17", "done", turns=4, created=7.0, goal="Build")
+    t = time.time()
+    r, _ = await asyncio.gather(a.prompt("Direction D", "s17"), answer_then_done())
+    check("their answer makes the waiting goal active again", seen.get("status") == "active")
+    check("and the answer is held like any goal turn until the goal ends", r.stop_reason == "end_turn" and time.time() - t >= 0.4)
+    check("its turn count is kept", seen.get("turns") == 2)
+    set_goal("s18", "paused", turns=2, reason="waiting for you: pick one", created=8.0)
+    await a.prompt("/goal status", "s18")
+    await a.prompt("(One app note, not from the user: x)", "s18")
+    check("a /goal command or One's own note doesn't count as their answer", row("s18").get("status") == "paused")
+    set_goal("s19", "paused", turns=2, reason="judged unachievable: no such API", created=9.0)
+    await a.prompt("ok", "s19")
+    check("a goal that can't be done isn't picked back up by a message", row("s19").get("status") == "paused")
+    set_goal("s20", "paused", turns=20, reason="turn budget exhausted (20/20)", created=9.5)
+    await a.prompt("ok", "s20")
+    check("nor one that used its turns", row("s20").get("status") == "paused")
+
+    # 14. Held while the goal waits on its own helpers (async delegations), past the usual quiet time.
+    db.execute("create table if not exists async_delegations (delegation_id text, parent_session_id text, state text, "
+               "delivery_state text, updated_at real)")
+    db.execute("insert into async_delegations values ('d1', 's21', 'running', 'pending', ?)", (time.time(),))
+    a = Agent()
+    set_goal("s21", "active", turns=1, created=10.0, max_turns=100)
+    async def children_finish():
+        await asyncio.sleep(4.0)
+        db.execute("update async_delegations set state = 'completed', delivery_state = 'delivered' where delegation_id = 'd1'")
+        await event(a, "s21", "message.delta", "t21", "All parts merged.")
+        await event(a, "s21", "message.complete", "t21")
+        set_goal("s21", "done", turns=2, created=10.0, max_turns=100)
+    t = time.time()
+    r, _ = await asyncio.gather(a.prompt("/goal build all parts", "s21"), children_finish())
+    check("its prompt stayed open while its helpers worked (longer than the quiet time)", r.stop_reason == "end_turn" and time.time() - t >= 3.9)
+    db.execute("insert or replace into state_meta values (?, ?)", ("goal:s22", json.dumps(
+        {"goal": "x", "status": "active", "turns_used": 1, "max_turns": 20, "waiting_until": time.time() + 3.5, "created_at": 11.0})))
+    a = Agent()
+    t = time.time()
+    r = await a.prompt("/goal x", "s22")
+    check("a goal parked on a timer is held until it lifts", time.time() - t >= 3.4)
+    check("the yes rule asks for a progress line when the work can be counted", "Progress: 15/282" in g.RULE)
+
 
 asyncio.run(main())
 print("goal overlay ok" if fails == 0 else f"goal overlay: {fails} failed")

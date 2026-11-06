@@ -13,7 +13,11 @@ goal looks like one long reply in One and every safety rule One has for a reply 
   ends (an active goal is always paused by Stop, so nothing carries on by itself);
 - a goal may carry its own turn limit ("/goal 50 turns: <goal>", "/goal --turns 50 <goal>"), passed to the
   engine's own GoalManager.set(max_turns=...), kept between 1 and 200 (a capped number says so in the reply);
-  "/goal turns 50" changes the limit of the goal here, without a turn. No number = the engine's default.
+  "/goal turns 50" changes the limit of the goal here, without a turn. No number = the engine's default;
+- a goal paused "waiting for you" (it asked them something; hermes_cli/one_goal_progress.py tells that apart from
+  a goal that can't be done) picks back up by itself when they answer in that conversation: no /goal resume;
+- while the goal waits on its own delegated helpers (or another wait the engine parked it on), the prompt stays
+  open, so the helper still shows as working and their results' turns reach One.
 """
 from __future__ import annotations
 
@@ -31,6 +35,9 @@ MARK = "\n\n(One app note"
 # After a turn the judge runs (30 s time limit by default) and then the next turn starts; quality gates may take
 # their own time limit on top. Nothing at all happening for this long means the goal is waiting on something.
 IDLE_SECONDS = float(os.environ.get("ONE_GOAL_IDLE", "120"))
+# The longest a prompt stays open for a goal parked on a wait (its own helpers, a background process, a timer).
+PARK_MAX_SECONDS = float(os.environ.get("ONE_GOAL_PARK_MAX", "14400"))
+WAITING = "waiting for you: "  # the paused_reason one_goal_progress.py writes
 POLL_SECONDS = 0.5
 
 
@@ -70,7 +77,9 @@ SAFETY = ("stop when: the next step needs their yes (sending, posting, spending 
           "choice only they can make: ask once in plain words, ending with a [choices: ...] line, and stop there")
 
 RULE = ("\n\n(One app note, not from the user: STANDING GOAL. Sending, posting, spending money and deleting still need "
-        "their yes inside a goal: before that step, ask once in plain words ending with a [choices: ...] line, and stop.)")
+        "their yes inside a goal: before that step, ask once in plain words ending with a [choices: ...] line, and stop. "
+        "When the work can be counted (requirements, tests, items), end each turn with one line like \"Progress: 15/282\": "
+        "the goal keeps going while that count moves.)")
 
 
 def with_safety(command):
@@ -131,6 +140,81 @@ def capped_words(asked, turns):
     return f"A goal needs at least {MIN_TURNS} turn, so this one has {MIN_TURNS}."
 
 
+def write_row(home, session_id, state):
+    """The goal's row written back as is (when the engine's own GoalManager couldn't)."""
+    try:
+        con = sqlite3.connect(os.path.join(str(home), "state.db"), timeout=5)
+        try:
+            con.execute("update state_meta set value = ? where key = ?", (json.dumps(state), f"goal:{session_id}"))
+            con.commit()
+        finally:
+            con.close()
+    except Exception:
+        logger.warning("one goals: couldn't write the goal of %s", session_id, exc_info=True)
+
+
+def prompt_text(prompt):
+    if isinstance(prompt, str):
+        return prompt
+    out = []
+    for b in prompt or []:
+        t = b.get("text") if isinstance(b, dict) else getattr(b, "text", None)
+        if isinstance(t, str):
+            out.append(t)
+    return "".join(out)
+
+
+def answers_them(text):
+    """A message from them: not a /command, not only One's own notes."""
+    t = (text or "").strip()
+    return bool(t) and not t.startswith("/") and not t.startswith("(One app note")
+
+
+def waits_on_them(state):
+    return bool(state) and state.get("status") == "paused" and str(state.get("paused_reason") or "").startswith(WAITING)
+
+
+def resume_waiting(home, session_id):
+    """A goal paused waiting for them is active again (its turn count kept). True when it was."""
+    if not waits_on_them(goal_state(home, session_id)):
+        return False
+    try:
+        from hermes_cli import goals as engine_goals
+        mgr = engine_goals.GoalManager(session_id=session_id)
+        if mgr.state is not None and mgr.state.status == "paused":
+            mgr.resume(reset_budget=False)
+    except Exception:
+        logger.debug("one goals: GoalManager resume failed", exc_info=True)
+    state = goal_state(home, session_id)
+    if waits_on_them(state):
+        state.update(status="active", paused_reason=None)
+        write_row(home, session_id, state)
+    return is_active(goal_state(home, session_id))
+
+
+def live_delegations(home, session_id):
+    """The goal's own delegated helpers still at work, or whose results are still on their way to it."""
+    path = os.path.join(str(home), "state.db")
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            row = con.execute(
+                "select count(*) from async_delegations where parent_session_id = ? and updated_at > ? and "
+                "(state in ('running', 'stalling', 'finalizing') or delivery_state = 'pending')",
+                (session_id, time.time() - 6 * 3600)).fetchone()
+        finally:
+            con.close()
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+
+
+def parked(state):
+    """The engine parked the goal on a wait (a timer, a process, its own helpers) that hasn't lifted yet."""
+    return bool(state) and ((state.get("waiting_until") or 0) > time.time() or bool(state.get("waiting_on_pid"))
+                            or bool(state.get("waiting_on_session")))
+
+
 def set_limit(home, session_id, turns, fresh=False):
     """The goal's own turn limit, through the engine's GoalManager: ``fresh`` (the goal was just set) re-sets it with
     ``GoalManager.set(goal, max_turns=..., contract=...)``; otherwise the goal at work (active or paused) keeps
@@ -149,16 +233,8 @@ def set_limit(home, session_id, turns, fresh=False):
         logger.debug("one goals: GoalManager limit write failed", exc_info=True)
     state = goal_state(home, session_id)
     if state and state.get("status") in ("active", "paused") and state.get("max_turns") != turns:
-        try:
-            con = sqlite3.connect(os.path.join(str(home), "state.db"), timeout=5)
-            try:
-                state["max_turns"] = turns
-                con.execute("update state_meta set value = ? where key = ?", (json.dumps(state), f"goal:{session_id}"))
-                con.commit()
-            finally:
-                con.close()
-        except Exception:
-            logger.warning("one goals: couldn't set the turn limit of %s", session_id, exc_info=True)
+        state["max_turns"] = turns
+        write_row(home, session_id, state)
         state = goal_state(home, session_id)
     return state
 
@@ -259,6 +335,8 @@ def install(cls):
             w.writer = None
         w.inflight += 1
         try:
+            if answers_them(prompt_text(prompt)) and await asyncio.to_thread(resume_waiting, self._home, sid):
+                logger.info("one goals: %s answered: its goal picks back up", sid)
             return await held_prompt(self, prompt, session_id, sid, w, **kwargs)
         finally:
             w.inflight -= 1
@@ -282,7 +360,7 @@ def install(cls):
 
     async def hold(self, sid, w):
         """Wait while the engine's goal loop works on this conversation. "cancelled" when Stop ended it."""
-        turns, began = None, time.monotonic()
+        turns, began, looked = None, time.monotonic(), 0.0
         w.last = time.monotonic()
         logger.info("one goals: holding %s for its goal", sid)
         while not w.cancelled and getattr(self, "_failure", None) is None:
@@ -299,6 +377,11 @@ def install(cls):
                 w.last = time.monotonic()
             if w.running():
                 w.last = time.monotonic()
+            if time.monotonic() - began < PARK_MAX_SECONDS and time.monotonic() - looked > min(5.0, IDLE_SECONDS / 3):
+                # Parked on its own helpers (or another wait): not idle, it carries on when their results come.
+                looked = time.monotonic()
+                if parked(state) or await asyncio.to_thread(live_delegations, self._home, sid):
+                    w.last = time.monotonic()
             idle = IDLE_SECONDS + sum(float(g.get("timeout_seconds") or 0) for g in state.get("gates") or [])
             if time.monotonic() - w.last > idle:
                 logger.info("one goals: %s goal still active but idle %.0f s: answering now", sid, idle)

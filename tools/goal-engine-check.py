@@ -49,21 +49,38 @@ def answer(body):
     last = users[-1] if users else ""
     if "strict judge" in system.lower():
         verdict = "done" if "DONE-MARK" in last else "blocked" if "ASK-MARK" in last else "continue"
+        out = {"verdict": verdict, "reason": f"stand-in judge: {verdict}"}
+        if "COLOR-ASK" in last:  # a question only they can answer: the judge says so (One asks it to)
+            out.update(verdict="blocked", needs_user=True)
+        if "quietly" in last:
+            out["progress"] = True  # no count anywhere: the judge's own "it moved"
+        if "STILL-MARK" in last:
+            out["progress"] = False
         with LOCK:
             REQUESTS.append((time.time(), "judge", last, whole))
-        return json.dumps({"verdict": verdict, "reason": f"stand-in judge: {verdict}"})
+        return json.dumps(out)
     goals = re.findall(r"Count to (\d+)", whole)
-    if not body.get("tools") or (not goals and "Email the note" not in whole):
+    special = any(k in whole for k in ("Email the note", "Stuck counting", "Think about"))
+    if not body.get("tools") or (not goals and not special):
         return "OK"  # titles and other side requests (a turn of the agent always carries its tools)
     with LOCK:
         REQUESTS.append((time.time(), "turn", last, whole))
     if "slowly" in whole:
         time.sleep(1.5)
     if "Email the note" in whole and not goals:
+        if "Yes, send it" in last:
+            return "Sent it to bob@example.com. DONE-MARK"
         return "The note is ready. Sending it needs your yes. ASK-MARK\n\n[choices: Yes, send it | Not now]"
-    said = [m for m in msgs if m.get("role") == "assistant" and re.fullmatch(r"\s*\d+( DONE-MARK)?\s*", text(m) or "")]
+    if "Stuck counting" in whole:
+        return "Tried again.\nProgress: 3/9"
+    if "Think about" in whole:
+        return "Still thinking it over. STILL-MARK"
+    if "Ask me a color" in whole and not any(c in u for u in users[1:] for c in ("Red", "Blue")):
+        return "Which color should I use? COLOR-ASK\n\n[choices: Red | Blue]"
+    said = [m for m in msgs if m.get("role") == "assistant" and re.fullmatch(r"\s*\d+( DONE-MARK)?(\s*Progress: \d+/\d+)?\s*", text(m) or "")]
     n, target = len(said) + 1, int(goals[-1])
-    return f"{n} DONE-MARK" if n >= target else str(n)
+    words = f"{n} DONE-MARK" if n >= target else str(n)
+    return words + (f"\nProgress: {n}/{target}" if "Report progress" in whole else "")
 
 
 class Model(http.server.BaseHTTPRequestHandler):
@@ -121,6 +138,9 @@ with open(os.path.join(HOME, "config.yaml"), "w") as f:
   context_length: 200000
 goals:
   max_turns: 4
+  extend_by: 3
+  max_turns_ceiling: 10
+  stall_turns: 2
 auxiliary:
   goal_judge:
     provider: custom
@@ -184,20 +204,30 @@ def prompt(sid, text, timeout=240):
     return (r.get("result") or {}).get("stopReason") or f"error: {r.get('error')}"
 
 
-def state(sid):
+def state(sid, key="goal:"):
     import sqlite3
     try:
         c = sqlite3.connect(f"file:{HOME}/state.db?mode=ro", uri=True)
-        row = c.execute("select value from state_meta where key=?", ("goal:" + sid,)).fetchone()
+        row = c.execute("select value from state_meta where key=?", (key + sid,)).fetchone()
         c.close()
         return json.loads(row[0]) if row else {}
     except Exception:
         return {}
 
 
+def progress(sid):
+    return state(sid, "one-goal:")
+
+
 def turns_since(t0):
     with LOCK:
         return [r for r in REQUESTS if r[0] >= t0 and r[1] == "turn"]
+
+
+def goal_turns_since(t0, words):
+    """The goal's own turns since t0 in the conversation whose goal has these words: the engine's after-job review
+    (its "Review the conversation above…" fork, which starts after 10 turns) is not a turn of the goal."""
+    return [r for r in turns_since(t0) if words in r[3] and not r[2].startswith("Review the conversation above")]
 
 
 def judged_since(t0):
@@ -330,9 +360,68 @@ stop = prompt(e, "/goal Email the note to bob@example.com." + NOTE)
 s = state(e)
 check("it stopped at the ask, after one turn", stop == "end_turn" and len(turns_since(t0)) == 1, f"{stop}, {len(turns_since(t0))}")
 check("the goal is paused on them, not carried on", s.get("status") == "paused" and s.get("last_verdict") == "blocked", f"{s.get('status')}, {s.get('last_verdict')}")
+check("as waiting for you, not unachievable", (s.get("paused_reason") or "").startswith("waiting for you"), s.get("paused_reason"))
 check("the ask reached One with its choices", "[choices: Yes, send it | Not now]" in texts.get(e, ""))
 time.sleep(4)
 check("no next turn took the step", len(turns_since(t0)) == 1)
+t1 = time.time()
+stop = prompt(e, "Yes, send it" + NOTE)
+s = state(e)
+check("their yes picks the goal back up by itself, and the step is taken then", stop == "end_turn" and s.get("status") == "done"
+      and "Yes, send it" in (turns_since(t1)[0][2] if turns_since(t1) else ""), f"{stop}, {s.get('status')}")
+
+print("A goal keeps going while it makes progress", flush=True)
+p1 = new_session()
+t0 = time.time()
+stop = prompt(p1, "/goal Count to 7, one number per turn. Report progress." + NOTE)
+s, pr = state(p1), progress(p1)
+check("it ran past its limit of 4 while the count moved, and finished", stop == "end_turn" and s.get("status") == "done"
+      and len(turns_since(t0)) == 7, f"{stop}, {s.get('status')}, {len(turns_since(t0))} turns")
+check("it was given 3 more turns once", s.get("max_turns") == 7 and pr.get("extended") == 1, f"{s.get('max_turns')}, {pr}")
+check("One sees its count", pr.get("done") == 7 and pr.get("total") == 7, str(pr))
+check("the judge was asked whether each turn moved it", any('"needs_user"' in j[3] for j in judged_since(t0)))
+p2 = new_session()
+t0 = time.time()
+stop = prompt(p2, "/goal Count to 30, one number per turn. Report progress." + NOTE)
+s, pr = state(p2), progress(p2)
+mine = goal_turns_since(t0, "Count to 30")
+check("the ceiling (10 here) stops it, moving or not", s.get("status") == "paused" and s.get("max_turns") == 10
+      and len(mine) == 10 and pr.get("ceiling") is True and pr.get("seen") == 10,
+      f"{s.get('status')}, {s.get('max_turns')}, {len(mine)} of {len(turns_since(t0))} turns, {pr}, last asks: {[r[2][:60] for r in turns_since(t0)[-3:]]}")
+p3 = new_session()
+t0 = time.time()
+stop = prompt(p3, "/goal Stuck counting to 9, one per turn. Report progress." + NOTE)
+s = state(p3)
+check("a count that stops moving pauses it (after 2 flat turns here), and says why with the count",
+      stop == "end_turn" and len(turns_since(t0)) == 3 and s.get("paused_reason") == "stalled: no progress in the last 2 turns (3/9 done)",
+      f"{len(turns_since(t0))} turns, {s.get('paused_reason')}")
+p4 = new_session()
+t0 = time.time()
+stop = prompt(p4, "/goal Count to 6 quietly, one number per turn." + NOTE)
+s = state(p4)
+check("no count: the judge's 'it moved' gets it more turns", s.get("status") == "done" and s.get("max_turns") == 7
+      and len(turns_since(t0)) == 6, f"{s.get('status')}, {s.get('max_turns')}, {len(turns_since(t0))}")
+p5 = new_session()
+t0 = time.time()
+stop = prompt(p5, "/goal Think about 9 ideas, one per turn." + NOTE)
+s = state(p5)
+check("no count and the judge sees nothing moving: it stalls", len(turns_since(t0)) == 2
+      and (s.get("paused_reason") or "").startswith("stalled"), f"{len(turns_since(t0))}, {s.get('paused_reason')}")
+
+print("Waiting for you, then their answer", flush=True)
+w1 = new_session()
+t0 = time.time()
+stop = prompt(w1, "/goal Ask me a color, then Count to 2, one number per turn." + NOTE)
+s = state(w1)
+check("a question to them pauses it as waiting for you", stop == "end_turn" and s.get("status") == "paused"
+      and (s.get("paused_reason") or "").startswith("waiting for you") and len(turns_since(t0)) == 1, f"{s.get('paused_reason')}")
+time.sleep(3)
+check("and nothing runs while it waits", len(turns_since(t0)) == 1)
+t1 = time.time()
+stop = prompt(w1, "Blue" + NOTE)
+s = state(w1)
+check("their answer picks it back up by itself (no /goal resume) and it runs to done", stop == "end_turn" and s.get("status") == "done"
+      and len(turns_since(t1)) == 2, f"{stop}, {s.get('status')}, {len(turns_since(t1))} turns")
 
 engine.terminate()
 try:

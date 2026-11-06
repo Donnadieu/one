@@ -70,10 +70,14 @@ enum GoalsCheck {
         let lb = Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal (50 turns): tidy Downloads")
         check(
             "its first prompt sets the goal with that limit",
-            lb.hasPrefix("/goal --turns 50 tidy Downloads\n\n(One app note") && lb.contains("up to 50 turns"))
+            lb.hasPrefix("/goal --turns 50 tidy Downloads\n\n(One app note") && lb.contains("starts with 50 turns"))
         check(
             "a helper asking for too many is told the most",
-            Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal (900 turns): x").contains("up to 200 turns"))
+            Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal (900 turns): x").contains("starts with 200 turns"))
+        check(
+            "a goal helper is told it keeps going while it makes progress, and to report its count",
+            lb.contains("gets more while it keeps making progress (up to 500)") && lb.contains("Progress: 15/282")
+                && lb.contains("nothing moves for 5 turns"))
         check("other jobs aren't", Goals.helperGoal("Look only: check the build") == nil && Goals.helperGoal("Goal:") == nil)
         let b = Helpers.brief(assistant: "Ava", user: "Omar", task: "Goal: tidy Downloads")
         check("a goal helper's first prompt sets the goal from its first line", b.hasPrefix("/goal tidy Downloads\n\n(One app note"))
@@ -98,8 +102,40 @@ enum GoalsCheck {
             "done, blocked and no-goal have no end note",
             Goals.endNote(GoalLive(goal: "x", status: "done", turns: 2, max: 20)).isEmpty && Goals.endNote(nil).isEmpty)
         let blocked = GoalLive(
-            goal: "Email Bob", status: "paused", turns: 1, max: 20, verdict: "blocked", reason: "judged unachievable: needs their yes")
-        check("waiting on their yes reads as waiting on them", blocked.waitsOnThem && Goals.statusWords(blocked).hasPrefix("Waiting on you"))
+            goal: "Email Bob", status: "paused", turns: 1, max: 20, verdict: "blocked", reason: "waiting for you: needs their yes")
+        check(
+            "waiting on their yes reads as waiting for them, and says it carries on by itself",
+            blocked.waitsOnThem && !blocked.cantBeDone && Goals.statusWords(blocked).hasPrefix("Waiting for you")
+                && Goals.statusWords(blocked).contains("I'll carry on") && !Goals.statusWords(blocked).contains("/goal resume"))
+        let cant = GoalLive(goal: "x", status: "paused", turns: 1, max: 20, verdict: "blocked", reason: "judged unachievable: no such API")
+        check(
+            "a goal that can't be done isn't waiting on them",
+            cant.cantBeDone && !cant.waitsOnThem && Goals.statusWords(cant).contains("can't be done"))
+        let stalled = GoalLive(
+            goal: "Build it", status: "paused", turns: 9, max: 20, verdict: "continue",
+            reason: "stalled: no progress in the last 5 turns (40/282 done)",
+            lastTurnAt: Date().timeIntervalSince1970, done: 40, total: 282)
+        check(
+            "a stalled goal says plainly why, with the count",
+            stalled.stalled && Goals.endNote(stalled).contains("no progress in the last 5 turns (40/282 done)")
+                && Goals.statusWords(stalled).contains("no progress in the last 5 turns"))
+        let top = GoalLive(
+            goal: "x", status: "paused", turns: 500, max: 500, reason: "turn budget exhausted (500/500)", done: 270, total: 282, ceiling: true)
+        check(
+            "the ceiling is said as the most a goal can run",
+            Goals.endNote(top).contains("the most a goal can run") && Goals.endNote(top).contains("270/282"))
+
+        // Progress, as the engine's goal loop keeps it beside the goal (one_goal_progress.py).
+        let goalRow = #"{"goal": "Build", "status": "active", "turns_used": 33, "max_turns": 40, "created_at": 1793936227.5}"#
+        let mine = #"{"created_at": 1793936227.5, "seen": 34, "done": 120, "total": 282, "extended_at": 30, "extended_by": 20}"#
+        let p = Goals.parse(goalRow, progress: mine)
+        check("its count is read with the goal", p?.done == 120 && p?.total == 282 && p?.extendedBy == nil)
+        check("the line shows the turn and the count, not the limit", p.map(Goals.line) == "Turn 34 · 120/282 done")
+        let ext = Goals.parse(goalRow, progress: mine.replacingOccurrences(of: "\"extended_at\": 30", with: "\"extended_at\": 33"))
+        check("and says when it was just given more turns", ext.map(Goals.line) == "Turn 34 · 120/282 done · +20 turns, still moving")
+        check("a count without a total", Goals.line(GoalLive(goal: "x", status: "active", turns: 11, max: 20, done: 37)) == "Turn 12 · 37 done")
+        let old = Goals.parse(goalRow, progress: mine.replacingOccurrences(of: "1793936227.5", with: "1"))
+        check("a count from an earlier goal isn't used", old?.done == nil && old.map(Goals.line) == "Turn 34 of 40")
         check("status words", Goals.statusWords(live).contains("Turn 3 of 20") && Goals.statusWords(nil).hasPrefix("No goal is running"))
         check(
             "the engine's own goal-set notice is kept off the screen",
@@ -152,9 +188,38 @@ enum GoalsCheck {
         check("/goal turns with no goal says so", m.bubbles.last?.text.hasPrefix("No goal is running") == true)
         check("neither started the engine", !Engine.shared.running)
 
+        // A /goal command passed on with [tell-helper: …] runs as one in that helper (it used to arrive as
+        // "From Omar, via Ava: /goal resume", plain words, and the goal stayed paused).
+        let told = Helper(title: "Build EK intake tool", task: "Goal: x", sid: "h-1", state: "done", line: "")
+        m.helpers = [told]
+        m.paused = true  // queued, never run: no engine here
+        m.followUps = []
+        m.tellHelper(told.id, message: "/goal resume")
+        for _ in 0..<30 where m.followUps.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+        check(
+            "a told /goal resume goes to that helper as the command itself",
+            m.followUps.count == 1 && m.followUps.first?.engine == "/goal resume" && m.followUps.first?.helper == told.id)
+        m.followUps = []
+        m.tellHelper(told.id, message: "/goal status")
+        for _ in 0..<30 where m.helpers.first?.asked != "/goal status" { try? await Task.sleep(for: .milliseconds(100)) }
+        check(
+            "a told /goal status is answered in that helper's thread from its goal",
+            m.followUps.isEmpty && m.helpers.first?.asked == "/goal status" && m.helpers.first?.reply.contains("Tidy Downloads") == true)
+        m.tellHelper(told.id, message: "skip the tests")
+        check(
+            "other words still say who they're from",
+            m.followUps.last?.engine.hasPrefix("From ") == true && m.followUps.last?.engine.hasSuffix("skip the tests") == true)
+        m.followUps = []
+        m.paused = false
+        m.helpers = []
+
         // What the assistant is told.
         check("SOUL tells it how standing goals work", Persona.soul(assistant: "Ava", user: "Omar").contains("Standing goals:"))
         check("so does every main prompt", SessionNotes.main.contains("STANDING GOALS"))
+        check(
+            "and where a goal's progress is counted",
+            SessionNotes.main.contains("Progress: file `") && SessionNotes.main.contains("Progress: command `")
+                && SessionNotes.main.contains("a safety net, not a target") && SessionNotes.main.contains("[tell-helper: <title> | /goal resume]"))
         check(
             "and the limit syntax",
             SessionNotes.main.contains("Goal (50 turns):") && SessionNotes.main.contains("/goal 50 turns:")

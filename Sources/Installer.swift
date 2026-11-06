@@ -117,24 +117,49 @@ enum Installer {
             logger.warning("one_goals not installed: %s", _one_exc)
 
         """
-    /// Copies the goals module into the engine and hooks it into One's ACP connection (idempotent). False when the
-    /// engine's connection no longer has the pieces it wraps (a Hermes bump changed them): goals then run as before.
+    /// Hook appended to the engine's `hermes_cli/goals.py`: a goal keeps going while it makes progress, stops when it
+    /// stalls, waits for them instead of giving up (`hermes_cli/one_goal_progress.py`, copied next to it).
+    static let progressHook = """
+
+        # One: a goal keeps going while it makes progress (hermes_cli/one_goal_progress.py, added by One).
+        try:
+            import sys as _one_sys
+            from hermes_cli.one_goal_progress import install as _one_goal_progress_install
+            _one_goal_progress_install(_one_sys.modules[__name__])
+        except Exception as _one_exc:  # never break the engine's goals
+            logger.warning("one_goal_progress not installed: %s", _one_exc)
+
+        """
+    /// Copies the goals modules into the engine and hooks them into One's ACP connection and the engine's goal loop
+    /// (idempotent). False when either no longer has the pieces it wraps (a Hermes bump changed them): goals then run
+    /// as before.
     @discardableResult static func applyGoals() -> Bool {
+        let connection = hook(
+            "acp_adapter", "one_goals", into: "gateway_server.py", mark: "_one_goals_install", text: goalsHook,
+            needs: ["class GatewayACPAgent", "async def prompt(", "async def _run_slash(", "async def _project(", "async def cancel(", "logger = "])
+        let loop = hook(
+            "hermes_cli", "one_goal_progress", into: "goals.py", mark: "_one_goal_progress_install", text: progressHook,
+            needs: [
+                "class GoalManager", "def evaluate_after_turn(", "def judge_goal(", "def _call_goal_judge_llm(", "def _budget_pause(", "logger = ",
+            ])
+        return connection && loop
+    }
+    /// Copies bundled `<module>.py` into `engine/<dir>/` and appends `text` to `<file>` there once (`mark` = done).
+    static func hook(_ dir: String, _ module: String, into file: String, mark: String, text: String, needs: [String]) -> Bool {
         let fm = FileManager.default
-        let dir = Env.engineDir.appendingPathComponent("acp_adapter")
-        let server = dir.appendingPathComponent("gateway_server.py")
-        guard let src = Bundle.main.url(forResource: "one_goals", withExtension: "py"), fm.fileExists(atPath: server.path) else { return false }
-        let dst = dir.appendingPathComponent("one_goals.py")
+        let folder = Env.engineDir.appendingPathComponent(dir)
+        let target = folder.appendingPathComponent(file)
+        guard let src = Bundle.main.url(forResource: module, withExtension: "py"), fm.fileExists(atPath: target.path) else { return false }
+        let dst = folder.appendingPathComponent(module + ".py")
         if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
             try? fm.removeItem(at: dst)
             guard (try? fm.copyItem(at: src, to: dst)) != nil else { return false }
         }
-        guard var t = try? String(contentsOf: server, encoding: .utf8) else { return false }
-        if t.contains("_one_goals_install") { return true }
-        let parts = ["class GatewayACPAgent", "async def prompt(", "async def _run_slash(", "async def _project(", "async def cancel(", "logger = "]
-        guard parts.allSatisfy({ t.contains($0) }) else { return false }
-        t += goalsHook
-        return (try? t.write(to: server, atomically: true, encoding: .utf8)) != nil
+        guard var t = try? String(contentsOf: target, encoding: .utf8) else { return false }
+        if t.contains(mark) { return true }
+        guard needs.allSatisfy({ t.contains($0) }) else { return false }
+        t += text
+        return (try? t.write(to: target, atomically: true, encoding: .utf8)) != nil
     }
     /// `One --apply-overlay`'s lines for the hooks One adds to the engine.
     static func hooksReport() -> String {

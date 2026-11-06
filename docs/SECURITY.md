@@ -90,6 +90,15 @@ boundaries today, not an aspirational version of them.
   to `--remote-debugging-address=127.0.0.1` explicitly (`Sources/BrowserKeeper.swift`),
   rather than relying on Chrome's current default, so the debugging port is
   never reachable from outside the Mac.
+- Since 0.9.97 every hidden Chrome One starts goes through `HiddenBrowser.launch`
+  (`Sources/HiddenBrowser.swift`): the Mac's own launcher, a new copy, never
+  brought forward, outside the folder lock. The engine can ask for one on
+  another saved profile (`One --hidden-browser <port> <profile>`), but One only
+  starts it on a profile in its own folder or a folder the person approved,
+  never on their own Chrome's folder, always headless and on 127.0.0.1, with a
+  short list of allowed extra switches and only http(s) pages. Any headless
+  Chrome that comes to the front is hidden at once; one macOS turned into a
+  normal app is hidden and, if it's One's, closed politely when nothing uses it.
 - Widening this profile to "all of home" defeats the entire point of the
   lock; `docs/ARCHITECTURE.md` rule 4 says so explicitly, and any new
   allow-listed path should be the narrowest one that actually unblocks the

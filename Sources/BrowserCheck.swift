@@ -25,7 +25,11 @@ enum BrowserCheck {
         expect(BrowserKeeper.plan(config: "", settings: nil) == nil, "nothing set up, nothing started")
 
         let a = BrowserKeeper.launchArguments(q!, app: "/Applications/Google Chrome.app")
-        expect(a.prefix(4) == ["-g", "-n", "-a", "/Applications/Google Chrome.app"], "starts through the Mac, in the background")
+        expect(a.first == "--headless=new" && !a.contains("-a") && !a.contains("--args"), "Chrome's own switches, never `open`'s")
+        let o = HiddenBrowser.openArguments(app: "/Applications/Google Chrome.app", arguments: a)
+        expect(
+            o.prefix(5) == ["-g", "-n", "-a", "/Applications/Google Chrome.app", "--args"] && Array(o.dropFirst(5)) == a,
+            "starts through the Mac as a new copy, never brought forward")
         expect(a.contains("--user-data-dir=\(q!.profile)") && a.contains("--remote-debugging-port=9223"), "same profile, same port")
         expect(a.contains("--headless=new"), "hidden")
         expect(!a.contains("--no-sandbox"), "Chrome keeps its own safety sandbox (it runs outside the folder lock)")

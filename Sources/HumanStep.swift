@@ -79,6 +79,8 @@ extension Model {
     /// Runs every second: shows new requests, and clears ones the page or the engine already settled.
     func tendHumanSteps() {
         tendFolderLedger()  // a folder added outside the ask-in-chat flow gets flagged (FolderApprovals.swift)
+        // Hidden browsers never in the Dock or in front; one macOS made a normal app restarts once nothing uses it.
+        HiddenBrowser.tend(idle: !helpers.contains(where: HelperClose.busy) && humanSteps.isEmpty)
         let now = HumanStep.pending()
         for a in now where !humanSteps.contains(where: { $0.id == a.id }) {
             humanSteps.append(a)

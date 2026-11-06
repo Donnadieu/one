@@ -190,6 +190,11 @@ mkdir -p "$T/br"
 check "same profile and port, hidden, never from a test copy; Claude sign-in read from its cookie" bash -c "ONE_SUPPORT_DIR=$T/br $TBIN --test-browser | tee $T/br/out.txt | grep -q '^browser ok'"
 grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "A hidden browser never shows in the Dock or Stage Manager and never comes to the front"
+mkdir -p "$T/hb"
+LIMIT=240 check "started hidden through the Mac, never in front, background-only; still hidden when the Mac opens Chrome; a start request only on an allowed profile" bash -c "ONE_SUPPORT_DIR=$T/hb $TBIN --test-hidden-browser 2>&1 | tee $T/hb/out.txt | grep -q '^hidden browser ok'"
+grep -E "✗|macOS sent|…" "$T/hb/out.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "Restart by itself after a new folder is allowed"
 wait $RS_PID
 check "a changed folder list restarts once with the new folder, an unchanged one never" grep -q '^restart ok' "$T/rs/out.txt"

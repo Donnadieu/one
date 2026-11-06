@@ -23,12 +23,12 @@ enum BrowserGuard {
     static let ask = "I need to open <browser> to <reason>. Can I?"
 
     static let soul = """
-        Browsers: never open a visible browser window unless they said yes to that exact window first. Work in the background on the hidden browsers (One's on port 9223, Project Ledger's on 9333, both headless). Never start a browser with `open`, AppleScript or without --headless, and never quit, restart or bring up their own browser. If a job truly needs a window, ask in plain words: "\(ask)" (say the browser and the reason), end with [choices: Yes, open it | No, stay hidden], and wait. A routine can't ask anyone: it skips that step and says so in its report. One blocks visible browser windows by itself; their yes lets one window through, once.
+        Browsers: never open a visible browser window unless they said yes to that exact window first. Work in the background on the hidden browsers (One's on port 9223, Project Ledger's on 9333, both headless). Never start a browser with `open`, AppleScript or without --headless, and never quit, restart or bring up their own browser. To start a hidden browser on another saved profile, run `One --hidden-browser <port> <profile folder> [page]`: One starts it out of the Dock and never in front. If a job truly needs a window, ask in plain words: "\(ask)" (say the browser and the reason), end with [choices: Yes, open it | No, stay hidden], and wait. A routine can't ask anyone: it skips that step and says so in its report. One blocks visible browser windows by itself; their yes lets one window through, once.
         """
 
     /// Added to every helper prompt.
     static let note =
-        "\n\n(One app note, not from the user: NO VISIBLE BROWSER WINDOWS. Browse only in the background on the hidden browsers (One's on port 9223, Project Ledger's on 9333, headless). Never `open -a` a browser, never AppleScript one, never start one without --headless, never quit or restart their own browser. If the job truly needs a window, ask \"\(ask)\" ending with [choices: Yes, open it | No, stay hidden], and wait. One blocks and logs any visible browser launch.)"
+        "\n\n(One app note, not from the user: NO VISIBLE BROWSER WINDOWS. Browse only in the background on the hidden browsers (One's on port 9223, Project Ledger's on 9333, headless). Never `open -a` a browser, never AppleScript one, never start one without --headless, never quit or restart their own browser. A hidden browser on another saved profile: `One --hidden-browser <port> <profile folder> [page]`. If the job truly needs a window, ask \"\(ask)\" ending with [choices: Yes, open it | No, stay hidden], and wait. One blocks and logs any visible browser launch.)"
 
     // MARK: Install into the engine (at every engine start)
 

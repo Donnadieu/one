@@ -62,9 +62,10 @@ enum BrowserKeeper {
             .first { FileManager.default.fileExists(atPath: $0) }
     }
 
+    /// Chrome's own switches (started by `HiddenBrowser.launch`: hidden, never brought forward).
     static func launchArguments(_ p: Plan, app: String) -> [String] {
         // Hidden no matter what the plan says: no browser window on their screen without their yes.
-        var a = ["-g", "-n", "-a", app, "--args", "--headless=new"]
+        var a = ["--headless=new"]
         a += [
             "--user-data-dir=\(p.profile)", "--remote-debugging-port=\(p.port)", "--remote-debugging-address=127.0.0.1",
             "--no-first-run", "--no-default-browser-check", "--window-size=1440,900", "--disable-blink-features=AutomationControlled",
@@ -90,7 +91,7 @@ enum BrowserKeeper {
         return userAgent(version: v)
     }
 
-    /// Runs `open` with these arguments (the human-check window). nil = ok, else what went wrong.
+    /// Runs `open` with these arguments: only the human-check window, a real window after their yes. nil = ok.
     static func openApp(_ args: [String]) -> String? {
         let pr = Process()
         pr.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -183,18 +184,12 @@ enum BrowserKeeper {
         }
         lastStart = Date()
         try? FileManager.default.createDirectory(atPath: p.profile, withIntermediateDirectories: true)
-        let pr = Process()
-        // Through Launch Services, so Chrome isn't One's child: it keeps running if One quits.
-        pr.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        pr.arguments = launchArguments(p, app: app)
-        pr.standardOutput = FileHandle.nullDevice
-        pr.standardError = FileHandle.nullDevice
-        do {
-            try pr.run()
-            pr.waitUntilExit()
+        // Through the Mac's own launcher, so Chrome isn't One's child (it keeps running if One quits), hidden and never
+        // brought forward (HiddenBrowser.swift).
+        if let e = HiddenBrowser.launch(app: app, arguments: launchArguments(p, app: app)) {
+            log("couldn't start the browser: \(e)")
+        } else {
             log("browser was down on \(p.port); started it again with its saved profile \(p.profile)")
-        } catch {
-            log("couldn't start the browser: \(error.localizedDescription)")
         }
     }
 

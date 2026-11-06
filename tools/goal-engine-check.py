@@ -85,12 +85,15 @@ class Model(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
         base = {"id": "x", "object": "chat.completion.chunk", "created": int(time.time()), "model": "stand-in"}
-        for piece in [{"role": "assistant", "content": words}, {}]:
-            chunk = dict(base, choices=[{"index": 0, "delta": piece, "finish_reason": None if piece else "stop"}])
-            if not piece:
-                chunk["usage"] = usage
-            self.wfile.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
-        self.wfile.write(b"data: [DONE]\n\n")
+        try:
+            for piece in [{"role": "assistant", "content": words}, {}]:
+                chunk = dict(base, choices=[{"index": 0, "delta": piece, "finish_reason": None if piece else "stop"}])
+                if not piece:
+                    chunk["usage"] = usage
+                self.wfile.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
+            self.wfile.write(b"data: [DONE]\n\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # a turn stopped mid-answer (the Stop cases) closes its stream
 
     def reply(self, obj):
         data = json.dumps(obj).encode()

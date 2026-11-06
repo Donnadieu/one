@@ -95,7 +95,8 @@ class _Watch:
         self.last = time.monotonic()
         self.holding = 0
         self.cancelled = False
-        self.wrote = False
+        self.inflight = 0  # One's prompts open on this conversation
+        self.writer = None  # the turn that wrote last
         self.verdicts = []
 
     def running(self):
@@ -123,12 +124,13 @@ def install(cls):
             if aid and kind in ("message.delta", "message.interim", "tool.start", "message.complete") and aid not in w.turns:
                 w.turns.append(aid)
                 del w.turns[:-64]
-                # A new turn of a goal in progress: its words start on a new paragraph.
-                if w.holding and w.wrote and kind != "message.complete" and self._conn:
+            # A new turn writing while One's prompt is open (a goal's next turn): its words start on a new paragraph.
+            # Keyed on who wrote last, not on the hold: the next turn can start before the hold begins.
+            if aid and kind in ("message.delta", "message.interim") and (event.get("payload") or {}).get("text"):
+                if w.inflight and w.writer and w.writer != aid and self._conn:
                     await self._conn.session_update(session_id=self._editor_id(sid),
                                                     update=acp.update_agent_message_text("\n\n"))
-            if kind == "message.delta" and (event.get("payload") or {}):
-                w.wrote = True
+                w.writer = aid
             if kind == "message.complete" and aid:
                 w.ended.add(aid)
             if kind == "status.update" and (event.get("payload") or {}).get("kind") == "goal":
@@ -153,6 +155,14 @@ def install(cls):
         w = watch(self, sid)
         if not w.holding:
             w.cancelled = False
+            w.writer = None
+        w.inflight += 1
+        try:
+            return await held_prompt(self, prompt, session_id, sid, w, **kwargs)
+        finally:
+            w.inflight -= 1
+
+    async def held_prompt(self, prompt, session_id, sid, w, **kwargs):
         resp = await orig_prompt(self, prompt, session_id, **kwargs)
         answered = self.__dict__.get("_one_answered", set())
         if asyncio.current_task() in answered:
@@ -163,7 +173,6 @@ def install(cls):
         if not is_active(await asyncio.to_thread(goal_state, self._home, sid)):
             return resp
         w.holding += 1
-        w.wrote = True
         try:
             stop = await hold(self, sid, w)
         finally:

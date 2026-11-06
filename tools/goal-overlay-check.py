@@ -152,7 +152,8 @@ async def main():
     a = Agent()
     set_goal("s2", "active")
     async def goal_runs():
-        await asyncio.sleep(0.3)
+        await event(a, "s2", "message.delta", "t1", "one")  # the first turn's words, then the next turn at once
+        await event(a, "s2", "message.complete", "t1")
         await event(a, "s2", "message.delta", "t2", "two")
         await event(a, "s2", "message.complete", "t2")
         set_goal("s2", "active", 1)
@@ -163,7 +164,7 @@ async def main():
     t = time.time()
     r, _ = await asyncio.gather(a.prompt("/goal count", "s2"), goal_runs())
     check("held until the goal was done", r.stop_reason == "end_turn" and time.time() - t >= 0.9)
-    check("each later turn starts on a new paragraph", [x[1] for x in a._conn.sent].count("\n\n") == 2)
+    check("each later turn starts on a new paragraph, even one that starts before the hold", [x[1] for x in a._conn.sent].count("\n\n") == 2)
 
     # 3. Budget used: the goal is paused by the engine, the prompt returns.
     a = Agent()

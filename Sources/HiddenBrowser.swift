@@ -13,7 +13,7 @@ import Foundation
 // saved sign-ins (it uses the "Chromium Safe Storage" key, not Chrome's), and a stand-in app bundle breaks
 // Chrome's own signature checks. So One keeps every hidden browser in line from outside, in three layers:
 // 1. Start: every hidden browser One starts goes through `launch` (the Mac's own launcher, run by One outside the
-//    folder lock, told not to bring it forward and to start it hidden), never as a child of the folder lock.
+//    folder lock, told not to bring it forward), never as a child of the folder lock.
 // 2. Front: the moment any headless Chrome becomes the front app, One hides it, which hands the front back.
 // 3. Dock: a headless Chrome macOS has turned into a normal app is hidden at once and, if it's one of One's,
 //    closed politely as soon as no helper, routine or person's step is using it; it starts again fresh, hidden.
@@ -29,8 +29,10 @@ enum HiddenBrowser {
     // MARK: 1. Start
 
     /// How every hidden browser is started, through the Mac's own launcher (One runs outside the folder lock, where
-    /// `open` keeps the switches): a new copy (-n), never brought forward (-g), started hidden (-j).
-    static func openArguments(app: String, arguments: [String]) -> [String] { ["-g", "-j", "-n", "-a", app, "--args"] + arguments }
+    /// `open` keeps the switches): a new copy (-n), never brought forward (-g). Not "start hidden" (-j, or the
+    /// workspace's `hides`): the Mac then waits for a headless Chrome to say it's ready to be shown, which it never
+    /// does (CI, Nov 6 2026: `open -j` never returned; the workspace call never answered in 20 s).
+    static func openArguments(app: String, arguments: [String]) -> [String] { ["-g", "-n", "-a", app, "--args"] + arguments }
 
     /// Starts Chrome with these switches. It isn't One's child, so it keeps running if One quits. nil = started.
     static func launch(app: String, arguments: [String]) -> String? {

@@ -91,8 +91,8 @@ boundaries today, not an aspirational version of them.
   rather than relying on Chrome's current default, so the debugging port is
   never reachable from outside the Mac.
 - Since 0.9.97 every hidden Chrome One starts goes through `HiddenBrowser.launch`
-  (`Sources/HiddenBrowser.swift`): the Mac's own launcher, a new copy, hidden,
-  never brought forward, outside the folder lock. The engine can ask for one on
+  (`Sources/HiddenBrowser.swift`): the Mac's own launcher, a new copy, never
+  brought forward, outside the folder lock. The engine can ask for one on
   another saved profile (`One --hidden-browser <port> <profile>`), but One only
   starts it on a profile in its own folder or a folder the person approved,
   never on their own Chrome's folder, always headless and on 127.0.0.1, with a

@@ -87,7 +87,11 @@ enum HiddenBrowserCheck {
         let prof = Env.support.appendingPathComponent("browser/hb-test").path
         let before = Set(NSRunningApplication.runningApplications(withBundleIdentifier: HiddenBrowser.chromeID).map(\.processIdentifier))
         let plan = BrowserKeeper.Plan(port: port, profile: prof, headless: true)
-        let e = await Task.detached { HiddenBrowser.launch(app: app, arguments: BrowserKeeper.launchArguments(plan, app: app)) }.value
+        let done = Box<String??>(nil)
+        Task.detached { done.v = .some(HiddenBrowser.launch(app: app, arguments: BrowserKeeper.launchArguments(plan, app: app))) }
+        let launched = Date()
+        while done.v == nil && Date().timeIntervalSince(launched) < 30 { try? await Task.sleep(for: .milliseconds(100)) }
+        let e: String? = done.v ?? "the Mac's launcher didn't return within 30 s"
         check(e == nil, "started through the Mac (\(e ?? "ok"))")
         say("waiting for it to answer")
         var pid: pid_t?

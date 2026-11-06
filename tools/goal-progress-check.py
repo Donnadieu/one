@@ -24,12 +24,15 @@ ENGINE = os.path.abspath(sys.argv[1])
 sys.path.insert(0, ENGINE)
 tmp = tempfile.mkdtemp(prefix="one-goal-progress-")
 fails = 0
+failed = []
 
 
 def check(name, ok, detail=""):
     global fails
     print(("  ✓ " if ok else "  ✗ ") + name + ("" if ok or not detail else f"  ({detail})"), flush=True)
     fails += 0 if ok else 1
+    if not ok:
+        failed.append(name + (f" ({detail})" if detail else ""))
 
 
 # ---- stand-ins for the engine modules goals.py reaches for --------------------------------------------------------
@@ -240,5 +243,5 @@ check("settings come from goals.* in config.yaml", gp.settings() == {"extend_by"
 CONFIG["goals"] = {}
 check("with the defaults 20 more, a ceiling of 500, a stall after 5", gp.settings() == {"extend_by": 20, "max_turns_ceiling": 500, "stall_turns": 5})
 
-print("goal progress ok" if fails == 0 else f"goal progress: {fails} failed")
+print("goal progress ok" if fails == 0 else f"goal progress: {fails} failed: " + "; ".join(failed))
 sys.exit(1 if fails else 0)

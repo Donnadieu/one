@@ -224,6 +224,11 @@ def turns_since(t0):
         return [r for r in REQUESTS if r[0] >= t0 and r[1] == "turn"]
 
 
+def goal_turns_since(t0, words):
+    """The agent turns since t0 of the conversation whose goal has these words (other goals' stragglers left out)."""
+    return [r for r in turns_since(t0) if words in r[3]]
+
+
 def judged_since(t0):
     with LOCK:
         return [r for r in REQUESTS if r[0] >= t0 and r[1] == "judge"]
@@ -378,8 +383,10 @@ p2 = new_session()
 t0 = time.time()
 stop = prompt(p2, "/goal Count to 30, one number per turn. Report progress." + NOTE)
 s, pr = state(p2), progress(p2)
+mine = goal_turns_since(t0, "Count to 30")
 check("the ceiling (10 here) stops it, moving or not", s.get("status") == "paused" and s.get("max_turns") == 10
-      and len(turns_since(t0)) == 10 and pr.get("ceiling") is True, f"{s.get('status')}, {s.get('max_turns')}, {len(turns_since(t0))}, {pr}")
+      and len(mine) == 10 and pr.get("ceiling") is True and pr.get("seen") == 10,
+      f"{s.get('status')}, {s.get('max_turns')}, {len(mine)} of {len(turns_since(t0))} turns, {pr}, last asks: {[r[2][:60] for r in turns_since(t0)[-3:]]}")
 p3 = new_session()
 t0 = time.time()
 stop = prompt(p3, "/goal Stuck counting to 9, one per turn. Report progress." + NOTE)

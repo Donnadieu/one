@@ -79,6 +79,29 @@ enum HiddenBrowserCheck {
         return fails == 0 ? 0 : 1
     }
 
+    /// CI diagnosis only: the same Chrome started directly (not through the Mac's launcher), to tell a launcher
+    /// problem from a Chrome problem on the runner.
+    static func control(app: String) {
+        let prof = FileManager.default.temporaryDirectory.appendingPathComponent("one-hb-control-\(getpid())").path
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: app + "/Contents/MacOS/Google Chrome")
+        p.arguments = BrowserKeeper.launchArguments(BrowserKeeper.Plan(port: 9872, profile: prof, headless: true), app: app)
+        let errFile = prof + ".log"
+        FileManager.default.createFile(atPath: errFile, contents: nil)
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle(forWritingAtPath: errFile)
+        try? p.run()
+        var up = false
+        for _ in 0..<40 where !up {
+            usleep(500_000)
+            up = BrowserKeeper.alive(9872)
+        }
+        print("  … control (Chrome started directly): answers \(up)")
+        if p.isRunning { p.terminate() }
+        let tail = String(decoding: (FileManager.default.contents(atPath: errFile) ?? Data()).suffix(600), as: UTF8.self)
+        for l in tail.split(separator: "\n").suffix(5) { print("  … control: \(l.prefix(160))") }
+    }
+
     @MainActor static func live(app: String, _ check: (Bool, String) -> Void) async {
         say("live part: starting a hidden Chrome")
         HiddenBrowser.testing = true
@@ -116,7 +139,10 @@ enum HiddenBrowserCheck {
             return
         }
         let pa = GatewayGuard.arguments(of: pid)
-        print("  started: pid \(pid), headless \(HiddenBrowser.isHeadless(pa)), policy \(r.activationPolicy.rawValue), hidden \(r.isHidden)")
+        print(
+            "  … started: pid \(pid), headless \(HiddenBrowser.isHeadless(pa)), policy \(r.activationPolicy.rawValue), hidden \(r.isHidden), "
+                + "finished launching \(r.isFinishedLaunching), args \(pa.dropFirst().prefix(3).joined(separator: " "))")
+        if !BrowserKeeper.alive(port) { control(app: app) }
         check(BrowserKeeper.alive(port), "the hidden browser answers on its port")
         check(!frontSeen, "never the front app while it starts")
         check(!regularSeen && r.activationPolicy != .regular, "not a normal app once started: no Dock icon, not in Stage Manager")

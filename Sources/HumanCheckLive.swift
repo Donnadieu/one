@@ -37,7 +37,7 @@ enum HumanCheckLive {
             return 2
         }
         let p = BrowserKeeper.Plan(port: port, profile: profile, headless: true)
-        _ = BrowserKeeper.openApp(BrowserKeeper.launchArguments(p, app: app))
+        _ = HiddenBrowser.launch(app: app, arguments: BrowserKeeper.launchArguments(p, app: app))
         var pid: pid_t?
         for _ in 0..<30 where pid == nil || !BrowserKeeper.alive(port) {
             try? await Task.sleep(for: .milliseconds(500))

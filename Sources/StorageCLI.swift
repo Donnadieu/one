@@ -10,6 +10,7 @@ enum StorageCLI {
         if let c = FrontPage.cli(args) ?? SkillFiler.cli(args) { return c }  // --front-page, --file-skills
         if let c = History.cli(args) ?? Offsite.cli(args) ?? HistoryRender.cli(args) ?? HistoryCheck.cli(args) { return c }  // copies, restore
         if let c = ImproveCLI.run(args) { return c }  // --improve: the score and the nightly review (Improve*.swift)
+        if let c = HiddenBrowser.cli(args) { return c }  // --hidden-browser, --test-hidden-browser (HiddenBrowser.swift)
         return nil
     }
 }

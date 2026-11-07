@@ -228,8 +228,36 @@ enum UpdaterCheck {
         check("backs off after an error", u.wait > 15 * 60)
         routineChecks(check)
         signingChecks(check)
+        await wakeChecks(u, check)
         print(fails == 0 ? "updates ok" : "updates FAILED (\(fails))")
         return fails == 0 ? 0 : 1
+    }
+
+    /// Nov 6 2026: an update went ahead in a minute-long dark wake with the lid closed, and One didn't come back for
+    /// 18 hours. Proves an update clicked earlier waits while the Mac is asleep (no download, no swap, no quit) and
+    /// goes on by itself once it's fully awake (here it then stops at a missing download, so this copy never quits).
+    static func wakeChecks(_ u: Updater, _ check: (String, Bool) -> Void) async {
+        let fm = FileManager.default
+        let dir = Env.hermesHome.appendingPathComponent("update", isDirectory: true)
+        try? fm.removeItem(at: dir)
+        Awake.fake = .dark
+        Updater.wakePoll = 0.2
+        u.available = ("9.9.9", "- test", Env.support.appendingPathComponent("no-such-One.zip"))
+        let t = Task { await u.install() }
+        try? await Task.sleep(for: .seconds(1.5))
+        check("an update clicked before the lid closed waits in a dark wake", u.state == Updater.wakeLine)
+        check("and downloads, swaps and quits nothing meanwhile", !fm.fileExists(atPath: dir.appendingPathComponent("swap.sh").path))
+        Awake.fake = .screensOff
+        try? await Task.sleep(for: .seconds(1))
+        check("awake with every screen off (lid closed on a desk): still waits", u.state == Updater.wakeLine)
+        Awake.fake = .full
+        await t.value
+        check(
+            "fully awake: it goes on by itself (here to the missing download)",
+            u.state == "The download didn't work. Check the internet and try again.")
+        Awake.fake = nil
+        u.state = nil
+        u.available = nil
     }
 
     /// Proves the swap script really refuses a bundle whose signature doesn't verify, with fixture app
@@ -267,7 +295,8 @@ enum UpdaterCheck {
             // enginePID: a fake, already-dead pid — never nil, which would make the script try `kill 0`
             // (the whole process group) when there's really no engine pid to kill.
             let script = Updater.swapScript(
-                newApp: newApp.path, target: target.path, dir: dir.path, waitPID: 999_999, enginePID: 999_998, noReopen: true)
+                newApp: newApp.path, target: target.path, dir: dir.path, waitPID: 999_999, enginePID: 999_998, noReopen: true,
+                keep: base.appendingPathComponent("previous").path, swapping: base.appendingPathComponent("swapping").path)
             let sh = dir.appendingPathComponent("swap.sh")
             try? script.write(to: sh, atomically: true, encoding: .utf8)
             let p = Process()
@@ -306,6 +335,10 @@ enum UpdaterCheck {
                 "a verified update with a matching signing team swaps in",
                 ok && fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/good-update").path)
                     && !fm.fileExists(atPath: running.appendingPathComponent("Contents/MacOS/running3").path))
+            check(
+                "the replaced version is kept, so the keeper can put it back if the new one can't start",
+                fm.fileExists(atPath: base.appendingPathComponent("previous/One.app/Contents/MacOS/running3").path)
+                    && !fm.fileExists(atPath: base.appendingPathComponent("swapping").path))
         }
     }
 }

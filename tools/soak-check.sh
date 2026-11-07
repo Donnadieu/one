@@ -21,9 +21,10 @@ case "$MODE" in
   thread | address) FLAGS=(-Onone -g "-sanitize=$MODE") ;;
   *) echo "mode: guard, thread or address"; exit 2 ;;
 esac
+OBJC=(); while IFS= read -r l; do OBJC+=("$l"); done < <(tools/objc.sh "$W/objc")  # Sources/ObjC (OneCatch.h)
 if ! swiftc "${FLAGS[@]}" -parse-as-library -target arm64-apple-macosx14.0 \
   -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications \
-  -framework IOKit -swift-version 5 Sources/*.swift -o "$APP/Contents/MacOS/One" > "$W/build.txt" 2>&1; then
+  -framework IOKit -framework ServiceManagement -swift-version 5 "${OBJC[@]}" Sources/*.swift -o "$APP/Contents/MacOS/One" > "$W/build.txt" 2>&1; then
   echo "  ✗ build failed (see $W/build.txt)"; exit 1
 fi
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string ai.forjado.one.soak-$MODE" -c "Add :CFBundleExecutable string One" \

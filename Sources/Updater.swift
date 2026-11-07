@@ -66,7 +66,12 @@ final class Updater: ObservableObject {
     /// the one running right now — a tampered zip (unsigned, altered, or re-signed by someone else) is left
     /// untouched on disk and the old app stays in place, never installed. Static + parameterized so a test can run
     /// it against fixture bundles without touching the real app.
-    static func swapScript(newApp: String, target: String, dir: String, waitPID: Int32, enginePID: Int32?, noReopen: Bool) -> String {
+    /// The replaced version is kept in `keep` (until the next update), so the keeper can put it back if the new one
+    /// can't start (Keeper.swift). `open` is tried three times: a relaunch that fails leaves One closed otherwise.
+    static func swapScript(
+        newApp: String, target: String, dir: String, waitPID: Int32, enginePID: Int32?, noReopen: Bool,
+        keep: String = Keeper.previous.deletingLastPathComponent().path, swapping: String = Keeper.swapping.path
+    ) -> String {
         """
         #!/bin/bash
         while kill -0 \(waitPID) 2>/dev/null; do sleep 0.5; done
@@ -86,8 +91,11 @@ final class Updater: ObservableObject {
         exit 1
         fi
         xattr -dr com.apple.quarantine "\(newApp)" 2>/dev/null
-        rm -rf "\(target).old" && mv "\(target)" "\(target).old" && mv "\(newApp)" "\(target)" && rm -rf "\(target).old" || { [ -d "\(target)" ] || mv "\(target).old" "\(target)"; }
-        \(noReopen ? "echo done > \"\(dir)/swapped\"" : "open \"\(target)\"")
+        touch "\(swapping)"
+        rm -rf "\(keep)" && mkdir -p "\(keep)"
+        mv "\(target)" "\(keep)/One.app" && mv "\(newApp)" "\(target)" || { [ -d "\(target)" ] || mv "\(keep)/One.app" "\(target)"; }
+        rm -f "\(swapping)"
+        \(noReopen ? "echo done > \"\(dir)/swapped\"" : "for i in 1 2 3; do open \"\(target)\" && break; sleep 5; done")
         """
     }
     private var etag: String?
@@ -106,11 +114,12 @@ final class Updater: ObservableObject {
         guard let host = url.host?.lowercased() else { return false }
         return host == "github.com" || host.hasSuffix(".githubusercontent.com")
     }
-    static func pick(_ list: [[String: Any]], current: String) -> (String, String, URL)? {
+    /// `skip`: versions the keeper put back after they failed to start on this Mac (Keeper.swift).
+    static func pick(_ list: [[String: Any]], current: String, skip: [String] = []) -> (String, String, URL)? {
         var best: (String, String, URL)?
         for r in list where (r["draft"] as? Bool) != true {
             let tag = ((r["tag_name"] as? String) ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            guard Updater.newer(tag, than: best?.0 ?? current),
+            guard !skip.contains(tag), Updater.newer(tag, than: best?.0 ?? current),
                 let zip = (r["assets"] as? [[String: Any]])?.first(where: { ($0["name"] as? String) == "One.zip" })?["browser_download_url"]
                     as? String,
                 let zu = URL(string: zip)
@@ -158,7 +167,7 @@ final class Updater: ObservableObject {
         }
         lastList = data
         wait = Updater.every
-        guard let best = Updater.pick(list, current: cur ?? current) else { return }
+        guard let best = Updater.pick(list, current: cur ?? current, skip: Env.selfTest ? [] : Keeper.badVersions) else { return }
         newest = best.0
         if laterThisRun != best.0 {
             available = (best.0, best.1, best.2)
@@ -209,6 +218,9 @@ final class Updater: ObservableObject {
             let end = Date().addingTimeInterval(Updater.replyWait)
             while m.thinking && Date() < end { try? await Task.sleep(for: .milliseconds(500)) }
         }
+        // Never in a dark wake or with the screens asleep (the lid closed): Nov 6 2026 an update clicked earlier went
+        // ahead in a minute-long dark wake and One didn't come back for 18 hours. Wait for a full wake.
+        await waitForFullWake()
         // A routine at work is never cut off: restarting kills its run midway (a post made but the rest not done, and
         // the routine shows as failed). Wait for it, up to `routineWait`, then go ahead.
         var busy = await Task.detached { Routines.inFlight() }.value
@@ -255,6 +267,7 @@ final class Updater: ObservableObject {
             state = "The new version looked broken, so I kept this one. Try again later."
             return
         }
+        await waitForFullWake()  // the Mac may have gone back to sleep while it downloaded
         let target = Bundle.main.bundlePath
         let script = Updater.swapScript(
             newApp: newApp.path, target: target, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
@@ -280,11 +293,25 @@ final class Updater: ObservableObject {
             mid = m.helpersMidStep()
         }
         state = "Restarting…"
+        await waitForFullWake()
+        Keeper.updating(to: a.version)  // One comes back by itself if the relaunch fails (Keeper.swift)
         m.pauseHelpersForUpdate()  // after this, nothing they did is lost: each picks back up after the restart
         Engine.shared.stop()
         try? await Task.sleep(for: .milliseconds(400))
         QuitHold.bypass = true  // it already waited for routines at work
         NSApp.terminate(nil)
+    }
+    /// What the card says while an update waits for the Mac to wake up fully.
+    static let wakeLine = "I'll finish the update when your Mac is awake and its screen is on."
+    /// How often a waiting update looks again (checks make it shorter).
+    static var wakePoll: Double = 15
+    /// Waits until the Mac is fully awake with a screen on (`Awake.full`), however long that takes.
+    func waitForFullWake() async {
+        guard !Awake.full else { return }
+        let before = state
+        state = Updater.wakeLine
+        while !Awake.full { try? await Task.sleep(for: .seconds(Updater.wakePoll)) }
+        state = before
     }
     func later() {
         if let a = available { laterThisRun = a.version }

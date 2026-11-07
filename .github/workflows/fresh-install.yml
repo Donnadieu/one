@@ -56,6 +56,8 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
       - name: Standing goals through the real engine (stand-in model)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/goal-engine-check.sh
+      - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
       - name: First launch on an empty brain (no questions, no git)
         run: |
           mkdir -p "$RUNNER_TEMP/fakebin"

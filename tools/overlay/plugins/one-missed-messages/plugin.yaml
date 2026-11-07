@@ -1,0 +1,6 @@
+name: one-missed-messages
+version: "1.0.0"
+description: "One: messages sent to the phone chat while One was off are never silently dropped. Ones from the last 2 hours are answered as usual; older ones are not acted on: one short note lists them and asks which are still wanted."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - pre_gateway_dispatch

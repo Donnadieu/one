@@ -11,6 +11,7 @@ enum StorageCLI {
         if let c = History.cli(args) ?? Offsite.cli(args) ?? HistoryRender.cli(args) ?? HistoryCheck.cli(args) { return c }  // copies, restore
         if let c = ImproveCLI.run(args) { return c }  // --improve: the score and the nightly review (Improve*.swift)
         if let c = HiddenBrowser.cli(args) { return c }  // --hidden-browser, --test-hidden-browser (HiddenBrowser.swift)
+        if let c = Keeper.cli(args) { return c }  // --keeper: macOS runs it every minute; opens One again if it ended (Keeper.swift)
         return nil
     }
 }

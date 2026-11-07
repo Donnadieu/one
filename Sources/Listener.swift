@@ -74,16 +74,27 @@ import SwiftUI
         if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req
         gotFinal = false
-        let input = audio.inputNode
-        input.removeTap(onBus: 0)
-        input.installTap(
-            onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0),
-            block: Listener.tap(req) { lv in
-                DispatchQueue.main.async { self.level = lv }
-            })
-        audio.prepare()
-        do { try audio.start() } catch {
+        // A headset switching over, or no microphone at all, gives a format with no channels; Apple's installTap raises
+        // on that instead of failing, which would end One. Check first, and catch what's left (AudioSafe.swift).
+        var started = false
+        let ok = AudioGate.attempt("starting the microphone") {
+            let input = audio.inputNode
             input.removeTap(onBus: 0)
+            let f = input.outputFormat(forBus: 0)
+            guard f.channelCount > 0, f.sampleRate > 0 else { return }
+            input.installTap(
+                onBus: 0, bufferSize: 1024, format: f,
+                block: Listener.tap(req) { lv in
+                    DispatchQueue.main.async { self.level = lv }
+                })
+            audio.prepare()
+            do {
+                try audio.start()
+                started = true
+            } catch { input.removeTap(onBus: 0) }
+        }
+        guard ok, started else {
+            AudioGate.attempt("releasing the microphone") { audio.inputNode.removeTap(onBus: 0) }
             fail("I couldn't use the microphone.")
             return
         }
@@ -162,8 +173,10 @@ import SwiftUI
             return
         }
         listening = false
-        audio.stop()
-        audio.inputNode.removeTap(onBus: 0)
+        AudioGate.attempt("stopping the microphone") {
+            audio.stop()
+            audio.inputNode.removeTap(onBus: 0)
+        }
         VoiceLine.log("push to talk: let go")
         // The headset leaves call mode over the next second or two: the line is rebuilt once, after that (Speaker.rebuildSoon).
         Speaker.shared.rebuildSoon(after: 1.8, why: "push to talk ended")

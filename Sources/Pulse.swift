@@ -86,7 +86,28 @@ enum Pulse {
     static func launch() {
         checkPrevious()
         start()
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in stop() }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            stop()
+            Keeper.quitting()  // a quit they asked for: the keeper leaves One closed (Keeper.swift)
+        }
+        Keeper.started()  // from now on, if One ends without being asked to, it's opened again (Keeper.swift)
+        watchTerm()
+    }
+
+    /// `kill <pid>` (SIGTERM) is someone ending One on purpose, like a quit: the keeper must not open it again
+    /// (a reinstall kills One, swaps the app and opens the new one). The default action then runs as before.
+    nonisolated(unsafe) private static var term: DispatchSourceSignal?
+    private static func watchTerm() {
+        guard Env.production else { return }
+        signal(SIGTERM, SIG_IGN)
+        let s = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        s.setEventHandler {
+            Keeper.quitting()
+            signal(SIGTERM, SIG_DFL)
+            kill(getpid(), SIGTERM)
+        }
+        s.resume()
+        term = s
     }
 
     /// Beats every 20s while running; the file always has this process's pid and the last beat time.

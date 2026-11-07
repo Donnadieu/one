@@ -65,6 +65,10 @@ person's own Mac, not about a server One's team operates.
 | Restarts pause helpers only between steps; long active turns aren't cut off; the chat reopens after a slow restart | `FolderWatch.due(midStep:)`, `Updater.install`, `TurnWait`, `Engine.loadPatience`; `HelperWorkCheck` (`One --test-helper-work`, preflight) |
 | Crash-free session rate | **NOT YET ENFORCED** — no crash reporter wired up |
 | Voice/engine process liveness under Bluetooth route changes | `Speaker.rebuild()` on `.AVAudioEngineConfigurationChange`; checked manually, no automated assertion |
+| One never ends because sound can't start (dark wake, lid closed, no output, a headset switching) | every raising audio call goes through `AudioGate.attempt` (`OneCatch`, Sources/ObjC); the line starts only when `AudioGate.blocked()` is nil and retries on wake / output change / backoff; `SleepSafeCheck` (`One --test-sleep-safe`, preflight) |
+| An update never restarts One in a dark wake or with the screens off | `Updater.waitForFullWake` (before the download, before the swap, before the quit); `UpdaterCheck.wakeChecks` (preflight) |
+| One comes back by itself after a crash or a failed relaunch | the keeper launch agent (`One --keeper` every 60 s, `Keeper.decide`: backoff 0/1/5/15/30/60 min, never after a quit they asked for, puts the previous version back after 3 failed starts of a just-installed one); `tools/keeper-check.sh` (preflight, stand-in apps) |
+| Phone messages sent while One was off are never silently dropped | Telegram keeps queued updates (`Messenger.missedFixes`); engine plugin `one-missed-messages` answers the last 2 h, lists older ones in one note, never acts on them; `tools/missed-messages-check.py` (preflight) + `tools/missed-messages-engine-check.sh` (fresh-install, real engine) |
 
 ## Failure modes considered (real, from this repo's history)
 
@@ -91,6 +95,12 @@ person's own Mac, not about a server One's team operates.
   own fixed wait, not a restart) and were sent their job again: "Forge triage
   moves" twice on Nov 4 2026. Since 0.9.89 the wait restarts at every sign of
   life (`TurnWait`).
+- Nov 6-7 2026, 18 hours with no phone chat: the lid was closed; an update clicked earlier went ahead in a
+  minute-long dark wake (2:13 PM); the new 0.9.98 started its speaker at launch with no sound output, Apple's
+  `AVAudioPlayerNode.play()` raised an Objective-C exception, and One ended (crash reports 14:14 Nov 6 and
+  08:17 Nov 7, both `Speaker.wakeAudio`). Nothing reopened it, and the bot threw away what was sent meanwhile.
+  0.9.99: `AudioSafe.swift` + `OneCatch`, `Updater.waitForFullWake`, the keeper (`Keeper.swift`), and the
+  `one-missed-messages` plugin (rows above).
 - A routine's `fire_claim` left with no `at` timestamp by a dead run (e.g.
   the update-swap script killing the engine mid-routine) used to read as
   "still running" forever, silently blocking that routine from ever firing

@@ -26,9 +26,11 @@ if [ -n "$LOCK" ]; then echo $$ > "$LOCK/pid"; trap 'rm -rf "$LOCK"' EXIT; fi
 OPT=(-O)
 [ "${ONE_FAST_BUILD:-0}" = 1 ] && OPT=(-Onone -wmo -num-threads "$(sysctl -n hw.ncpu)")
 [ -n "${ONE_MODULE_CACHE:-}" ] && OPT+=(-module-cache-path "$ONE_MODULE_CACHE")
+# Sources/ObjC: the one Objective-C helper (catching Apple's audio exceptions, OneCatch.h), linked in.
+OBJC=(); while IFS= read -r l; do OBJC+=("$l"); done < <(tools/objc.sh build/objc.noindex)
 swiftc "${OPT[@]}" -parse-as-library -target arm64-apple-macosx14.0 \
-  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -framework IOKit -swift-version 5 \
-  Sources/*.swift -o "$APP/Contents/MacOS/One"
+  -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -framework IOKit \
+  -framework ServiceManagement -swift-version 5 "${OBJC[@]}" Sources/*.swift -o "$APP/Contents/MacOS/One"
 if [ -n "$LOCK" ]; then rm -rf "$LOCK"; trap - EXIT; fi  # the compile is the slow, shared part; the rest runs side by side
 VERSION=$(tr -d ' \n' < VERSION)
 # LSEnvironment MallocProbGuard=1: macOS's sampling guard (a few allocations on guard pages, small cost). One has
@@ -66,6 +68,24 @@ mkdir -p "$APP/Contents/Resources/one-browser-guard"
 cp tools/overlay/plugins/one-browser-guard/__init__.py tools/overlay/plugins/one-browser-guard/plugin.yaml "$APP/Contents/Resources/one-browser-guard/"
 mkdir -p "$APP/Contents/Resources/one-learning-cap"
 cp tools/overlay/plugins/one-learning-cap/__init__.py tools/overlay/plugins/one-learning-cap/plugin.yaml "$APP/Contents/Resources/one-learning-cap/"
+mkdir -p "$APP/Contents/Resources/one-missed-messages"
+cp tools/overlay/plugins/one-missed-messages/__init__.py tools/overlay/plugins/one-missed-messages/plugin.yaml "$APP/Contents/Resources/one-missed-messages/"
+# The keeper: macOS runs `One --keeper` every minute and it opens One again if it ended without being asked to
+# (Sources/Keeper.swift, registered with SMAppService at launch). Must live in Contents/Library/LaunchAgents.
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cat > "$APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist" <<'KEEPER'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.forjado.one.keeper</string>
+  <key>BundleProgram</key><string>Contents/MacOS/One</string>
+  <key>ProgramArguments</key><array><string>Contents/MacOS/One</string><string>--keeper</string></array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+</dict></plist>
+KEEPER
 # Skills that ship with One (skills/<category>/<name>/SKILL.md); One copies them into the engine (BundledSkills).
 cp -R skills "$APP/Contents/Resources/skills"
 # Sign in with Google is dropped from releases (email and calendar use the Mac's own accounts). Developer builds only: ONE_GOOGLE=1.

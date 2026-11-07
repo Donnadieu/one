@@ -84,28 +84,60 @@ final class Speaker: @unchecked Sendable {
         }
     }
 
-    /// Main thread. Starts (or restarts) the audio line.
+    /// Main thread. Starts (or restarts) the audio line, only when the Mac is awake and has a speaker (AudioSafe.swift).
+    /// Never crashes: Apple's audio calls raise instead of failing (0.9.98 crashed at launch in a dark wake, Nov 6 and 7),
+    /// so each goes through `AudioGate.attempt`. A line that can't start stays quiet, the words still show, and it tries
+    /// again when the Mac wakes, a speaker appears, or after a short wait (`retrySoon`).
     func wakeAudio() {
+        watchForSound()
+        if let why = AudioGate.blocked() {
+            lineIsDown(why)
+            return
+        }
         if !audioUp {
+            let ok = AudioGate.attempt("starting the voice line") {
+                if node.engine == nil { audio.attach(node) }
+                audio.connect(node, to: audio.mainMixerNode, format: fmt)
+            }
+            guard ok else { return lineIsDown("the voice line couldn't be set up") }
             audioUp = true
-            audio.attach(node)
-            audio.connect(node, to: audio.mainMixerNode, format: fmt)
             NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: audio, queue: .main) { [weak self] _ in
                 self?.rebuildSoon(after: 0.8, why: "the output changed")
             }
         }
-        if !audio.isRunning {
-            useTestDevice()
-            audio.prepare()
-            try? audio.start()
+        // play() on a line that didn't start raises "player started when engine not running" and used to end One
+        // (0.9.83, and 0.9.98 in a dark wake). Caught now: a line that's down stays quiet until it can start.
+        let ok = AudioGate.attempt("waking the voice line") {
+            if !audio.isRunning {
+                useTestDevice()
+                audio.prepare()
+                try? audio.start()
+            }
+            if audio.isRunning, !node.isPlaying { node.play() }
+            if let v = testVolume { audio.mainMixerNode.outputVolume = v }
+            routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+            latency = audio.outputNode.presentationLatency
         }
-        // play() on a line that didn't start raises "player started when engine not running" and kills One
-        // (0.9.83, Nov 2 04:37Z: hush → wakeAudio). A line that's down stays quiet until the next wake or rebuild.
-        if audio.isRunning, !node.isPlaying { node.play() }
-        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
-        routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
-        latency = audio.outputNode.presentationLatency
+        if ok, audio.isRunning { lineIsUp() } else { lineIsDown("the voice line didn't start") }
     }
+    /// Main thread. The line can't play right now: remember it and try again later.
+    private func lineIsDown(_ why: String) {
+        if !lineDown { VoiceLine.log("voice line down: \(why)") }
+        lineDown = true
+        if retryWork == nil { retrySoon(after: AudioGate.delay(after: retryTries), why: why) }
+    }
+    private func lineIsUp() {
+        if lineDown { VoiceLine.log("voice line back") }
+        lineDown = false
+        retryTries = 0
+        retryWork?.cancel()
+        retryWork = nil
+    }
+    /// The voice line couldn't start (asleep, no speaker, an audio error) and is waiting to try again.
+    private(set) var lineDown = false
+    var watchingSound = false
+    var retryWork: DispatchWorkItem?
+    var retryTries = 0
     private var routeRate: Double = 0
     /// The speaker's own delay (Bluetooth is ~0.2 s), read when the line (re)starts. Never read per frame: each read
     /// is a synchronous call into the audio unit, and the orbs ask `heard()` 60 to 120 times a second.
@@ -133,19 +165,30 @@ final class Speaker: @unchecked Sendable {
         rebuildWork = nil
         rebuildBy = nil
         VoiceLine.log("rebuild")
-        node.stop()
-        audio.stop()
-        audio.disconnectNodeOutput(node)
-        audio.reset()
-        audio.connect(node, to: audio.mainMixerNode, format: fmt)
         endsAt = .distantPast
-        useTestDevice()
-        audio.prepare()
-        try? audio.start()
-        if audio.isRunning { node.play() }
-        if let v = testVolume { audio.mainMixerNode.outputVolume = v }
-        routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
-        latency = audio.outputNode.presentationLatency
+        guard audioUp else { return wakeAudio() }  // never set up yet: start it the safe way
+        if let why = AudioGate.blocked() {
+            AudioGate.attempt("pausing the voice line") {
+                node.stop()
+                audio.stop()
+            }
+            return lineIsDown(why)
+        }
+        let ok = AudioGate.attempt("rebuilding the voice line") {
+            node.stop()
+            audio.stop()
+            audio.disconnectNodeOutput(node)
+            audio.reset()
+            audio.connect(node, to: audio.mainMixerNode, format: fmt)
+            useTestDevice()
+            audio.prepare()
+            try? audio.start()
+            if audio.isRunning { node.play() }
+            if let v = testVolume { audio.mainMixerNode.outputVolume = v }
+            routeRate = audio.outputNode.outputFormat(forBus: 0).sampleRate
+            latency = audio.outputNode.presentationLatency
+        }
+        if ok, audio.isRunning { lineIsUp() } else { lineIsDown("the voice line didn't come back after a change") }
     }
     private var rebuildWork: DispatchWorkItem?
     private var rebuildBy: Date?
@@ -170,6 +213,7 @@ final class Speaker: @unchecked Sendable {
             wakeAudio()
             return
         }
+        if lineDown { return wakeAudio() }
         let now = audio.outputNode.outputFormat(forBus: 0).sampleRate
         if !audio.isRunning || !node.isPlaying || now != routeRate { rebuild() }
     }
@@ -199,10 +243,10 @@ final class Speaker: @unchecked Sendable {
     @discardableResult
     func enqueue(_ url: URL) -> Double {
         if Date() >= endsAt { ensureRoute() } else { wakeAudio() }
-        guard audio.isRunning || stand != nil, let b = buffer(url) else { return 0 }
+        guard (audio.isRunning && !lineDown) || stand != nil, let b = buffer(url) else { return 0 }  // no sound now: the words still show
         let d = Double(b.frameLength) / fmt.sampleRate
         let starts = max(endsAt, Date())
-        node.scheduleBuffer(b, completionHandler: nil)
+        guard AudioGate.attempt("queueing a sentence", { node.scheduleBuffer(b, completionHandler: nil) }) else { return 0 }
         track.add(b, at: starts)
         endsAt = starts.addingTimeInterval(d)
         return d
@@ -213,12 +257,14 @@ final class Speaker: @unchecked Sendable {
             endsAt = .distantPast
             return
         }
-        node.stop()
+        if audioUp { AudioGate.attempt("hushing the voice line") { node.stop() } }
         track.clips = []
         endsAt = .distantPast
         wakeAudio()
     }
 
+    /// At launch: the voice process starts now; the audio line only when the Mac is awake with a speaker
+    /// (in a dark wake it waits for the wake, see `wakeAudio`).
     func start() {
         DispatchQueue.main.async { self.wakeAudio() }
         q.async {

@@ -7,6 +7,7 @@ import AppKit
 /// `pmset -g assertions` shows, and that a crash drops it) is `--test-keep-awake-hold` in tools/keep-awake-check.sh.
 enum KeepAwakeCheck {
     static func launch() -> Bool {
+        if SleepSafeCheck.launch() { return true }  // --test-sleep-safe: asleep, no speaker, the keeper (SleepSafeCheck.swift)
         let args = CommandLine.arguments
         if args.contains("--test-keep-awake") {
             TestWorld.enter()  // scratch folder (a made-up jobs.json); run with ONE_SUPPORT_DIR set to an empty folder

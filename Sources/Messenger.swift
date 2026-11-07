@@ -82,4 +82,60 @@ enum Messenger {
         p.terminate()
         proc = nil
     }
+
+    // MARK: Messages sent while One was off (0.9.99)
+
+    /// Nov 6-7 2026: One was down 18 hours and the bot threw away everything sent meanwhile (the engine's default).
+    /// Now the bot keeps them, and the engine plugin `one-missed-messages` answers the last 2 hours as usual and lists
+    /// older ones in one note instead of acting on them (tools/overlay/plugins/one-missed-messages).
+    static let missedPlugin = "one-missed-messages"
+    static var missedDir: URL { Env.hermesHome.appendingPathComponent("plugins/\(missedPlugin)", isDirectory: true) }
+    static let keepQueued = "platforms.telegram.extra.drop_pending_on_cold_boot"
+
+    /// What `hermes config set` must change: the plugin on, and Telegram keeping what was sent while One was off.
+    static func missedFixes(_ config: String) -> [[String]] {
+        var fixes: [[String]] = []
+        let on = BrowserGuard.enabledPlugins(config)
+        if !on.contains(missedPlugin) {
+            fixes.append([
+                "config", "set", "plugins.enabled", "[" + (on + [missedPlugin]).map { "\"\($0)\"" }.joined(separator: ", ") + "]", "--force",
+            ])
+        }
+        let off = BrowserGuard.enabledPlugins(config, key: "disabled")
+        if off.contains(missedPlugin) {
+            fixes.append([
+                "config", "set", "plugins.disabled", "[" + off.filter { $0 != missedPlugin }.map { "\"\($0)\"" }.joined(separator: ", ") + "]",
+                "--force",
+            ])
+        }
+        if !config.contains("drop_pending_on_cold_boot: false") { fixes.append(["config", "set", keepQueued, "false", "--force"]) }
+        return fixes
+    }
+
+    /// Copies the bundled plugin into One's engine home. False when this copy of One doesn't carry it.
+    @discardableResult static func installMissed(from src: URL? = Bundle.main.url(forResource: missedPlugin, withExtension: nil)) -> Bool {
+        let fm = FileManager.default
+        guard let src, fm.fileExists(atPath: src.appendingPathComponent("__init__.py").path) else { return false }
+        try? fm.createDirectory(at: missedDir, withIntermediateDirectories: true)
+        for f in ["__init__.py", "plugin.yaml"] {
+            let a = src.appendingPathComponent(f)
+            let b = missedDir.appendingPathComponent(f)
+            if (try? Data(contentsOf: a)) != (try? Data(contentsOf: b)) {
+                try? fm.removeItem(at: b)
+                guard (try? fm.copyItem(at: a, to: b)) != nil else { return false }
+            }
+        }
+        return true
+    }
+
+    /// Before every engine start (through `PhoneVoice.sync`). The bot picks the setting up at its next start.
+    static func sync() async {
+        guard !Env.selfTest else { return }
+        if !installMissed() { GatewayGuard.log("phone chat: the missed-messages plugin isn't in this copy of One") }
+        let cfg = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
+        for f in missedFixes(cfg) {
+            let (code, out) = await hermesRun(f)
+            if code != 0 { GatewayGuard.log("phone chat: couldn't set \(f[2]): \(out.suffix(200))") }
+        }
+    }
 }

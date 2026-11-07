@@ -13,9 +13,10 @@ rc=0
 for SAN in thread address; do
   APP="$W/$SAN/One.app"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  OBJC=(); while IFS= read -r l; do OBJC+=("$l"); done < <(tools/objc.sh "$W/$SAN/objc")  # Sources/ObjC (OneCatch.h)
   if ! swiftc -Onone -g -sanitize=$SAN -parse-as-library -target arm64-apple-macosx14.0 \
     -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications \
-    -framework IOKit -swift-version 5 Sources/*.swift -o "$APP/Contents/MacOS/One" > "$W/$SAN-build.txt" 2>&1; then
+    -framework IOKit -framework ServiceManagement -swift-version 5 "${OBJC[@]}" Sources/*.swift -o "$APP/Contents/MacOS/One" > "$W/$SAN-build.txt" 2>&1; then
     echo "  ✗ $SAN build failed (see $W/$SAN-build.txt)"; rc=1; continue
   fi
   /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string ai.forjado.one.sanitize-$SAN" -c "Add :CFBundleExecutable string One" \

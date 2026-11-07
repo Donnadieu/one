@@ -18,6 +18,7 @@ enum PhoneVoice {
     /// Copies the voice script next to the voice (inside One's folder, which the engine may read) and
     /// writes the engine's voice settings when they differ. Safe to call often.
     static func sync() async {
+        await Messenger.sync()  // and nothing sent while One was off is thrown away (Messenger.swift)
         let dir = Speaker.shared.dir
         guard Speaker.shared.installed, !Env.selfTest,
             let src = Bundle.main.url(forResource: "speak_file", withExtension: "py")

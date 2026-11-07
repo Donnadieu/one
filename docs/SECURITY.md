@@ -197,6 +197,19 @@ each enforced in code rather than by convention:
   mid-swap. `docs/RELIABILITY.md` covers this as a reliability property;
   listed here too because it was found during the same security pass.
 
+## Updates, the keeper and missed phone messages (0.9.99)
+
+- The swap script keeps the replaced app in `<support>/update-previous/` (outside the download folder) instead of
+  deleting it. The keeper (`One --keeper`, a launch agent inside One.app registered with `SMAppService`) may put it
+  back after a just-installed version fails to start three times, only if `codesign -dvv` shows the same signing team
+  for both (`Keeper.sameSigner`); the failed one is moved to `update-failed/<version>`, never deleted, and the updater
+  never offers that version again (`Updater.pick(skip:)`). The keeper only ever runs `open -g` on the app path One
+  itself recorded, and never opens One after a quit (or `kill`) the person asked for.
+- Phone chats now keep messages sent while One was off. The `one-missed-messages` engine plugin acts only for senders
+  the gateway authorizes (`_is_user_authorized`); messages over 2 hours old are never handed to the assistant: they
+  are listed in one note, and the next new message carries that list with the standing rule that sending, posting,
+  spending and deleting still need a fresh yes.
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

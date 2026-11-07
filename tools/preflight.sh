@@ -52,6 +52,8 @@ check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Prin
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
 check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
+check "the missed-messages plugin bundled" test -f "$APP/Contents/Resources/one-missed-messages/__init__.py"
+check "the keeper's launch agent bundled (runs One --keeper every minute)" bash -c "plutil -lint $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist >/dev/null && grep -q -- '--keeper' $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist"
 check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
 check "shipped skill descriptions are short (60 max)" bash -c "for f in \$(find skills -name SKILL.md); do d=\$(sed -n 's/^description: *//p' \$f | head -1); [ -n \"\$d\" ] && [ \${#d} -le 60 ] || { echo \"\$f\"; exit 1; }; done"
@@ -149,6 +151,15 @@ check "a fake helper holds one plain-words no-idle-sleep assertion (screen can s
 grep "✗" "$T/ka/out.txt" 2>/dev/null | sed 's/^/    /'
 check "pmset -g assertions: shown while a fake helper works, gone after, gone when One crashes" bash -c "tools/keep-awake-check.sh $TBIN $T/ka2 | tee $T/ka2/out.txt | grep -q '^keep awake pmset ok'"
 grep "✗" "$T/ka2/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Asleep, no speaker, a failed start: One never stays down (Nov 6-7 2026: 18 hours offline)"
+mkdir -p "$T/ss"
+check "audio exceptions caught; launch in a dark wake and with no speaker: no crash, words still show; the line comes back on wake; the keeper's decisions" bash -c "ONE_SUPPORT_DIR=$T/ss $TBIN --test-sleep-safe | tee $T/ss/out.txt | grep -q '^sleep safe ok'"
+grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
+check "the keeper really opens One again after a failed start, waits longer each time, puts the previous version back after 3 failures, never after a quit" bash -c "tools/keeper-check.sh $TBIN $T/keeper | tee $T/keeper.txt | grep -q '^keeper ok'"
+grep "✗" "$T/keeper.txt" 2>/dev/null | sed 's/^/    /'
+check "phone messages sent while One was off: the last 2 hours answered, older ones listed in one note and never acted on" /usr/bin/python3 tools/missed-messages-check.py
+[ $CI = 0 ] && check "the real engine runs the missed-messages plugin on real messages" tools/missed-messages-engine-check.sh
 
 echo "Tell me when I learn (decisions on a made-up skill log)"
 mkdir -p "$T/lrn"
@@ -282,7 +293,7 @@ codesign -fs - "$T/upd/One.app" >/dev/null 2>&1
 mkdir -p "$T/upd/sup"  # its own scratch home: this copy loads the window and must never reach the real One
 check "an old copy sees the latest release" bash -c "ONE_SUPPORT_DIR='$T/upd/sup' '$T/upd/One.app/Contents/MacOS/One' --check-update | grep -q 'available'"
 mkdir -p "$T/upd/t"; RD_BEFORE=$(defaults read ai.forjado.one updateAnnounced 2>/dev/null)
-check "a new version is announced once; same, older or zip-less never" bash -c "ONE_SUPPORT_DIR='$T/upd/t' $TBIN --test-updates | tee $T/upd/t/out.txt | grep -q '^updates ok'"
+check "a new version is announced once; same, older or zip-less never; never installed in a dark wake; the old version kept" bash -c "ONE_SUPPORT_DIR='$T/upd/t' $TBIN --test-updates | tee $T/upd/t/out.txt | grep -q '^updates ok'"
 grep "✗" "$T/upd/t/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the test left your real settings alone" test "$RD_BEFORE" = "$(defaults read ai.forjado.one updateAnnounced 2>/dev/null)"
 

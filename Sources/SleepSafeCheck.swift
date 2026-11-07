@@ -40,12 +40,17 @@ enum SleepSafeCheck {
         let engine = AVAudioEngine()
         let node = AVAudioPlayerNode()
         let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+        let wired = AudioGate.attempt("check") {
+            engine.connect(node, to: engine.mainMixerNode, format: fmt)  // never attached: Apple raises "required condition is false"
+        }
+        check("a real raise from Apple's audio engine is caught, not fatal", !wired)
+        // 0.9.98's crash: play() raised on the real line in a dark wake. Whether play() raises on a stopped line
+        // depends on the macOS version and the output device, so this is shown, not counted.
         let played = AudioGate.attempt("check") {
             engine.attach(node)
-            engine.connect(node, to: engine.mainMixerNode, format: fmt)
-            node.play()  // the engine never started: Apple raises "player started when engine not running"
+            node.play()
         }
-        check("play() on a line that isn't running (0.9.98's crash) is caught, not fatal", !played)
+        print("  – play() on a line that isn't running: \(played ? "no raise on this machine" : "raised and caught")")
 
         print("2. One opens in a dark wake (lid closed, no screen, no sound)")
         Awake.fake = .dark

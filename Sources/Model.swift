@@ -222,6 +222,12 @@ final class Model: ObservableObject {
 
     @Published var switchingAI = false { didSet { if switchingAI { closeOtherPanels(keep: .switchAI) } } }
     @Published var switchWaitMessage: String?
+    /// Hermes's own credential pool moved to another account of the same provider on its own, mid-turn
+    /// (a usage limit, never One's choice): the plain-words card in chat, with a one-tap way to keep it
+    /// (Accounts.swift, LimitBanner.swift). Nil once Omar acts on it or it clears itself.
+    @Published var limitNotice: LimitNotice?
+    /// The last account seen active (the `←`) for each provider, so a pool failover is only ever told once.
+    var lastActiveEntry: [String: String] = [:]
     @Published var signInChoice: Provider?
     @Published var speaking = false
     @Published var installDone = 0

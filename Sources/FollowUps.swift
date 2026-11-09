@@ -118,6 +118,7 @@ extension Model {
     func turnOver(_ idx: Int, failed: Bool) async {
         turnLive = false
         turnStarted = false
+        if let p = provider { Task { await checkAccountLimit(p) } }  // Hermes's pool may have failed over mid-turn; say so, once
         while steeringNow { try? await Task.sleep(for: .milliseconds(100)) }
         try? await Task.sleep(for: .milliseconds(150))  // the last words of a message answered on its own
         let sent = followUps.filter { $0.helper == nil && $0.state == .sent }

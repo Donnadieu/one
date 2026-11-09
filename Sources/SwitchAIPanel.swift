@@ -11,6 +11,10 @@ struct SwitchAIPanel: View {
     @State private var current: Provider?
     @State private var localPicker = false
     @State private var loadedCurrent = false
+    /// Which provider's accounts screen is open (Direction B, Nov 9 2026): tapping a provider you're
+    /// already signed in to manages its accounts instead of switching straight away, since several
+    /// accounts can share one provider now. Switching providers is still a separate, explicit step.
+    @State private var accountsFor: Provider?
     /// Renders only: ImageRenderer draws ScrollView contents and ProgressView blank, so a still
     /// capture (`--render-switch-ai`) skips both and shows a static dot instead.
     nonisolated(unsafe) static var renderStill = false
@@ -23,6 +27,8 @@ struct SwitchAIPanel: View {
                 waiting(msg)
             } else if localPicker {
                 LocalModelPicker(m: m) { localPicker = false }
+            } else if let p = accountsFor {
+                ProviderAccountsView(m: m, provider: p, isCurrent: current == p, back: { accountsFor = nil })
             } else {
                 picker
             }
@@ -46,9 +52,11 @@ struct SwitchAIPanel: View {
             ForEach(Provider.allCases) { p in
                 providerRow(
                     symbol: p.symbol, title: p.title,
-                    subtitle: m.signedIn[p] == true ? "Already signed in" : p.subtitle,
+                    subtitle: m.signedIn[p] == true ? "Signed in · tap to manage accounts" : p.subtitle,
                     isCurrent: current == p
-                ) { Task { await m.choose(p) } }
+                ) {
+                    if m.signedIn[p] == true { accountsFor = p } else { Task { await m.choose(p) } }
+                }
             }
             providerRow(
                 symbol: "desktopcomputer", title: "Local model",

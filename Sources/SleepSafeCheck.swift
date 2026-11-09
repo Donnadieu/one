@@ -8,7 +8,8 @@ import AppKit
 /// 3. No sound output at all: the same, and a wake doesn't force it.
 /// 4. A full wake (or a speaker showing up): the line comes back by itself (when this Mac has a speaker).
 /// 5. The keeper's decisions: open One again after a crash, wait longer each time, never after a quit, put the
-///    previous version back after a just-installed one fails three times (the real relaunch: tools/keeper-check.sh).
+///    previous version back after a just-installed one fails three times, open it again after a Mac restart or
+///    shutdown (the real relaunch: tools/keeper-check.sh).
 enum SleepSafeCheck {
     static func launch() -> Bool {
         guard CommandLine.arguments.contains("--test-sleep-safe") else { return false }
@@ -128,5 +129,19 @@ enum SleepSafeCheck {
         ]
         check("the updater never offers a version that was put back", Updater.pick(list, current: "1.0.0", skip: ["1.1.0"]) == nil)
         check("but offers it otherwise", Updater.pick(list, current: "1.0.0")?.0 == "1.1.0")
+        // 0.9.100: a Mac restart, shutdown or logout (an overnight macOS update) used to count as a quit, so One stayed
+        // closed after it and the phone chat with it.
+        check("a quit they asked for: stays closed", !Keeper.wantAfterQuit(restarting: false, poweringOff: false))
+        check("an update's own quit: comes back", Keeper.wantAfterQuit(restarting: true, poweringOff: false))
+        check("the Mac restarting, shutting down or logging out: comes back after", Keeper.wantAfterQuit(restarting: false, poweringOff: true))
+        Keeper.poweringOffAt = nil
+        Keeper.watchPowerOff()
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willPowerOffNotification, object: nil)
+        check("macOS saying it's about to restart or shut down is noticed", Keeper.poweringOffAt.map { -$0.timeIntervalSinceNow < 5 } == true)
+        Keeper.poweringOffAt = nil
+        var back = Keeper.State(want: Keeper.wantAfterQuit(restarting: false, poweringOff: true), app: "/Applications/One.app")
+        check("after the restart the keeper opens it again", d(back) == .launch)
+        back.want = Keeper.wantAfterQuit(restarting: false, poweringOff: false)
+        check("after a quit they asked for it doesn't", d(back) == .nothing("One was quit on purpose"))
     }
 }

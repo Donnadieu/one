@@ -9,8 +9,9 @@ import ServiceManagement
 // minute (a launch agent inside One.app, registered with `SMAppService`): `One --keeper` looks at `keeper.json` and,
 // when One should be open but isn't (a crash, a failed relaunch after an update), opens it again in the background.
 // It waits longer after each try (1, 5, 15, 30, then 60 minutes), and after three failed starts of a version an update
-// just installed it puts the previous version back. A quit the person asked for (⌘Q, Dock › Quit, logout) is
-// remembered and respected: the keeper never opens One against their wish.
+// just installed it puts the previous version back. A quit the person asked for (⌘Q, Dock › Quit, `kill`) is
+// remembered and respected: the keeper never opens One against their wish. The Mac logging out, restarting or shutting
+// down isn't a quit of One: it comes back after they log in again (0.9.100).
 
 enum Keeper {
     static let label = "ai.forjado.one.keeper"
@@ -219,6 +220,7 @@ enum Keeper {
         s.startedAt = Date()
         save(s)
         register()
+        watchPowerOff()
         Task.detached {
             try? await Task.sleep(for: .seconds(healthyAfter))
             var s = load()
@@ -234,9 +236,31 @@ enum Keeper {
     static func quitting() {
         guard Env.production else { return }
         var s = load()
-        s.want = restarting
+        let off = poweringOffAt.map { Date().timeIntervalSince($0) < powerOffWindow } ?? false
+        s.want = wantAfterQuit(restarting: restarting, poweringOff: off)
         save(s)
-        note(restarting ? "quit for an update: One comes back by itself" : "quit by the person: staying closed")
+        note(
+            restarting
+                ? "quit for an update: One comes back by itself"
+                : off ? "the Mac is logging out, restarting or shutting down: One comes back after it" : "quit by the person: staying closed")
+    }
+
+    /// Whether One should be opened again after this quit. An update's own quit: yes. The Mac logging out, restarting
+    /// or shutting down (an overnight macOS update, a restart they chose): yes, they ended the session, not One, and the
+    /// phone chat and routines must come back once they log in again (0.9.100; before, a restart counted as a quit and
+    /// One stayed closed). A quit they asked for (Cmd-Q, Dock, `kill`): no. Pure, so the check can walk every case.
+    static func wantAfterQuit(restarting: Bool, poweringOff: Bool) -> Bool { restarting || poweringOff }
+
+    /// When macOS said it's logging out, restarting or shutting down (`NSWorkspace.willPowerOffNotification`).
+    nonisolated(unsafe) static var poweringOffAt: Date?
+    /// A logout they cancelled longer ago than this no longer turns a later Cmd-Q into "come back".
+    static let powerOffWindow: Double = 300
+
+    /// Once, at launch: notice when the Mac is about to log out, restart or shut down.
+    static func watchPowerOff() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: nil) { _ in
+            poweringOffAt = Date()
+        }
     }
 
     /// An update is about to swap the app: remember what for the keeper's put-back.

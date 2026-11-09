@@ -145,6 +145,10 @@ struct HomeView: View {
                                 .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)).starCalm()
                             }
                             if OffsiteCard.shows(m) { OffsiteCard(m: m).starCalm() }  // the locked copy in iCloud, offered once
+                            if let n = m.limitNotice {
+                                LimitNoticeCard(n: n, keep: { Task { await m.keepLimitSwitch() } }, dismiss: { m.dismissLimitNotice() })
+                                    .starCalm().transition(.opacity)
+                            }
                             if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
                                 AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                             }

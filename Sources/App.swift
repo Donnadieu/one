@@ -106,7 +106,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
         }
         if BlockedAskCheck.launch() || KeepAwakeCheck.launch() || ProgressCheck.launch() || ShelfSearchCheck.launch() || PanelRun.launch() { return }
         if SwitchAICheck.launch() || FolderApprovalCheck.launch() || HelperWorkCheck.launch() || GoalsCheck.launch() { return }  // in preflight
-        if FrontPageCheck.launch() || ImproveCheck.launch() || ImproveNightCheck.launch() { return }  // in preflight
+        if FrontPageCheck.launch() || ImproveCheck.launch() || ImproveNightCheck.launch() || AccountsCheck.launch() { return }  // in preflight
         if CommandLine.arguments.contains("--test-guards") {
             TestWorld.enter()  // scratch brain; run with ONE_SUPPORT_DIR and ONE_CLOUD_DIR set to empty folders
             exit(GuardsCheck.run())

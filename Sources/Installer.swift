@@ -347,14 +347,18 @@ final class SignIn: @unchecked Sendable {
     private var opened = false, sentCode = false, askedPaste = false
     private let lock = NSLock()
 
-    func start(_ p: Provider, events: @escaping @Sendable (SignInEvent) -> Void) {
+    /// `label` names a second (or third…) account for this provider ("Work Claude"); omit it for the
+    /// one-account onboarding flow, where Hermes picks its own default label.
+    func start(_ p: Provider, label: String? = nil, events: @escaping @Sendable (SignInEvent) -> Void) {
         guard let hp = Env.hermesPath else {
             events(.done(false, "Hermes isn't on this Mac yet."))
             return
         }
         let pr = Process()
         pr.executableURL = URL(fileURLWithPath: hp)
-        pr.arguments = ["auth", "add", p.hermesID, "--type", "oauth", "--no-browser", "--timeout", "900"]
+        var args = ["auth", "add", p.hermesID, "--type", "oauth", "--no-browser", "--timeout", "900"]
+        if let label, !label.isEmpty { args += ["--label", label] }
+        pr.arguments = args
         pr.environment = Env.vars()
         pr.currentDirectoryURL = Env.support
         let out = Pipe()

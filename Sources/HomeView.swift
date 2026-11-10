@@ -95,6 +95,7 @@ struct HomeView: View {
                                 HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                                 WeekLine(m: m)  // the plan's week, under the orbs (Budget.swift)
                             }
+                            if m.openHelper == nil && !historyShown { HealthLine().starCalm(floor: 0.2) }  // the Mac's health (HealthView.swift)
                             if m.isReady && m.thinking && m.openHelper == nil && !historyShown {
                                 StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
                                     .starCalm(floor: 0.2).transition(.opacity)
@@ -245,6 +246,7 @@ struct HomeView: View {
                     ) { _ in
                         FindPanel(pager: pager) { finding = false }
                     }
+                    .healthPopup()  // the watchdog's list, from the line under the orb (HealthView.swift)
                 }
                 // Pinned under the scrolling part, so a long message can never push the box out of view.
                 askBox.starCalm().padding(.horizontal, 28).padding(.top, 4).padding(.bottom, 20).layoutPriority(1)

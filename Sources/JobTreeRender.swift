@@ -35,7 +35,9 @@ struct StopTreeScene: View {
         }
         .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(WorldLook.bg).environment(\.colorScheme, .dark)
     }
-    @MainActor static var renders: [(String, AnyView)] { [("helper-stop-tree", AnyView(Self())), ("helper-stop-budget", AnyView(BudgetScene()))] }
+    @MainActor static var renders: [(String, AnyView)] {
+        [("helper-stop-tree", AnyView(Self())), ("helper-stop-budget", AnyView(BudgetScene()))] + HealthScene.renders
+    }
 }
 
 /// Render-only: budgets, Direction A (`helper-stop-budget`): the arcs on the orbs, a paused one with its three

@@ -71,7 +71,9 @@ enum JobTreeCheck {
             "another helper's go on that helper's record, not this one's",
             !rec.contains { $0.pid == others } && JobTree.ledger(o.id).contains { $0.pid == others })
         try? await Task.sleep(for: .seconds(3))  // the script ends: its run now has no parent
-        check("set up: the run lost its parent", orphan.flatMap { ProcTable.info($0)?.ppid } == 1)
+        check(
+            "set up: the run lost its parent (its script ended)",
+            orphan.flatMap { ProcTable.info($0)?.ppid }.map { $0 != script } == true && !alive(script))
 
         // A pid on the record that now belongs to someone else (same number, another start time) is never touched.
         var fake = JobTree.ledger(h.id)

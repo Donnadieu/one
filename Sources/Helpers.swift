@@ -41,10 +41,18 @@ struct Helper: Identifiable, Codable {
     var repos: [String]?  // git repos it works in directly (HelperRepos.swift); nil = from before this existed
     var stopping: Bool?  // stopped, its tree still closing: "Stopping… N programs left" (JobTree.swift)
     var leftovers: [String]?  // still alive a minute after Stop: "<name> won't close" + Force stop
+    var budget: Double?  // share of the plan's week it may use (0.05 = 5%); nil = the default (Budget.swift)
+    var budgetOff: Bool?  // "No limit" picked in its card
+    var used: Double?  // share of the week it used so far (its conversation + its sub-helpers)
+    var budgetWarned: Bool?  // its 80% line was written
+    var pausedForBudget: Bool?  // paused at its budget: orange, with Give it more / Switch to / Stop it
+    var switchTo: String?  // another signed-in account for this AI, offered when paused
+    var switchEntry: String?
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
         if stopping == true { return leftovers == nil ? .stopped : .needsYes }  // closing its tree (JobTree.swift)
+        if pausedForBudget == true { return .needsYes }  // used its share of the week: it needs your choice (Budget.swift)
         return switch state {
         case "working": .working
         case "needsYes": .needsYes

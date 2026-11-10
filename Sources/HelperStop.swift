@@ -74,7 +74,7 @@ enum HelperStop {
         switch h.state {
         case "working": "working"
         case "needsYes": "needs your yes"
-        case "stopped": h.resumeQueued == true ? "paused" : "stopped"
+        case "stopped": h.resumeQueued == true || h.pausedForBudget == true ? "paused" : "stopped"
         default: "done"
         }
     }
@@ -177,6 +177,7 @@ struct HelperCard: View {
                 } onOther: {
                 }
             }
+            BudgetRow(m: m, h: h)  // its share of the week; when paused at it, the three choices (Budget.swift)
             buttons
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading)
@@ -199,6 +200,8 @@ struct HelperCard: View {
                     .buttonStyle(.bordered).help("Closes what's left at once, without waiting for it")
                 }
             }
+        } else if h.pausedForBudget == true {
+            EmptyView()  // its choices are in BudgetRow
         } else if HelperClose.busy(h) {
             HStack {
                 Spacer()

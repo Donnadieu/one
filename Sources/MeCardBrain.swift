@@ -27,7 +27,7 @@ struct BrainSection: View {
         guard let e = effort, !here.isEmpty else { return nil }
         if here.contains(e) { return e }
         let order = Effort.allCases
-        return here.last { order.firstIndex(of: $0)! <= order.firstIndex(of: e)! && $0 != .none } ?? here.first { $0 != .none }
+        return here.last { order.firstIndex(of: $0)! <= order.firstIndex(of: e)! && $0 != .off } ?? here.first { $0 != .off }
     }
 
     var body: some View {

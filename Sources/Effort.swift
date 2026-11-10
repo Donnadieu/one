@@ -4,12 +4,14 @@ import Foundation
 /// set it by themselves (Omar's pick, Nov 9 2026, design docs/design-docs/ai-picker-extras.md, Direction B); the card's
 /// "More options" shows only the levels the engine really sends for that model (`AICatalog.efforts`).
 enum Effort: String, CaseIterable, Identifiable {
-    case none, low, medium, high, xhigh, max
+    // `off` is the engine's "none"; never name a case `none`: compared with an optional, `.none` means nil.
+    case off = "none"
+    case low, medium, high, xhigh, max
     var id: String { rawValue }
 
     var word: String {
         switch self {
-        case .none: "Off"
+        case .off: "Off"
         case .low: "Low"
         case .medium: "Medium"
         case .high: "High"
@@ -20,7 +22,7 @@ enum Effort: String, CaseIterable, Identifiable {
     /// The one-line meaning beside each level.
     var meaning: String {
         switch self {
-        case .none: "answers right away"
+        case .off: "answers right away"
         case .low: "quick answers"
         case .medium: "a bit of thought"
         case .high: "thinks it through"
@@ -33,7 +35,7 @@ enum Effort: String, CaseIterable, Identifiable {
     /// stepped down to the nearest level the model has (never up, like the engine's own clamp). Off is never picked
     /// for them. Nil when the model has no thinking levels: then nothing is written.
     static func preset(tier: Int, levels: [Effort]) -> Effort? {
-        let on = levels.filter { $0 != .none }
+        let on = levels.filter { $0 != .off }
         guard let top = on.last else { return nil }
         if tier <= 0 { return top }
         let want: Effort = tier == 1 ? .medium : .low
@@ -45,9 +47,9 @@ enum Effort: String, CaseIterable, Identifiable {
     /// The small line under a pill's model name (Direction B).
     static func pillLine(_ e: Effort?, levels: [Effort]) -> String {
         guard let e else { return "no thinking levels" }
-        if e == levels.filter({ $0 != .none }).last, levels.count > 1 { return "thinks hardest" }
+        if e == levels.filter({ $0 != .off }).last, levels.count > 1 { return "thinks hardest" }
         switch e {
-        case .none, .low: return "thinks briefly"
+        case .off, .low: return "thinks briefly"
         case .medium: return "thinks a bit"
         case .high: return "thinks it through"
         case .xhigh: return "thinks a long time"

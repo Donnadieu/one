@@ -46,17 +46,17 @@ enum OtherAIsCheck {
 
         // Presets: Smartest = the model's top, Balanced = Medium, Fastest = Low, stepped down, never up, never Off.
         let opus: [Effort] = [.low, .medium, .high, .xhigh, .max]
-        let mini: [Effort] = [.none, .low, .medium, .high, .xhigh]
-        let k3: [Effort] = [.none, .low, .high, .max]
+        let mini: [Effort] = [.off, .low, .medium, .high, .xhigh]
+        let k3: [Effort] = [.off, .low, .high, .max]
         func p(_ l: [Effort]) -> [Effort?] { (0..<3).map { Effort.preset(tier: $0, levels: l) } }
         check("Claude Opus: Max, Medium, Low", p(opus) == [.max, .medium, .low])
         check("ChatGPT gpt-5.4-mini (no Max): Extra high, Medium, Low", p(mini) == [.xhigh, .medium, .low])
         check("Grok 4.6: its top is Extra high", Effort.preset(tier: 0, levels: [.low, .medium, .high, .xhigh]) == .xhigh)
         check("Kimi K3 (no Medium): Balanced steps down to Low, never up to High", p(k3) == [.max, .low, .low])
         check("no levels (Grok 4.20, local): nothing is written", p([]) == [nil, nil, nil])
-        check("Off alone is never picked for a pill", Effort.preset(tier: 2, levels: [.none]) == nil)
+        check("Off alone is never picked for a pill", Effort.preset(tier: 2, levels: [.off]) == nil)
         check("only One's six levels are shown (minimal, ultra dropped)", Effort.list(["minimal", "low", "ultra", "max", "x"]) == [.low, .max])
-        check("levels show in order, whatever order the engine sent", Effort.list(["max", "low", "none"]) == [.none, .low, .max])
+        check("levels show in order, whatever order the engine sent", Effort.list(["max", "low", "none"]) == [.off, .low, .max])
         check("the pill line names the top level", Effort.pillLine(.max, levels: opus) == "thinks hardest")
         check("a model with none says so", Effort.pillLine(nil, levels: []) == "no thinking levels")
 
@@ -76,7 +76,7 @@ enum OtherAIsCheck {
             """
         check("the card reads the level every chat uses", Effort.current(cfg) == .high)
         check("unset reads as unset", Effort.current("agent:\n  verbose: false\n") == nil)
-        check("off reads as Off", Effort.current("agent:\n  reasoning_effort: none\n") == .none)
+        check("off reads as Off", Effort.current("agent:\n  reasoning_effort: none\n") == .off)
 
         // Is the key real? The AI's own model list, the way the engine's doctor asks.
         var ai = row("deepseek")
@@ -138,7 +138,7 @@ enum OtherAIsCheck {
         check("Grok 4.20 non-reasoning has no levels", grok["grok-4.20-0309-non-reasoning"] == [])
         let gpt = await AICatalog.efforts("openai-codex", models: ["gpt-5.4-mini", "gpt-6.1-sol"])
         check("gpt-5.4-mini has no Max", gpt["gpt-5.4-mini"]?.contains(.max) == false && gpt["gpt-5.4-mini"]?.isEmpty == false)
-        check("gpt-6.1-sol has no Off", gpt["gpt-6.1-sol"]?.contains(.none) == false && gpt["gpt-6.1-sol"]?.contains(.max) == true)
+        check("gpt-6.1-sol has no Off", gpt["gpt-6.1-sol"]?.contains(.off) == false && gpt["gpt-6.1-sol"]?.contains(.max) == true)
 
         for (tier, want) in [(0, Effort.max), (1, .medium), (2, .low)] {
             let e = Effort.preset(tier: tier, levels: claude["claude-opus-5-5"] ?? [])

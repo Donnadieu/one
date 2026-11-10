@@ -70,8 +70,8 @@ enum SwitchAIPanelRender {
     @MainActor static func cardPNG(_ path: String, mode: String, scene: AnyView) {
         let m = Model.shared
         let claude: [String: [Effort]] = [
-            "claude-opus-5-5": [.low, .medium, .high, .xhigh, .max], "claude-sonnet-5": [.none, .low, .medium, .high, .xhigh, .max],
-            "claude-haiku-5-5": [.none, .low, .medium, .high, .xhigh, .max],
+            "claude-opus-5-5": [.low, .medium, .high, .xhigh, .max], "claude-sonnet-5": [.off, .low, .medium, .high, .xhigh, .max],
+            "claude-haiku-5-5": [.off, .low, .medium, .high, .xhigh, .max],
         ]
         switch mode {
         case "card-none":
@@ -82,7 +82,7 @@ enum SwitchAIPanelRender {
             BrainSection.still = ("grok-4.20-0309-non-reasoning", grok, .low, true, false, "")
         case "card-other":
             m.providerRaw = "deepseek"
-            BrainSection.still = ("deepseek-flash", ["deepseek-flash": [.none, .low, .medium, .high, .max]], .medium, true, false, "DeepSeek")
+            BrainSection.still = ("deepseek-flash", ["deepseek-flash": [.off, .low, .medium, .high, .max]], .medium, true, false, "DeepSeek")
         default:
             m.providerRaw = "claude"
             BrainSection.still = ("claude-opus-5-5", claude, .max, mode == "card-open", false, "")

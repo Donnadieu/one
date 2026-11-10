@@ -9,7 +9,8 @@ import SwiftUI
 
 enum SwitchAIPanelRender {
     static func cli(_ args: [String]) {
-        guard let k = args.firstIndex(of: "--render-switch-ai"), k + 1 < args.count else { return }
+        // Not this one: maybe --render-helper-tags (HelperTagsRender.swift).
+        guard let k = args.firstIndex(of: "--render-switch-ai"), k + 1 < args.count else { return HelperTagsRender.cli(args) }
         let mode = k + 2 < args.count ? args[k + 2] : "picker"
         MainActor.assumeIsolated { png(args[k + 1], mode: mode) }
         exit(0)

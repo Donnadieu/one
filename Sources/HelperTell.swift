@@ -27,12 +27,12 @@ enum HelperTell {
     /// the Oct 28 fix for stop/close) is part of that job, never acted on here.
     static func extract(_ text: String) -> (String, [(String, String)]) {
         let (rest, bodies) = TagLines.extract(text, tag: "tell-helper")
-        var tells: [(String, String)] = []
-        for body in bodies {
-            let parts = body.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { tells.append((parts[0], parts[1])) }
-        }
-        return (rest, tells)
+        return (rest, bodies.compactMap(parts))
+    }
+    /// Title and message from what's after "[tell-helper:"; every line of the message kept. nil without both.
+    static func parts(_ body: String) -> (String, String)? {
+        let p = body.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return p.count == 2 && !p[0].isEmpty && !p[1].isEmpty ? (p[0], p[1]) : nil
     }
     /// While a reply streams in: hide a tell line, even half-written, nested brackets and all.
     static func hide(_ text: String) -> String { TagLines.hide(text, tags: ["tell-helper"]) }

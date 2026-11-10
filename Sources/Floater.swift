@@ -471,7 +471,7 @@ final class OrbHost: NSView {
 
     private func showReply() {
         guard let b = Model.shared.bubbles.last, !b.fromMe else { return }
-        var t = Choices.split(b.text).body
+        var t = Choices.split(Helpers.strip(b.text)).body  // never a helper's job, even one still in the text
         for mark in ["**", "__", "`", "#"] { t = t.replacingOccurrences(of: mark, with: "") }
         t = t.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
         if t.count > 220 { t = String(t.prefix(217)) + "…" }

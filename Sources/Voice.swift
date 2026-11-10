@@ -469,7 +469,8 @@ final class Speaker: @unchecked Sendable {
 
     /// What's worth saying out loud: plain sentences, no lists of links, code or long tables.
     static func spoken(_ text: String) -> [String] {
-        var t = Choices.split(Helpers.strip(text)).body  // no helper/stop/close/job-kind line is ever read aloud
+        // No helper/tell/stop/close/job-kind tag is ever read aloud, and nothing after one the parser missed either.
+        var t = TagLines.unspoken(Choices.split(Helpers.strip(text)).body)
         t = t.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
         t = t.replacingOccurrences(of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression)
         t = t.replacingOccurrences(of: #"https?://\S+"#, with: "", options: .regularExpression)

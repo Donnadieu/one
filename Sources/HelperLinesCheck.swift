@@ -56,11 +56,15 @@ extension HelperCheck {
 
         // A helper line written wrong is never shown, and starts when its title and job can be read.
         let lost = Helpers.read("Ok.\n[helper: Hotels | Find a hotel in Quebec\nfor Dec 20 to 24.]\nMore soon.")
-        check("a job that ran onto a second line still starts", lost.jobs.count == 1 && lost.jobs[0].1 == "Find a hotel in Quebec for Dec 20 to 24.")
+        check(
+            "a job that ran onto a second line still starts, lines kept",
+            lost.jobs.count == 1 && lost.jobs[0].1 == "Find a hotel in Quebec\nfor Dec 20 to 24.")
         check("and none of it shows", lost.said == "Ok.\nMore soon.")
         let open = Helpers.read("Ok.\n[helper: Hotels | Find a hotel in Quebec\n[choices: A | B]")
-        check("one missing its \"]\" starts with the rest of its line", open.jobs.count == 1 && open.jobs[0].1 == "Find a hotel in Quebec")
-        check("and the choices line after it stays", open.said == "Ok.\n[choices: A | B]")
+        check(
+            "one missing its \"]\" starts with everything after it",
+            open.jobs.count == 1 && open.jobs[0].1 == "Find a hotel in Quebec\n[choices: A | B]")
+        check("and none of that shows (fail safe: hidden to the end)", open.said == "Ok.")
         let bad = Helpers.read("Ok.\n[helper: no bar here]")
         check("one with no title or job starts nothing and still never shows", bad.jobs.isEmpty && bad.said == "Ok.")
         check("nor is it read aloud", !Speaker.spoken("Ok.\n[helper: no bar here]").joined().contains("bar"))
@@ -120,7 +124,7 @@ extension HelperCheck {
             link.tells.first?.1 == "Read [the plan](https://example.com/a) and check arr[0]." && link.said == "Sent.\nAnything else?")
         check("a stray \"]\" later on the line is still the message's", Helpers.read("[tell-helper: X | use a] b]").tells.first?.1 == "use a] b")
 
-        // More than one line: the message keeps its lines up to its closing "]"; one that never closes is its own line.
+        // More than one line: the message keeps its lines up to its closing "]"; one that never closes takes the rest.
         let multi = "Sent.\n[tell-helper: X | First, skip the tests.\nThen ship it, ending with [choices: Ship | Wait].]\nAnything else?"
         let m = Helpers.read(multi)
         check(
@@ -131,9 +135,9 @@ extension HelperCheck {
         check("nor is it read aloud", !Speaker.spoken(multi).joined().contains("skip") && Choices.split(Helpers.strip(m.said)).choices.isEmpty)
         let open = Helpers.read("Sent.\n[tell-helper: X | Skip the tests\n[choices: Ok | Wait]")
         check(
-            "one missing its \"]\" is its own line; the reply's own choices after it stay",
-            open.tells.first?.1 == "Skip the tests" && open.said == "Sent.\n[choices: Ok | Wait]")
-        check("and still become buttons", Choices.split(Helpers.strip(open.said)).choices == ["Ok", "Wait"])
+            "one missing its \"]\" takes everything after it, and none of it shows",
+            open.tells.first?.1 == "Skip the tests\n[choices: Ok | Wait]" && open.said == "Sent.")
+        check("nor do its words become buttons", Choices.split(Helpers.strip(open.said)).choices.isEmpty)
 
         // A stop or close quoted inside a tell's message goes to the helper; it never fires.
         let quoted = Helpers.read("Sent.\n[tell-helper: X | If they say [stop-helper: all] or [done-helper: all], stop.]")

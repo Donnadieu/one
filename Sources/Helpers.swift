@@ -79,26 +79,24 @@ enum Helpers {
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     /// Run this BEFORE reading any other tag: a helper line is opaque (HelperLines.swift), whatever its job text quotes.
     static func extract(_ text: String) -> (String, [(String, String)]) {
+        let c = Array(text)
+        let hs = TagLines.hits(c, tags: TagLines.acted, streaming: false).filter { $0.tag == "helper" }  // outermost only
+        guard !hs.isEmpty else { return (text, []) }
+        TagLines.logOpen(hs)
         var jobs: [(String, String)] = []
-        var (keep, found) = lines(text)
-        for l in found {
-            let job = parse(l)
-            if let job { jobs.append(job) }
-            if job == nil || !l.hasSuffix("]") { logOdd(l, started: job != nil) }  // never shown either way
+        for h in hs {
+            let job = h.body.flatMap { self.job($0) }
+            if let job { jobs.append(job) } else { logOdd("[helper:" + (h.body ?? ""), started: false) }  // never shown either way
         }
-        while let last = keep.last, last.trimmingCharacters(in: .whitespaces).isEmpty { keep.removeLast() }
-        return (keep.joined(separator: "\n"), jobs)
+        return (TagLines.cut(c, hs), jobs)
     }
-    /// Hide helper lines while a reply is still streaming in. Helper lines go first, whole, so a tag quoted
-    /// inside one never splits it.
+    /// Hide every tag while a reply is still streaming in, in one pass, outermost first, each to its own closing "]"
+    /// over any number of lines, so a tag quoted inside one never splits it. One still being written is hidden to the end.
     static func strip(_ text: String) -> String {
-        let rest = lines(text).keep.joined(separator: "\n")
-        return Learning.hideTags(HelperStop.hide(HelperTell.hide(rest))).components(separatedBy: "\n").filter {
+        TagLines.hide(text, tags: TagLines.hidden).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
-            return !l.hasPrefix("[helper") && !l.hasPrefix("[stop-helper") && !l.hasPrefix("[close-helper") && !l.hasPrefix("[done-helper")
-                && !l.hasPrefix("[tell-helper")
-        }.joined(
-            separator: "\n")
+            return !TagLines.hidden.contains { l.hasPrefix("[" + $0) }
+        }.joined(separator: "\n")
     }
     /// A good morning / afternoon / evening or a status report: its helpers report back together, in one reply.
     static func isRoutine(_ text: String) -> Bool {

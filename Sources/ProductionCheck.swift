@@ -17,6 +17,17 @@ enum ProductionCheck {
             "your Documents and real One folder count as production",
             TestWorld.isProduction(docs.appendingPathComponent("Made by Elias/x.md")) && TestWorld.isProduction(TestWorld.realSupport))
         check("a test is never the person's own One", !Env.production)
+        let real = TestWorld.productionID
+        check(
+            "a render or test as the real One is refused (Nov 9: a render wrote assistantName into real settings)",
+            TestWorld.refused(["One", "--render-routines", "x.png"], bundle: real) == "--render-routines"
+                && TestWorld.refused(["One", "--render-world", "p"], bundle: real) != nil
+                && TestWorld.refused(["One", "--test-helpers"], bundle: real) == "--test-helpers")
+        check(
+            "the real One's own modes and any test copy still run",
+            TestWorld.refused(["One"], bundle: real) == nil && TestWorld.refused(["One", "--search", "x"], bundle: real) == nil
+                && TestWorld.refused(["One", "--keeper"], bundle: real) == nil
+                && TestWorld.refused(["One", "--render-world", "p"], bundle: real + ".test") == nil)
         check("the Ready for you folder of a test is inside the test world", !TestWorld.isProduction(Shelf.folder))
         check("the brain of a test is inside the test world", !TestWorld.isProduction(Brain.root))
         check("the engine home of a test is inside the test world", !TestWorld.isProduction(Env.hermesHome))

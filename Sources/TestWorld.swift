@@ -18,6 +18,23 @@ enum TestWorld {
     static let productionID = "ai.forjado.one"
     nonisolated(unsafe) static var scratch: URL?
 
+    /// The very first line of `main()`: a render (`--render…`) or a test (`--test-…`) never runs as the real One.
+    /// Renders fill `Model.shared` with made-up state, and its `@AppStorage` keys (assistantName, the shelf,
+    /// helpers) write straight into the person's settings: on Nov 9, 2026 a render run from a repo build (whose
+    /// bundle id is the real one) wrote assistantName = "Elias" there, and Ready for you looked in the wrong
+    /// folder. Refused before anything else is built, so nothing is read or written.
+    static func gate(_ args: [String], bundle: String? = Bundle.main.bundleIdentifier) -> [String] {
+        guard let flag = refused(args, bundle: bundle) else { return args }
+        print("refusing: \(flag) is a render or test and never runs as your real One (your settings are left alone).")
+        print("FIX: run it from a test copy: APP=$(tools/test-copy.sh) && \"$APP/Contents/MacOS/One\" \(flag) …")
+        exit(2)
+    }
+    /// The flag that makes this run a render or test under the real bundle id, or nil when it may run.
+    static func refused(_ args: [String], bundle: String?) -> String? {
+        guard bundle == productionID else { return nil }
+        return args.dropFirst().first { $0.hasPrefix("--render") || $0.hasPrefix("--test-") }
+    }
+
     /// The first line of every test mode.
     static func enter() {
         Env.selfTest = true

@@ -15,7 +15,7 @@
 | File | Area | Responsibility |
 |---|---|---|
 | Env.swift | foundation | paths, `Access.profile()` (the folder lock), engine environment |
-| TestWorld.swift | foundation | the person's Mac is production: `TestWorld.enter()` (the only way into a test mode; refuses as the real One, scratch One folder), `Env.production`, `isProduction(url)` |
+| TestWorld.swift | foundation | the person's Mac is production: `TestWorld.gate` (first line of `main()`: any `--render…`/`--test-…` run as the real bundle id is refused before anything is built, so renders can't write the person's settings), `TestWorld.enter()` (the only way into a test mode; refuses as the real One, scratch One folder), `Env.production`, `isProduction(url)` |
 | ProductionCheck.swift | dev only | `One --test-production`: a test copy keeps to its own world; the Oct 27 shelf move replayed on fakes |
 | Installer.swift | service | install Hermes (pinned commit), KeePass overlay, provider sign-in, tools Python |
 | Engine.swift | service | the ACP connection to Hermes: sessions, prompts, permissions |

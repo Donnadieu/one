@@ -68,6 +68,8 @@ mkdir -p "$APP/Contents/Resources/one-browser-guard"
 cp tools/overlay/plugins/one-browser-guard/__init__.py tools/overlay/plugins/one-browser-guard/plugin.yaml "$APP/Contents/Resources/one-browser-guard/"
 mkdir -p "$APP/Contents/Resources/one-learning-cap"
 cp tools/overlay/plugins/one-learning-cap/__init__.py tools/overlay/plugins/one-learning-cap/plugin.yaml "$APP/Contents/Resources/one-learning-cap/"
+mkdir -p "$APP/Contents/Resources/one-stop"
+cp tools/overlay/plugins/one-stop/__init__.py tools/overlay/plugins/one-stop/plugin.yaml "$APP/Contents/Resources/one-stop/"
 mkdir -p "$APP/Contents/Resources/one-missed-messages"
 cp tools/overlay/plugins/one-missed-messages/__init__.py tools/overlay/plugins/one-missed-messages/plugin.yaml "$APP/Contents/Resources/one-missed-messages/"
 # The keeper: macOS runs One --keeper every minute and it opens One again if it ended without being asked to

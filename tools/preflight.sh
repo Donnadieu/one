@@ -128,6 +128,10 @@ check "suggestions-only nights change nothing, edit nights within limits, undo, 
 grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "The engine's own learning stays under the nightly limits"
+check "stop means stop (engine): a stopped helper's wake-ups dropped (Nov 9), its tools blocked, its and its sub-helpers' background programs and sub-helpers stopped, never another's; their message lifts it" /usr/bin/python3 tools/stop-plugin-check.py
+mkdir -p "$T/stoptree"; check "stop means stop (One): every program a stopped helper started is closed, also one left with no parent; another helper's and the person's own live on" bash -c "ONE_SUPPORT_DIR=$T/stoptree $TBIN --test-stop-tree | tee $T/stoptree/out.txt | grep -q '^stop tree ok'"
+grep "✗" "$T/stoptree/out.txt" 2>/dev/null | sed 's/^/    /'
+check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
 check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
 [ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
 

@@ -16,7 +16,7 @@ enum HelperClose {
     static let tags = ["done-helper", "close-helper"]
 
     /// Still busy: at work, waiting to pick back up, or waiting for their yes. Never taken off the screen.
-    static func busy(_ h: Helper) -> Bool { h.state == "working" || h.state == "needsYes" || h.resumeQueued == true }
+    static func busy(_ h: Helper) -> Bool { h.state == "working" || h.state == "needsYes" || h.resumeQueued == true || h.stopping == true }
 
     /// Which helpers a done line means: the exact title (any case, the most recently sent on ties), or "all" =
     /// every one that's finished or stopped (a busy one is never taken, even by name, until it's stopped).
@@ -94,6 +94,8 @@ extension Model {
             $0.state = "working"
             $0.line = "Getting started…"
             $0.stoppedByYou = nil
+            $0.stopping = nil
+            $0.leftovers = nil
             $0.sid = nil
             $0.started = Date()
             HelperTrail.add("Started again by you", to: &$0)

@@ -186,7 +186,20 @@ struct HelperCard: View {
 
     @ViewBuilder var buttons: some View {
         // Still at work or waiting for their yes: it can only be stopped here. "Got it" comes once it's done or stopped.
-        if HelperClose.busy(h) {
+        if h.stopping == true {
+            // Still closing what it started: it can't leave the screen yet; after a minute, Force stop (JobTree.swift).
+            HStack {
+                Spacer()
+                if h.leftovers != nil {
+                    Button {
+                        m.forceStop(h.id)
+                    } label: {
+                        Label("Force stop", systemImage: "xmark.octagon")
+                    }
+                    .buttonStyle(.bordered).help("Closes what's left at once, without waiting for it")
+                }
+            }
+        } else if HelperClose.busy(h) {
             HStack {
                 Spacer()
                 Button {
@@ -260,7 +273,7 @@ struct HelperStopScene: View {
         [
             ("helper-stop", AnyView(Self())), ("helper-stop-working", AnyView(Self(working: true))),
             ("helper-stop-got-it", AnyView(Self(opened: "done"))), ("helper-stop-needs-yes", AnyView(Self(opened: "needsYes"))),
-        ]
+        ] + StopTreeScene.renders
     }
     func card(_ stopped: Helper) -> Helper {
         if working { return Self.helper("working", line: "Checking Google Flights…") }

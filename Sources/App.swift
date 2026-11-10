@@ -174,7 +174,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             for tick in 0... {
                 Model.shared.tendHumanSteps()
                 Model.shared.tendKeepAwake()  // the Mac stays awake while anything works (KeepAwake.swift)
-                if tick % 2 == 0 { Model.shared.tendGoals() }  // a standing goal's line: its turn (ModelGoals.swift)
+                if tick % 2 == 0 { Model.shared.tendEveryTwo() }  // goals' lines (ModelGoals.swift), helpers' programs (JobTree.swift)
                 if tick % 4 == 0 { Task { await Model.shared.tendBlocked() } }
                 try? await Task.sleep(for: .seconds(1))
             }

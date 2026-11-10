@@ -67,6 +67,7 @@ extension Model {
     }
     /// They wrote to a look-only helper in its own thread: from now on it may do what they ask.
     func liftLookOnly(_ id: UUID) {
+        if let sid = helpers.first(where: { $0.id == id })?.sid { StopMark.lift(sid) }  // a stopped one may go again (JobTree.swift)
         guard let h = helpers.first(where: { $0.id == id }), h.lookOnly == true else { return }
         if let sid = h.sid { LookOnly.lift(sid) }
         update(id) {

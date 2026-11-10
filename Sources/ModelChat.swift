@@ -38,7 +38,7 @@ extension Model {
         _ = Installer.hooksReport()  // codes, passkeys, human checks shown to the person; standing goals (Goals.swift)
         FolderApprovals.migrateExisting()  // one-time: logs every folder already allowed, never re-asks, never removes one
         await BrowserGuard.sync()  // no visible browser window without their yes (engine plugin + hidden browser tools)
-        await LearningCap.sync()  // the engine's own after-job learning stays under the nightly limits (LearningCap.swift)
+        await StopPlugin.sync()  // learning cap (LearningCap.swift) + stop means stop (JobTree.swift)
         BundledSkills.sync()  // skills that ship with One; never overwrites one changed here
         sweepCopies()  // repo copies left by helpers no longer on the screen (HelperRepos.swift)
         Task.detached { _ = GoogleSignIn.ensureVenv() }
@@ -561,14 +561,6 @@ extension Model {
     func answer(_ a: Ask, _ choice: String?) {
         a.answer(choice)
         asks.removeAll { $0.id == a.id }
-    }
-
-    /// The person stopped this helper on purpose: its work is cancelled and it stays stopped, even after a restart.
-    func stopHelper(_ id: UUID) {
-        var cancel = false
-        update(id) { cancel = HelperTrail.stopByYou(&$0) }
-        saveTrail(id)
-        if cancel, let sid = helpers.first(where: { $0.id == id })?.sid { Engine.shared.cancel(session: sid) }
     }
 
     /// Something is being said out loud right now (or a reply is waiting on its first words).

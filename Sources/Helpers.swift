@@ -39,10 +39,13 @@ struct Helper: Identifiable, Codable {
     var routine: UUID?  // sent for a good morning / status report: the assistant gives one combined report when the batch is done
     var lookOnly: Bool?  // its job said "Look only:": the engine blocks saving, pushing, releasing, installing, posting (LookOnly.swift)
     var repos: [String]?  // git repos it works in directly (HelperRepos.swift); nil = from before this existed
+    var stopping: Bool?  // stopped, its tree still closing: "Stopping… N programs left" (JobTree.swift)
+    var leftovers: [String]?  // still alive a minute after Stop: "<name> won't close" + Force stop
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
-        switch state {
+        if stopping == true { return leftovers == nil ? .stopped : .needsYes }  // closing its tree (JobTree.swift)
+        return switch state {
         case "working": .working
         case "needsYes": .needsYes
         // Three looks only: working, needs you (orange), done. Paused or cut off and picking back up = working;

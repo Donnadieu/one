@@ -1,0 +1,6 @@
+name: one-stop
+version: "1.0.0"
+description: "One: stopping a helper stops its whole tree. Its background programs and sub-helpers are ended, nothing can wake it up again, and every tool call it still tries is blocked, until the person writes in its thread."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - pre_tool_call

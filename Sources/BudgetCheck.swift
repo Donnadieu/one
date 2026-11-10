@@ -106,7 +106,7 @@ enum BudgetCheck {
             "a full-range job at 40% of the week: still working, no warning, no pause",
             m.helpers[1].state == "working" && m.helpers[1].budgetWarned == nil)
         m.applyUsage(h.id, used: 0.081)
-        m.applyUsage(h.id, used: 0.085)
+        m.applyUsage(h.id, used: 0.083)
         check(
             "warned once at 80%, on their phone too (they're away)",
             phone.count == 1 && phone[0].contains("8% of its 10%") && phone[0].contains("pauses only at 10%"))

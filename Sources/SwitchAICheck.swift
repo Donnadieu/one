@@ -4,7 +4,7 @@ import Foundation
 enum SwitchAICheck {
     /// `--test-switch-ai`: no engine, no network.
     static func launch() -> Bool {
-        guard CommandLine.arguments.contains("--test-switch-ai") else { return false }
+        guard CommandLine.arguments.contains("--test-switch-ai") else { return OtherAIsCheck.launch() }  // Other AIs, same area
         TestWorld.enter()
         Task { @MainActor in exit(run()) }
         return true

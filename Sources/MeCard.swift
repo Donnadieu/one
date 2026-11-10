@@ -13,12 +13,8 @@ import UniformTypeIdentifiers
 struct MeCard: View {
     @ObservedObject var m: Model
     var close: () -> Void = {}
-    @State var model: String = MeCard.currentModel()
     @State var voice: String = Speaker.voiceID
     @State var gender: String = Speaker.voiceID.hasPrefix("am") || Speaker.voiceID.hasPrefix("bm") ? "Male" : "Female"
-    @State var anyModel = false
-    @State var search = ""
-    @State var busy = false
     @AppStorage("voiceMuted") var muted = false
     static let voices: [String: [(String, String)]] = [
         "Female": [("af_heart", "Warm"), ("af_bella", "Bright"), ("bf_emma", "British")],
@@ -31,7 +27,6 @@ struct MeCard: View {
         }
         return ""
     }
-    var provider: Provider { Provider(rawValue: m.providerRaw) ?? .claude }
     static func allOpenRouter() -> [String] {
         guard let d = try? Data(contentsOf: Env.hermesHome.appendingPathComponent("models_dev_cache.json")),
             let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
@@ -40,10 +35,19 @@ struct MeCard: View {
         return ms.keys.sorted()
     }
     func pill(_ t: String, _ on: Bool, sub: String? = nil, _ act: @escaping () -> Void) -> some View {
+        MeCard.pillView(t, on, sub: sub, act)
+    }
+    /// One pill of the card. `dot`: the thinking level was changed by hand under More options.
+    static func pillView(_ t: String, _ on: Bool, sub: String? = nil, dot: Bool = false, _ act: @escaping () -> Void) -> some View {
         Button(action: act) {
             VStack(spacing: 2) {
-                Text(t).font(.system(size: 13.5, weight: .medium))
-                if let sub { Text(sub).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(1) }
+                HStack(spacing: 4) {
+                    Text(t).font(.system(size: 13.5, weight: .medium))
+                    if dot { Circle().fill(WorldLook.cream.opacity(0.8)).frame(width: 5, height: 5) }
+                }
+                if let sub {
+                    Text(sub).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(2).multilineTextAlignment(.center)
+                }
             }
             .foregroundStyle(on ? .white : WorldLook.cream.opacity(0.8))
             .frame(maxWidth: .infinity).padding(.vertical, 9)
@@ -60,42 +64,7 @@ struct MeCard: View {
                 }
                 Spacer()
             }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("BRAIN").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(WorldLook.cream.opacity(0.5))
-                    Spacer()
-                    Text(provider.title).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.45))
-                }
-                HStack(spacing: 8) {
-                    ForEach(provider.tiers, id: \.1) { t in pill(t.0, model == t.1, sub: t.1) { pick(t.1) } }
-                }
-                if provider == .openrouter {
-                    Button(anyModel ? "Hide the full list" : "Pick any model…") { anyModel.toggle() }.buttonStyle(.plain)
-                        .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.6))
-                    if anyModel {
-                        TextField("Search, e.g. gemini, llama, gpt", text: $search).textFieldStyle(.roundedBorder)
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(
-                                    MeCard.allOpenRouter().filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }.prefix(60),
-                                    id: \.self
-                                ) { id in
-                                    Button {
-                                        pick(id)
-                                    } label: {
-                                        HStack {
-                                            Text(id).font(.system(size: 12.5))
-                                            Spacer()
-                                            if model == id { Image(systemName: "checkmark") }
-                                        }
-                                    }
-                                    .buttonStyle(.plain).foregroundStyle(WorldLook.cream.opacity(0.85))
-                                }
-                            }
-                        }.frame(height: 140)
-                    }
-                }
-            }
+            BrainSection(m: m)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("VOICE").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(WorldLook.cream.opacity(0.5))
@@ -136,23 +105,5 @@ struct MeCard: View {
     func choose(_ v: String) {
         voice = v
         Speaker.shared.use(voice: v, sample: muted ? nil : "Hi \(m.userName.isEmpty ? "there" : m.userName), this is how I'll sound.")
-    }
-    func pick(_ id: String) {
-        guard id != model, !busy else { return }
-        busy = true
-        Task { @MainActor in
-            while !SwitchAI.ready(m.helpers, thinking: m.thinking) {
-                try? await Task.sleep(for: .seconds(2))
-            }
-            let (status, _) = await hermesRun(["config", "set", "model.default", id])
-            if status == 0, await Engine.shared.start() == nil {
-                model = id
-            } else {
-                _ = await hermesRun(["config", "set", "model.default", model])
-                _ = await Engine.shared.start()
-                m.bubbles.append(Bubble(fromMe: false, text: "That AI didn't start. I kept the one you were using."))
-            }
-            busy = false
-        }
     }
 }

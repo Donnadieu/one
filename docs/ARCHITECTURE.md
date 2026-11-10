@@ -95,6 +95,12 @@
 | SelectCheck.swift | dev only | `One --test-select <case\|all>`: drag-select, ⌘C, ⌘A, right-click copy, link, choice row, scroll wheel, sent into a test window |
 | SetupViews.swift | UI | root view, welcome, setup steps (`OnboardingView`) and their small pieces |
 | MeCard.swift | UI | the brain and voice card (tap the assistant's name) |
+| MeCardBrain.swift | UI | the card's BRAIN part: Smartest/Balanced/Fastest also set the thinking level (pill line "thinks hardest"), More options shows only the levels the engine sends for that model (greyed when none), a dot when changed by hand; Other AIs and Local model get one model row with "Pick another model…" |
+| Effort.swift | state | thinking levels (`agent.reasoning_effort`): One's six words, presets (top / Medium / Low, stepped down, never Off), read and save (checked, since the engine takes any string), `effortByHand` |
+| AICatalog.swift | service | the engine's own AI list, model lists, thinking levels and key saving through `tools/overlay/tools/one_ai_catalog.py` (`hermes --run-module`); the Other AIs rule; the free key check (the AI's model list, as `hermes doctor` asks) |
+| OtherAIsView.swift | UI | Switch AI › Other AIs (Direction B): two-column tiles under group labels, then the three-step key card (get a key, paste it, check it) |
+| OtherAIsFlow.swift | state | `extension Model`: `useOtherAI`: check the key, save it the engine's way, switch, ready test, full rollback (local model address and context size too) |
+| OtherAIsCheck.swift | check | `One --test-other-ais` (preflight) and `--test-other-ais-engine` (fresh-install, real engine): the list rule, presets, levels, the key check on a stand-in AI, a key saved and never echoed, the level a new chat/helper and a routine get |
 | HomeView.swift | UI | home screen (greeting, helpers, last reply, ask box with + menu), choice buttons, ask cards |
 | AskEditor.swift | UI | the ask box's typing area: wraps and grows to half the window, then scrolls with the cursor in view (`AskEditor`, an NSTextView; Return sends, Shift+Return new line), the expand button's `WritingPanel` (X, click outside, Esc), `LongMessageRender` for `long-*` renders |
 | Starfield.swift | UI | the galaxy behind every screen (Claude Design "Galaxy Stars", Subtle): `Stars` (330 stars in three depths, numbers from the design's mockup), `.withStars()` puts it behind a screen above the glass tint, `.starCalm(…)` keeps it off words, cards and the orb; 12 redraws a second, one still frame with Reduce Motion |

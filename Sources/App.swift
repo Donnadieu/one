@@ -239,7 +239,7 @@ struct Entry {
         exit(0)
     }
     static func main() {
-        let args = CommandLine.arguments
+        let args = TestWorld.gate(CommandLine.arguments)  // renders and tests never as the real One (TestWorld.swift)
         if let code = Bridge.run(args) { exit(code) }
         if let code = MyChrome.cli(args) ?? StorageCLI.run(args) { exit(code) }  // brain storage: StorageCLI.swift
         SelectCheck.main(args)  // `--test-select`: a test copy only

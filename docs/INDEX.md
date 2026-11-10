@@ -6,6 +6,7 @@
 - [design-docs/golden-principles.md](design-docs/golden-principles.md): enforced rules (the mechanical *what*)
 - [design-docs/core-beliefs.md](design-docs/core-beliefs.md): the agent-first *why* behind golden principles
 - [design-docs/improve-score.md](design-docs/improve-score.md): One gets better by itself, step 1: the look-only score, its files and `One --improve`
+- [design/safety-features.md](design/safety-features.md): five safety features for running unattended (stop means stop, budgets, health watchdog, repo turns, phone hand-offs), screens in `design/`
 - [RELIABILITY.md](RELIABILITY.md): reliability targets and what enforces each one
 - [SECURITY.md](SECURITY.md): secrets handling, the folder lock, trust boundaries, open findings
 - `tools/doc-drift-check.py`: CI check that a PR touching sandbox/updater/secrets/browser-guard code

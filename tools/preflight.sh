@@ -328,6 +328,13 @@ fi
 echo "Your files and settings are production"
 mkdir -p "$T/prod"
 check "a test run as your real One refuses and does nothing" bash -c "ONE_SUPPORT_DIR=$T/prod perl -e 'alarm 30; exec @ARGV' $BIN --test-connections-open 1 | grep -q '^refusing' && [ \${PIPESTATUS[0]} = 2 ]"
+# Nov 9, 2026: a render run as the real One wrote assistantName = "Elias" into the person's settings.
+defaults export ai.forjado.one "$T/prod/defaults.before" >/dev/null 2>&1 || : > "$T/prod/defaults.before"
+for r in --render-routines --render-world --render-switch-ai; do
+  check "a render as your real One refuses ($r)" bash -c "ONE_SUPPORT_DIR=$T/prod perl -e 'alarm 30; exec @ARGV' $BIN $r $T/prod/r | grep -q '^refusing' && [ \${PIPESTATUS[0]} = 2 ] && ! ls $T/prod/r* >/dev/null 2>&1"
+done
+defaults export ai.forjado.one "$T/prod/defaults.after" >/dev/null 2>&1 || : > "$T/prod/defaults.after"
+check "renders and tests left your real settings exactly as they were" cmp -s "$T/prod/defaults.before" "$T/prod/defaults.after"
 check "a test copy keeps to its own world (with a scratch folder)" bash -c "ONE_SUPPORT_DIR=$T/prod $TBIN --test-production | tee $T/prod/out.txt | grep -q '^production ok'"
 grep "✗" "$T/prod/out.txt" 2>/dev/null | sed 's/^/    /'
 check "a test copy keeps to its own world (no folder given)" bash -c "env -u ONE_SUPPORT_DIR $TBIN --test-production | grep -q '^production ok'"

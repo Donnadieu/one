@@ -12,7 +12,7 @@ enum StorageCLI {
         if let c = ImproveCLI.run(args) { return c }  // --improve: the score and the nightly review (Improve*.swift)
         if let c = HiddenBrowser.cli(args) { return c }  // --hidden-browser, --test-hidden-browser (HiddenBrowser.swift)
         if let c = Keeper.cli(args) { return c }  // --keeper: macOS runs it every minute; opens One again if it ended (Keeper.swift)
-        if let c = HealthWatch.cli(args) { return c }  // --health: memory, disk and stray programs, read-only (HealthRun.swift)
+        if let c = HealthWatch.cli(args) ?? Limit.cli(args) { return c }  // --health, --limit-answer
         return nil
     }
 }

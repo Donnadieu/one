@@ -23,9 +23,11 @@ import Foundation
 enum StopMark {
     static var dir: URL { BrowserGuard.dir.appendingPathComponent("stopped", isDirectory: true) }
     static func file(_ sid: String) -> URL { dir.appendingPathComponent(LookOnly.safe(sid) + ".json") }
-    static func mark(_ sid: String, title: String) {
+    /// `why`: "stopped" (their Stop) or a pause's reason ("it used its 10% of the week"): the engine tells a
+    /// paused helper it's paused, never "they pressed Stop".
+    static func mark(_ sid: String, title: String, why: String = "stopped") {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let j: [String: Any] = ["session": sid, "title": title, "at": Date().timeIntervalSince1970]
+        let j: [String: Any] = ["session": sid, "title": title, "at": Date().timeIntervalSince1970, "why": why]
         if let d = try? JSONSerialization.data(withJSONObject: j) { try? d.write(to: file(sid), options: .atomic) }
         prune()
     }
@@ -260,7 +262,10 @@ extension Model {
         tendGoals()
         JobTree.ticks += 1
         if JobTree.ticks % 3 == 0 { tendJobTrees() }
-        if JobTree.ticks % 15 == 0 { tendBudgets() }  // what each job used of the week (Budget.swift)
+        if JobTree.ticks % 15 == 0 {
+            tendBudgets()
+            tendLimits()  // the account's limit: answers from the phone, carry on at the reset (LimitPause.swift)
+        }  // what each job used of the week (Budget.swift)
         HealthWatch.tend(helpers: helpers)  // a look at the Mac's health every 30 s, off the main thread (HealthRun.swift)
         tendPhoneHandoffs()  // a step only they can do goes to their phone (PhoneSession.swift)
     }
@@ -296,7 +301,8 @@ extension Model {
                 left = await Task.detached { JobTree.sweep(id, sessions: sids, firstAt: started, force: force) }.value
                 let engineLeft = sids.compactMap { StopStatus.report($0) }.reduce(0) { $0 + ($1.pids?.count ?? 0) }
                 let names = JobTree.names(left) + (engineLeft > 0 ? ["\(engineLeft) background \(engineLeft == 1 ? "run" : "runs")"] : [])
-                guard helpers.contains(where: { $0.id == id && $0.stopping == true }) else { return }  // started again
+                // Started again: this sweep is over. Taken off the screen: the closing goes on without its orb.
+                if let h = helpers.first(where: { $0.id == id }), h.stopping != true { return }
                 if names.isEmpty && k >= 1 {
                     update(id) {
                         $0.stopping = nil

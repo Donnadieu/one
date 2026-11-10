@@ -74,10 +74,14 @@ enum BudgetCheck {
             Budget.parse("Goal (50 turns, 20%): x") == 0.20 && Goals.helperGoal("Goal (50 turns, 20%): x")?.turns == 50)
         check("\"Goal (10%):\" is a budget, not 10 turns", Budget.parse("Goal (10%): x") == 0.10 && Goals.helperGoal("Goal (10%): x")?.turns == nil)
         check("nothing said: nil", Budget.parse("Find a flight to Quebec") == nil)
-        var h = Helper(title: "Finish NotArc", task: "Goal: finish NotArc parity", sid: "local-root", state: "working", line: "Working…")
-        check(
-            "a goal's default is 10%, a helper's 5%",
-            Budget.of(h) == 0.10 && Budget.of(Helper(title: "x", task: "y", state: "working", line: "")) == 0.05)
+        check("\"up to 10% of the week\" anywhere in the job gives 10%", Budget.parse("Find hotels in Quebec, up to 10% of the week.") == 0.10)
+        // Omar, Nov 10: a budget only when named. Full range (a Goal:, "don't stop until it's done") never pauses.
+        let full = Helper(title: "Finish NotArc", task: "Goal: finish NotArc parity", sid: "local-full", state: "working", line: "Working…")
+        let plainJob = Helper(title: "Lamp", task: "Find a lamp. Don't stop until it's done.", sid: "local-plain", state: "working", line: "")
+        check("no budget unless named: a goal, a full-range job, a plain job", Budget.of(full) == nil && Budget.of(plainJob) == nil)
+        var h = Helper(
+            title: "Finish NotArc", task: "Goal (50 turns, 10%): finish NotArc parity", sid: "local-root", state: "working", line: "Working…")
+        check("a named one: 10%", Budget.of(h) == 0.10)
         h.budgetOff = true
         check("No limit: none", Budget.of(h) == nil)
         h.budgetOff = nil
@@ -92,8 +96,20 @@ enum BudgetCheck {
             return true
         }
         Budget.otherAccount = { _ in ("Forge", "ab12cd") }
-        m.helpers = [h]
+        var phone: [String] = []
+        Limit.tellPhone = { phone.append($0) }
+        Limit.away = { true }
+        Limit.account = { _ in "Omar's Claude" }
+        m.helpers = [h, full]
+        m.applyUsage(full.id, used: 0.40)
+        check(
+            "a full-range job at 40% of the week: still working, no warning, no pause",
+            m.helpers[1].state == "working" && m.helpers[1].budgetWarned == nil)
         m.applyUsage(h.id, used: 0.081)
+        m.applyUsage(h.id, used: 0.085)
+        check(
+            "warned once at 80%, on their phone too (they're away)",
+            phone.count == 1 && phone[0].contains("8% of its 10%") && phone[0].contains("pauses only at 10%"))
         var x = m.helpers[0]
         check(
             "at 81% of its share: its line in the trail, still working, arc amber",
@@ -106,6 +122,14 @@ enum BudgetCheck {
             "at its budget: paused, orange, \"Used its 10% of the week · paused\"",
             x.state == "stopped" && x.pausedForBudget == true && x.viewState == .needsYes && x.line == Budget.pausedLine(0.10))
         check("nothing can wake it while paused (the stop mark)", StopMark.isMarked("local-root"))
+        let why =
+            (try? Data(contentsOf: StopMark.file("local-root"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["why"]
+            as? String
+        check("the mark says why (the engine tells it it's paused, never \"they pressed Stop\")", why == "it used its 10% of the week")
+        check(
+            "its cancelled turn ending isn't a cut-off to pick back up, nor a Stop",
+            m.pausedTurnEnded(h.id, stop: "cancelled")
+                && m.helpers[0].resumeQueued != true && m.helpers[0].stoppedByYou == nil && m.helpers[0].pausedForBudget == true)
         check("it can't leave the screen before a choice", HelperClose.busy(x))
         check("another signed-in account is offered", x.switchTo == "Forge")
         await m.giveMoreBudget(h.id)
@@ -133,6 +157,73 @@ enum BudgetCheck {
         m.setBudget(plain.id, nil)
         m.applyUsage(plain.id, used: 0.9)
         check("No limit: never paused", m.helpers.last?.state == "working" && m.helpers.last?.budgetOff == true)
+        // They write to one paused at its budget ("Direction A"): that's the go-ahead, not a pause 30 s later.
+        var named = Helper(title: "Report", task: "Budget 5%: write it", sid: "local-named", state: "working", line: "")
+        named.budget = 0.05
+        m.helpers.append(named)
+        m.applyUsage(named.id, used: 0.06)
+        m.carryOnWhenWrittenTo(named.id)
+        m.update(named.id) { $0.state = "working" }
+        m.applyUsage(named.id, used: 0.07)
+        check(
+            "written to while paused: it carries on, no limit, not paused again",
+            m.helpers.last?.pausedForBudget == nil
+                && m.helpers.last?.state == "working" && !StopMark.isMarked("local-named"))
+
+        // The account's limit: pause and ask (never switch by itself), wait for the reset if no answer.
+        check(
+            "a limit error is a limit, not a failure",
+            Limit.hit(stop: "error: 429 rate limit reached for this account", reply: "")
+                && Limit.hit(stop: "end_turn", reply: "API Error: You've hit your usage limit · resets 3pm")
+                && !Limit.hit(stop: "end_turn", reply: "done"))
+        check(
+            "a window at 100% is the limit",
+            Limit.full(.init(week: 40, reset: nil, session: 100, sessionReset: Date(timeIntervalSince1970: 9)))
+                == .some(Date(timeIntervalSince1970: 9))
+                && Limit.full(.init(week: 99, reset: nil, session: 20, sessionReset: nil)) == nil)
+        let reset = Date().addingTimeInterval(3600)
+        let job = Helper(title: "Quebec trip", task: "Goal: plan it", sid: "local-trip", state: "working", line: "")
+        m.helpers = [job]
+        phone = []
+        switched = nil
+        m.pauseForLimit(job.id, reset: reset)
+        try? await Task.sleep(for: .milliseconds(300))
+        var j = m.helpers[0]
+        check(
+            "paused at the limit, not stopped by them, nothing switched",
+            j.pausedForLimit == true && j.stoppedByYou == nil && switched == nil
+                && j.viewState == .needsYes && StopMark.isMarked("local-trip"))
+        check(
+            "the question, on their phone: \(phone.first?.prefix(90) ?? "none")",
+            phone.count == 1
+                && phone[0].hasPrefix("Quebec trip hit the limit on Omar's Claude. Switch to Forge, or wait for the reset at "))
+        check("its turn ending isn't picked back up", m.pausedTurnEnded(job.id, stop: "cancelled") && m.helpers[0].resumeQueued != true)
+        let cliOK = Limit.cli(["One", "--limit-answer", "wait", "quebec"]) == 0
+        m.tendLimits()
+        try? await Task.sleep(for: .milliseconds(300))
+        j = m.helpers[0]
+        check(
+            "\"wait\" from the phone chat (One --limit-answer): kept for this job, still paused",
+            cliOK && j.limitChoice == "wait" && j.pausedForLimit == true)
+        resent = []
+        m.tendLimits(now: reset.addingTimeInterval(120))
+        try? await Task.sleep(for: .milliseconds(300))
+        check(
+            "at the reset it carries on by itself, told nobody pressed Stop",
+            m.helpers[0].pausedForLimit == nil && !StopMark.isMarked("local-trip")
+                && resent.last?.1 == "/goal resume")
+        phone = []
+        m.update(job.id) { $0.state = "working" }
+        m.pauseForLimit(job.id, reset: reset)
+        try? await Task.sleep(for: .milliseconds(300))
+        check("next limit for the same job: it waits quietly (their answer), no question", phone.isEmpty && m.helpers[0].pausedForLimit == true)
+        let other = Helper(title: "Lamp", task: "Find a lamp", sid: "local-lamp", state: "working", line: "")
+        m.helpers.append(other)
+        m.pauseForLimit(other.id, reset: nil)
+        try? await Task.sleep(for: .milliseconds(300))
+        check("another job is asked again (an answer counts for its own job only)", phone.count == 1 && m.helpers[1].limitChoice == nil)
+        await m.answerLimit(other.id, switchAccount: true)
+        check("Switch, tapped: that account made the default, and it carries on", switched == "ab12cd" && m.helpers[1].pausedForLimit == nil)
         check("the week line", WeekMeter(used: 62, reset: nil).words == "This week: 62% used")
 
         print(fails == 0 ? "budgets ok" : "budgets: \(fails) failed")

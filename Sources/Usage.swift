@@ -78,7 +78,13 @@ enum Usage {
     static func share(units: Double, _ s: Store) -> Double { units / perPercent(s).value / 100 }
 
     /// The plan's meter, read through the engine's own code (never in a check: Env.selfTest = no network).
-    static func meter(_ provider: String) -> (week: Double, reset: Date?)? {
+    struct Meter {
+        var week: Double
+        var reset: Date?
+        var session: Double?  // the 5-hour window
+        var sessionReset: Date?
+    }
+    static func meter(_ provider: String) -> Meter? {
         guard !Env.selfTest, let py = enginePython(),
             let script = Bundle.main.url(forResource: "usage_meter", withExtension: "py")
         else { return nil }
@@ -101,7 +107,9 @@ enum Usage {
             let w = ws.first(where: { ($0["label"] as? String)?.lowercased().contains("week") == true && ($0["scope"] as? String) != "model" }),
             let used = w["used"] as? Double
         else { return nil }
-        return (used, (w["reset"] as? Double).map { Date(timeIntervalSince1970: $0) })
+        let s = ws.first { ($0["label"] as? String)?.lowercased().contains("session") == true && ($0["scope"] as? String) != "model" }
+        let date = { (x: Any?) in (x as? Double).map { Date(timeIntervalSince1970: $0) } }
+        return Meter(week: used, reset: date(w["reset"]), session: s?["used"] as? Double, sessionReset: date(s?["reset"]))
     }
     static func enginePython() -> String? {
         let base = Env.hermesHome.appendingPathComponent("installs")

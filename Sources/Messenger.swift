@@ -178,6 +178,11 @@ extension Messenger {
         let r = bot("sendMessage", ["chat_id": chat, "text": text, "reply_markup": ["inline_keyboard": [[["text": "Open the page", "url": url]]]]])
         return (r?["result"] as? [String: Any])?["message_id"] as? Int
     }
+    /// One plain message to their home chat (a budget warning, an account limit). Its message id.
+    @discardableResult static func tell(_ text: String) -> Int? {
+        guard let chat = envValue("TELEGRAM_HOME_CHANNEL") else { return nil }
+        return ((bot("sendMessage", ["chat_id": chat, "text": text])?["result"] as? [String: Any])?["message_id"]) as? Int
+    }
     /// The same message once the link has ended (the button goes).
     static func editLink(_ id: Int, _ text: String) {
         guard let chat = envValue("TELEGRAM_HOME_CHANNEL") else { return }

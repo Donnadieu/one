@@ -86,6 +86,26 @@ check("nor its sub-helpers", pre("delegate_task", {"tasks": []}, session_id=KID)
 check("nor theirs", pre("terminal", {"command": "open NotArc.app"}, session_id=GRAND) is not None)
 check("another helper is untouched", pre("terminal", {"command": "ls"}, session_id=OTHER) is None)
 
+(guard / "stopped" / (g.safe(OTHER) + ".json")).write_text(json.dumps({"session": OTHER, "title": "x", "at": time.time(), "why": "it used its 10% of the week"}))
+g._parents_cache.clear()
+paused = pre("terminal", {"command": "ls"}, session_id=OTHER)
+check("a pause (a budget, a limit) is never told \"they pressed Stop\"", isinstance(paused, dict) and "they pressed Stop" not in paused["message"]
+      and "Nobody pressed Stop" in paused["message"] and "10% of the week" in paused["message"])
+check("a real Stop still says so", "they pressed Stop" in block["message"])
+(guard / "stopped" / (g.safe(OTHER) + ".json")).unlink()
+
+
+class E:
+    def __init__(self, id, priority, key):
+        self.id, self.priority, self.runtime_api_key = id, priority, key
+
+
+work, mine, mine2 = E("work", 1, "k-work"), E("mine", 0, "k-mine"), E("mine-seeded", 2, "k-mine")
+check("the engine only ever offers the chosen account (and rows sharing its key)", g.only_chosen([work, mine, mine2], [work, mine, mine2]) == [mine, mine2])
+check("at its limit nothing else is offered: no switching on its own", g.only_chosen([work, mine], [work]) == [])
+check("after a switch (the other one first) it's the only one offered", g.only_chosen([E("work", 0, "k-work"), E("mine", 1, "k-mine")], [work, mine]) == [work])
+check("one account: unchanged", g.only_chosen([mine], [mine]) == [mine])
+
 m = Mixin()
 run = lambda evt: asyncio.run(m._inject_watch_notification("[IMPORTANT: Background process proc_x completed normally]", evt))
 injected.clear()

@@ -12,9 +12,9 @@ https://github.com/user-attachments/assets/76a8071a-3d84-4a2c-bf0e-7e0460fea3bc
 
 ![The world screen: everything One can reach, floating around the assistant](docs/world.png)
 
-*(This screenshot is from the first open-source commit. The tiles and layout are still accurate, but the app has since picked up a starfield background, smoked glass and a breathing orb that don't show here — a refreshed capture is on the TODO list.)*
+*(This screenshot is from the first open-source commit. The tiles and layout are still accurate, but the app has since picked up a starfield background, smoked glass and a breathing orb that don't show here. A refreshed capture is on the TODO list.)*
 
-> Status: early test build (0.9.89). It runs end to end on Apple Silicon Macs, as a Developer ID–signed, notarised app (no "Open Anyway" steps). Passwords (KeePass), email and calendar through the accounts already on your Mac, and your own Chrome, all work today. News is not built yet. Phone works only as a manually-configured Telegram bot today (no in-app setup screen yet — see [Roadmap](#roadmap)). You can build your own connection for anything else with the assistant (experimental).
+> Status: early test build (newest version: [latest release](https://github.com/Donnadieu/one/releases/latest)). It runs end to end on Apple Silicon Macs, as a Developer ID–signed, notarised app (no "Open Anyway" steps). Passwords (KeePass), email and calendar through the accounts already on your Mac, and your own Chrome, all work today. News is not built yet. Phone works only as a manually-configured Telegram bot today (no in-app setup screen yet; see [Roadmap](#roadmap)). You can build your own connection for anything else with the assistant (experimental).
 
 ---
 
@@ -155,6 +155,7 @@ Ideas, bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 
 ## Credits
 
+- Made by [Omar Donnadieu](https://github.com/Donnadieu), in the open since Oct 23, 2026, with over 100 releases since.
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research, the engine underneath.
 - Voice by [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (Apache 2.0). World screen first designed with Claude Design.
 

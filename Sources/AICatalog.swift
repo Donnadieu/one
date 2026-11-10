@@ -80,7 +80,11 @@ enum AICatalog {
         return (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
     }
     static func decode(_ j: [String: Any]?) -> [EngineAI] {
-        guard let rows = j?["providers"], let d = try? JSONSerialization.data(withJSONObject: rows) else { return [] }
+        // isValidJSONObject first: data(withJSONObject:) on a bare number raises an Objective-C exception, which AppKit
+        // swallows on the main thread, so the caller just never returns.
+        guard let rows = j?["providers"] as? [Any], JSONSerialization.isValidJSONObject(rows),
+            let d = try? JSONSerialization.data(withJSONObject: rows)
+        else { return [] }
         return (try? JSONDecoder().decode([EngineAI].self, from: d)) ?? []
     }
 

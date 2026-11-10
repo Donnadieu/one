@@ -58,6 +58,11 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/goal-engine-check.sh
       - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
+      - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)
+        run: |
+          cd "$RUNNER_TEMP/fresh"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" perl -e 'alarm 300; exec @ARGV' "$TBIN" --test-other-ais-engine | tee other-ais.txt
+          grep -q "^other ais engine ok" other-ais.txt
       - name: First launch on an empty brain (no questions, no git)
         run: |
           mkdir -p "$RUNNER_TEMP/fakebin"

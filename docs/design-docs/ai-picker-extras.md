@@ -1,6 +1,6 @@
 # AI picker extras: Other AIs and thinking effort
 
-Status: design, waiting for Omar's pick (Direction A or B). No app code yet.
+Status: Omar picked **Direction B** (Nov 9 2026); built in this PR. Section 7 lists what the build changed from the plan.
 Code read at tag v0.9.101 (= main 5b574dc, which already has "One multiple AI accounts", PR #106).
 Engine read: the bundled Hermes in `~/Library/Application Support/One/engine` (commit bf0203a794).
 Claude Design project: https://claude.ai/design/p/b0df88c6-c437-4ad0-9601-781fa8ff2511 ("One AI additions").
@@ -218,18 +218,6 @@ What the effort setting reaches, plainly:
 - **Not reached**: the engine's side jobs (chat titles always think Off; compression, vision, approvals and
   the rest use the AI's own default), and models that take no effort at all (Grok 4.20 Balanced/Fastest).
 
-### Also in this build: renders never touch the real settings
-While making the before pictures for this doc (9:46 PM, Nov 9), `--render-switch-ai` and `--render-world` were
-run from `build/app.noindex/One.app`, whose bundle id is the real `ai.forjado.one`. `HomeRender.scene`
-(`Sources/HomeRender.swift:34-60`) sets `assistantName = "Elias"`, `userName`, `interviewOffered`,
-`helpers`, `bubbles` and `shelf` on `Model.shared`, and those are `@AppStorage` or save on `didSet`
-(`Sources/Model.swift:55-57, 161, 255, 262`), so the render wrote "Elias" into Omar's real settings and
-Ready for you looked in "Made by Elias". (His live One re-saved its own helpers, chat and shelf over the
-rest; the name was put back to Iris.) Fix: every render mode calls a guard that refuses under the
-production bundle id (same as `TestWorld.enter()` does for tests), so renders only run from
-`tools/test-copy.sh` copies with `ONE_SUPPORT_DIR` set to scratch; a preflight check proves a render under
-the real id exits 2 and writes nothing (`defaults export` before/after).
-
 ## 5. Tests (all in CI, per the repo's rule; new `--test-other-ais` and `--test-effort` in preflight)
 
 1. **The list loads from the engine**: run the catalog script against the bundled engine (fresh-install
@@ -263,3 +251,26 @@ Not testable here: a real paid key for each of the ~38 AIs (only the fake-key pa
 ## 6. Later (not in V1)
 - Sign-in AIs that aren't a key (Nous Portal, Qwen, MiniMax OAuth) and cloud accounts (Bedrock, Vertex).
 - Several keys per Other AI (the accounts screen from PR #106 could list them; the engine pool supports it).
+
+## 7. As built (Direction B)
+- Engine side: `tools/overlay/tools/one_ai_catalog.py`, copied into the engine's `tools/` and run with
+  `hermes --run-module tools.one_ai_catalog` (the same way `one_my_chrome.py` runs), instead of the launcher's
+  `--print-runtime-command`. Commands: `providers`, `models <id>`, `efforts <id> <model>...`, `save-key <id>` (key
+  on stdin), `resolved <model> [job]` (tests). `efforts` builds the engine's real request for every level
+  (Anthropic `_thinking_kwargs`, the Responses `_resolve_reasoning`, the chat-completions transport with the AI's
+  profile) and keeps the levels that reach the wire, so the list is what the engine sends, not a table in One.
+- Swift: `AICatalog.swift` (engine calls, the Other AIs rule, the key check), `Effort.swift` (levels, presets, save),
+  `OtherAIsView.swift` (tiles + three-step key card), `OtherAIsFlow.swift` (switch with full rollback, including a
+  local model's address and context size), `MeCardBrain.swift` (pills with their thinking line, More options,
+  one-row brain for Other AIs and Local model). `hermesRun` gained `input:` so the key goes in on stdin.
+- The key is checked first and only saved if the AI didn't refuse it.
+- The groups (Big AI companies / Open models / One key, many AIs) are a small id map in `AICatalog.groups`: the
+  engine has no grouping. An id it adds later shows under "More"; nothing is ever hidden by the map.
+- UI words: "key", not "API key" (One's ui-jargon lint bans "API key" in UI text).
+- The planned one-lint rule against provider names in Swift wasn't added; the names only exist in render samples.
+- Tests: `--test-other-ais` (preflight, no engine) and `--test-other-ais-engine` (fresh-install job, real engine).
+  The proof that the level reaches helpers and routines is the engine's own resolution functions
+  (`resolve_reasoning_config`, used when a new chat or helper session is created, and the cron scheduler's
+  `_resolve_job_reasoning_config`), not a captured request from a live helper turn.
+- The render guard planned in section 4 is PR #110's `TestWorld.gate` (renders and tests never run as the real One); not repeated here.
+- Renders: `--render-switch-ai <png> other|other-key|other-checking|other-works|other-fail|card-closed|card-open|card-none|card-other`.

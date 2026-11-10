@@ -242,8 +242,9 @@ enum Installer {
     }
 }
 
-/// Runs a short Hermes command (status, config) and returns its output.
-func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, String) {
+/// Runs a short Hermes command (status, config) and returns its output. `input` goes in on stdin (a pasted key
+/// never rides on the command line, where any program could read it).
+func hermesRun(_ args: [String], timeout: TimeInterval = 90, input: String? = nil) async -> (Int32, String) {
     await withCheckedContinuation { cont in
         DispatchQueue.global().async {
             guard let hp = Env.hermesPath else {
@@ -258,10 +259,15 @@ func hermesRun(_ args: [String], timeout: TimeInterval = 90) async -> (Int32, St
             let o = Pipe()
             p.standardOutput = o
             p.standardError = o
-            p.standardInput = FileHandle.nullDevice
+            let inp = Pipe()
+            p.standardInput = input == nil ? FileHandle.nullDevice : inp
             do { try p.run() } catch {
                 cont.resume(returning: (-1, error.localizedDescription))
                 return
+            }
+            if let input {
+                inp.fileHandleForWriting.write(Data((input + "\n").utf8))
+                try? inp.fileHandleForWriting.close()
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
             let d = o.fileHandleForReading.readDataToEndOfFile()

@@ -154,9 +154,10 @@ enum RepoTurnsCheck {
         StopMark.lift("local-stopped")
 
         print("4. the engine plugin")
-        let fixes = MainQueuePlugin.configFixes("plugins:\n  enabled:\n  - one-stop\n")
+        let fixes = MainQueuePlugin.configFixes("plugins:\n  enabled:\n    - one-stop\n")
         check("it's switched on next to the others", fixes.first?.contains("[\"one-stop\", \"one-main-queue\"]") == true, "\(fixes)")
-        check("…and nothing to change once it is", MainQueuePlugin.configFixes("plugins:\n  enabled:\n  - one-stop\n  - one-main-queue\n").isEmpty)
+        check(
+            "…and nothing to change once it is", MainQueuePlugin.configFixes("plugins:\n  enabled:\n    - one-stop\n    - one-main-queue\n").isEmpty)
         check(
             "it's bundled and installs into the engine",
             MainQueuePlugin.installPlugin() && FileManager.default.fileExists(atPath: MainQueuePlugin.pluginDir.path + "/__init__.py"))

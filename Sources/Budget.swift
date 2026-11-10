@@ -2,21 +2,25 @@ import SwiftUI
 
 // MARK: - A usage budget per job (Claude Design "One Safety Features", Direction A, Omar's pick Nov 9 2026)
 
-/// Every helper gets a share of the AI plan's week: 5% by default, 10% for a standing goal, or what the job says
-/// ("Budget 10%: …", "Goal (50 turns, 10%): …"), changed with one tap in its card (5% / 10% / 20% / No limit).
-/// At 80% its orb's thin arc turns amber; at 100% One pauses it (its turn ends, nothing can wake it, its goal
+/// A helper has a share of the AI plan's week only when they name one ("up to 10% of the week", "Budget 10%: …",
+/// "Goal (50 turns, 10%): …") or tap one in its card (5% / 10% / 20% / No limit). Omar, Nov 10: no default; a job
+/// they gave full range ("don't stop until it's done", every Goal:) never pauses to ask for more. The account's
+/// own limit is the only real ceiling (LimitPause.swift). With a budget: one warning at 80% (amber arc, a line,
+/// their phone if they're away); at 100% One pauses it (its turn ends, nothing can wake it, its goal
 /// pauses: the stop mark, JobTree.swift), turns it orange, and offers Give it N% more, Switch to <other account>
 /// (when one is signed in, Accounts.swift) and Stop it. The main chat and routines have no budget.
 enum Budget {
-    static let helperDefault = 0.05
-    static let goalDefault = 0.10
+    static let helperDefault = 0.05  // only what "Give it more" adds when none was named
     static let warnAt = 0.8
     static let choices: [Double?] = [0.05, 0.10, 0.20, nil]
 
     /// "Budget 10%: …" at the start of a job, or the "%" inside "Goal (50 turns, 10%): …". Nil = not given.
     static func parse(_ task: String) -> Double? {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pats = [#"^(?i)budget\s*(\d{1,3})\s*%"#, #"^(?i)goal\s*\([^)\n]*?(\d{1,3})\s*%[^)\n]*\)\s*:"#]
+        let pats = [
+            #"^(?i)budget\s*(\d{1,3})\s*%"#, #"^(?i)goal\s*\([^)\n]*?(\d{1,3})\s*%[^)\n]*\)\s*:"#,
+            #"(?i)\b(?:up to|at most|no more than|max(?:imum)?|budget(?: of)?)\s+(\d{1,3})\s*%\s+of\s+(?:the|my|this|a)\s+week"#,
+        ]
         for p in pats {
             guard let rx = try? NSRegularExpression(pattern: p),
                 let m = rx.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let r = Range(m.range(at: 1), in: t),
@@ -29,7 +33,7 @@ enum Budget {
     /// What this helper may use (nil = no limit).
     static func of(_ h: Helper) -> Double? {
         if h.budgetOff == true { return nil }
-        return h.budget ?? (Goals.helperGoal(h.task) != nil ? goalDefault : helperDefault)
+        return h.budget ?? parse(h.task)
     }
     static func pct(_ f: Double) -> String { "\(Int((f * 100).rounded()))%" }
     /// "8% of its 10%".
@@ -38,6 +42,9 @@ enum Budget {
         return "\(pct(h.used ?? 0)) of its \(pct(b))"
     }
     static func pausedLine(_ b: Double) -> String { "Used its \(pct(b)) of the week · paused" }
+    static func warnLine(_ job: String, used: Double, budget b: Double) -> String {
+        "\(job) has used \(pct(used)) of its \(pct(b)) of the week. It keeps going and pauses only at \(pct(b))."
+    }
     /// How full its arc is: used ÷ budget (nil = no arc).
     static func fill(_ h: Helper) -> Double? {
         guard let b = of(h), b > 0, let u = h.used else { return nil }
@@ -77,10 +84,11 @@ extension Model {
         let pairs = working.map { ($0.id, $0.sid!) }
         Task { @MainActor in
             defer { budgetReading = false }
-            let (shares, reading) = await Task.detached { () -> ([UUID: Double], Usage.Reading?) in
+            let (shares, reading, meter) = await Task.detached { () -> ([UUID: Double], Usage.Reading?, Usage.Meter?) in
                 var store = Usage.load()
                 var r: Usage.Reading?
-                if meterDue, let m = Usage.meter(provider) {
+                let mt = meterDue ? Usage.meter(provider) : nil
+                if let m = mt {
                     r = Usage.Reading(
                         t: Date().timeIntervalSince1970, provider: provider, week: m.week, reset: m.reset?.timeIntervalSince1970, units: Usage.total()
                     )
@@ -89,10 +97,12 @@ extension Model {
                 }
                 var out: [UUID: Double] = [:]
                 for (id, sid) in pairs { out[id] = Usage.share(units: Usage.tree(sid), store) }
-                return (out, r)
+                return (out, r, mt)
             }.value
             if let r = reading { week = WeekMeter(used: r.week, reset: r.reset.map { Date(timeIntervalSince1970: $0) }) }
             for (id, used) in shares { applyUsage(id, used: used) }
+            // A window at 100%: every working helper pauses at the account's limit (and asks), even with no budget.
+            if let full = Limit.full(meter) { for (id, _) in pairs { pauseForLimit(id, reset: full) } }
         }
     }
 
@@ -109,6 +119,7 @@ extension Model {
                 HelperTrail.add("Has used \(Budget.pct(used)) of its \(Budget.pct(b)) of the week", to: &$0)
             }
             saveTrail(id)
+            if Limit.away() { Limit.tellPhone(Budget.warnLine(h.title, used: used, budget: b)) }
         }
     }
 
@@ -116,7 +127,7 @@ extension Model {
     func pauseForBudget(_ id: UUID, budget b: Double) {
         guard let h = helpers.first(where: { $0.id == id }), h.state == "working" else { return }
         if let sid = h.sid {
-            StopMark.mark(sid, title: h.title)  // nothing wakes it while paused (the stop plugin)
+            StopMark.mark(sid, title: h.title, why: "it used its \(Budget.pct(b)) of the week")  // nothing wakes it while paused
             Engine.shared.cancel(session: sid)  // its turn ends; a goal pauses (the goal overlay)
         }
         update(id) {
@@ -159,6 +170,20 @@ extension Model {
         let b = Budget.of(h) ?? Budget.helperDefault
         update(id) { $0.budget = (h.used ?? b) + b }
         await carryOn(id, why: "they switched to their \(h.switchTo ?? "other") account")
+    }
+
+    /// They wrote to a helper paused at its budget ("Direction A", "Write the rest"): that's the go-ahead. It carries
+    /// on with no limit, instead of being paused again 30 s later at the same share (Omar, Nov 10).
+    func carryOnWhenWrittenTo(_ id: UUID) {
+        guard let h = helpers.first(where: { $0.id == id }), h.pausedForBudget == true else { return }
+        if let sid = h.sid { StopMark.lift(sid) }
+        update(id) {
+            $0.pausedForBudget = nil
+            $0.budgetOff = true
+            $0.budgetWarned = nil
+            HelperTrail.add("Carrying on: you wrote to it, so no limit now", to: &$0)
+        }
+        saveTrail(id)
     }
 
     /// "Stop it": it stays stopped, like the Stop button (its tree is already closed by the pause).
@@ -248,6 +273,16 @@ struct BudgetRow: View {
                             .buttonStyle(.plain)
                         }
                     }
+                }
+            }
+            if h.pausedForLimit == true, h.limitChoice == nil {
+                Text(Limit.question(job: h.title, account: h.limitAccount ?? "your account", other: h.switchTo, reset: h.limitReset))
+                    .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    if let to = h.switchTo {
+                        Button("Switch to \(to)") { Task { await m.answerLimit(h.id, switchAccount: true) } }.buttonStyle(.bordered)
+                    }
+                    Button("Wait for the reset") { Task { await m.answerLimit(h.id, switchAccount: false) } }.buttonStyle(.bordered)
                 }
             }
             if h.pausedForBudget == true, let b = Budget.of(h) {

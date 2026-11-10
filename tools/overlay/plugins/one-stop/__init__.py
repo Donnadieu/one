@@ -38,6 +38,20 @@ STOPPED_MESSAGE = (
     "End your turn now with one short line saying you stopped."
 )
 
+PAUSED_MESSAGE = (
+    "One paused this helper ({why}). Nobody pressed Stop and it isn't stopped. Do nothing more now: no commands, "
+    "no new helpers, no retries. End your turn with one short line saying you're paused and why; One picks it back up."
+)
+
+
+def block_message(mark: Optional[dict]) -> str:
+    """The words a blocked tool call gets: a real Stop, or a pause (a budget, an account limit) that isn't one."""
+    why = str((mark or {}).get("why") or "")
+    if why and why != "stopped":
+        return PAUSED_MESSAGE.format(why=why)
+    return STOPPED_MESSAGE
+
+
 _parents_cache: dict[str, tuple[float, list[str]]] = {}
 _lock = threading.Lock()
 _started = False
@@ -196,7 +210,7 @@ def on_pre_tool_call(tool_name: str = "", args: Optional[dict[str, Any]] = None,
         root = stopped_root([session_id, task_id], have)
         if root:
             log(f"blocked {tool_name} (session {session_id}, stopped {root})")
-            return {"action": "block", "message": STOPPED_MESSAGE}
+            return {"action": "block", "message": block_message(have.get(root))}
     except Exception as e:  # never break a tool call because the check itself failed
         log(f"check error on {tool_name}: {e}")
     return None
@@ -389,11 +403,47 @@ def loop() -> None:
         time.sleep(SWEEP_EVERY)
 
 
+# --- one account at a time --------------------------------------------------------------------------------------
+# Omar, Nov 10: One never moves work to another signed-in account by itself (work accounts may sit next to his own).
+# The engine's credential pool would: when the chosen account (the first one, `Accounts.makeDefault`) hits a limit,
+# its next pick is any other signed-in account. Here the pool only ever offers the chosen account (and entries
+# sharing its key); at a limit the turn fails, and One asks (Budget.swift: "Switch to <account>, or wait?").
+
+
+def only_chosen(entries: list, available: list) -> list:
+    """Of the entries available now, only the chosen account's (the first by priority)."""
+    if not entries:
+        return available
+    top = min(entries, key=lambda e: getattr(e, "priority", 0))
+    key = getattr(top, "runtime_api_key", None)
+    return [e for e in available if e is top or getattr(e, "id", None) == getattr(top, "id", "") or (key and getattr(e, "runtime_api_key", None) == key)]
+
+
+def patch_one_account() -> bool:
+    try:
+        from agent import credential_pool as cp
+    except Exception:
+        return False
+    cls = getattr(cp, "CredentialPool", None)
+    orig = getattr(cls, "_available_entries", None) if cls else None
+    if orig is None or getattr(orig, "_one_account", False):
+        return bool(orig)
+
+    def _available_entries(self, *a, **k):
+        available, pending = orig(self, *a, **k)
+        return only_chosen(list(getattr(self, "_entries", []) or []), list(available or [])), pending
+
+    _available_entries._one_account = True
+    cls._available_entries = _available_entries
+    return True
+
+
 def register(ctx) -> None:
     global _started
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
     patched = patch_wakeups()
+    one_account = patch_one_account()
     if in_gateway() and not _started:
         _started = True
         threading.Thread(target=loop, name="one-stop", daemon=True).start()
-    log(f"loaded (wake-ups {'fenced' if patched else 'not patched'}, sweep {'on' if _started else 'off'}, argv {' '.join(sys.argv[:4])[:120]})")
+    log(f"loaded (wake-ups {'fenced' if patched else 'not patched'}, one account {'on' if one_account else 'not patched'}, sweep {'on' if _started else 'off'}, argv {' '.join(sys.argv[:4])[:120]})")

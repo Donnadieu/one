@@ -48,11 +48,17 @@ struct Helper: Identifiable, Codable {
     var pausedForBudget: Bool?  // paused at its budget: orange, with Give it more / Switch to / Stop it
     var switchTo: String?  // another signed-in account for this AI, offered when paused
     var switchEntry: String?
+    var pausedForLimit: Bool?  // its AI account hit its limit: asks Switch / Wait, carries on at the reset (LimitPause.swift)
+    var limitReset: Date?
+    var limitAt: Date?
+    var limitAccount: String?
+    var limitChoice: String?  // their answer for this job only: "switch" or "wait"
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
         if stopping == true { return leftovers == nil ? .stopped : .needsYes }  // closing its tree (JobTree.swift)
         if pausedForBudget == true { return .needsYes }  // used its share of the week: it needs your choice (Budget.swift)
+        if pausedForLimit == true { return limitChoice == nil && seen == false ? .needsYes : .working }  // waits for the reset
         return switch state {
         case "working": .working
         case "needsYes": .needsYes

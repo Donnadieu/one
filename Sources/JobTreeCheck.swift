@@ -110,6 +110,22 @@ enum JobTreeCheck {
         m.liftLookOnly(h.id)
         check("their message in its thread lifts the mark", !StopMark.isMarked(sid))
 
+        // Cleared off the screen while it's still closing ("Got it", "I'm done with it"): the closing goes on.
+        var g = Helper(title: "Cleared early", task: "z", state: "working", line: "Running…")
+        g.sid = "local-cleared-early"
+        m.helpers.append(g)
+        let late = spawn("trap '' TERM; exec /bin/sleep 306")  // needs the hard stop, 5 s in
+        JobTree.save(g.id, [.init(pid: late, start: ProcTable.info(late)?.start ?? 0, name: "sleep", command: nil)])
+        m.stopHelper(g.id)
+        check("one still closing its programs may be taken off the screen", m.closeHelper(g.id) && !m.helpers.contains { $0.id == g.id })
+        for _ in 0..<30 where alive(late) { try? await Task.sleep(for: .milliseconds(500)) }
+        check("…and what it started is still closed after", !alive(late))
+        var stuckOne = g
+        stuckOne.state = "stopped"
+        stuckOne.stopping = true
+        stuckOne.leftovers = ["NotArc"]
+        check("one whose programs won't close stays on the screen", HelperClose.busy(stuckOne))
+
         // What the orb says while things are still closing, and after a minute.
         let names = JobTree.names([
             .init(pid: 1, start: 0, name: "sleep", command: "./selftest.sh"), .init(pid: 2, start: 0, name: "sleep", command: "./selftest.sh"),

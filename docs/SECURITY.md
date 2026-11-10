@@ -216,6 +216,17 @@ each enforced in code rather than by convention:
   are listed in one note, and the next new message carries that list with the standing rule that sending, posting,
   spending and deleting still need a fresh yes.
 
+## One account at a time (0.9.108)
+
+One never moves work to another signed-in AI account by itself (a work account may sit next to the person's own).
+The engine's credential pool would: when the chosen account hit a limit, its next pick was any other signed-in
+account. The one-stop plugin (`only_chosen`, `patch_one_account`) makes the pool offer only the chosen account (the
+first by priority, plus rows sharing its key); at a limit the turn fails and One asks the person ("Switch to <other
+account>, or wait for the reset?", `LimitPause.swift`). Only their tap or their reply in the phone chat
+(`One --limit-answer`) switches, and the answer counts for that one job. Checked in `tools/stop-plugin-check.py`.
+A pause (a budget, a limit) marks the conversation with its reason, so the engine tells the helper it's paused,
+never "they pressed Stop".
+
 ## Hand-offs from the phone (0.9.107)
 
 A step only the person can do (a code, a sign-in, a robot check) can be finished from their phone

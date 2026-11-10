@@ -237,6 +237,7 @@ extension Model {
             if let b = helpers.first(where: { $0.id == id })?.routine { Task { await deliverRoutine(b) } }
             return
         }
+        if pausedTurnEnded(id, stop: stop) { return }  // a budget or the account's limit: never a cut-off (LimitPause.swift)
         // Cut off (a restart, a dropped connection), cancelled or failed: stopped and picked back up, never "done".
         if helperDidNotFinish(id, stop: stop) { return }
         update(id) { h in
@@ -388,6 +389,7 @@ extension Model {
         if !toNova, let hid = openHelper, let h = openedHelper {
             guard var c = compose(text) else { return }
             liftLookOnly(hid)  // they're talking to it directly: it may do what they ask
+            carryOnWhenWrittenTo(hid)  // a budget pause ends: their reply is the go-ahead (Budget.swift)
             BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
             c.engine += blockedYes(text, helper: hid)  // "Yes, show it" to a robot-check ask shows that one window
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.

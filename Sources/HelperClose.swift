@@ -15,9 +15,11 @@ enum HelperClose {
     /// The lines the assistant can write to take an orb off the screen: the new one, and the old one still read.
     static let tags = ["done-helper", "close-helper"]
 
-    /// Still busy: at work, waiting to pick back up, or waiting for their yes. Never taken off the screen.
+    /// Still busy: at work, waiting to pick back up, waiting for their yes, or stopped with programs that won't close.
+    /// Never taken off the screen. One that's only closing its programs may go: the closing goes on without its orb.
     static func busy(_ h: Helper) -> Bool {
-        h.state == "working" || h.state == "needsYes" || h.resumeQueued == true || h.stopping == true || h.pausedForBudget == true
+        h.state == "working" || h.state == "needsYes" || h.resumeQueued == true || h.leftovers?.isEmpty == false
+            || h.pausedForBudget == true || h.pausedForLimit == true
     }
 
     /// Which helpers a done line means: the exact title (any case, the most recently sent on ties), or "all" =

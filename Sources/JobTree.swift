@@ -370,5 +370,6 @@ enum StopPlugin {
             if code != 0 { BrowserGuard.log("stop: couldn't set \(f[2]): \(out.suffix(200))") }
         }
         if !ok { BrowserGuard.log("stop: the one-stop plugin isn't in this copy of One; Stop ends only the helper's turn") }
+        await MainQueuePlugin.sync()  // one helper at a time on a repo's main (RepoQueue.swift)
     }
 }

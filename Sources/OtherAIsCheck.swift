@@ -28,6 +28,7 @@ enum OtherAIsCheck {
     }
 
     @MainActor static func run() async -> Int32 {
+        print("other ais: started")
         // The list: the engine's rows, minus what One already has and what a key alone can't set up.
         let all = [
             row("anthropic"), row("openrouter"), row("custom", base: false), row("openai-codex", auth: "oauth_external", keys: []),

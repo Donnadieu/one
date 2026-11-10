@@ -135,6 +135,8 @@ mkdir -p "$T/budget"; check "a budget per job: its share of the week (with its s
 grep "✗" "$T/budget/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the usage meter bundled" test -f "$APP/Contents/Resources/usage_meter.py"
 check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
+mkdir -p "$T/health"; check "health watchdog: One's own, his tools' and his own told apart (never Docker, databases, Chrome or /Applications), a stopped helper's leftover closed by itself and a working helper's kept, Leave it for a day, the plain lines and One --health" bash -c "ONE_SUPPORT_DIR=$T/health ONE_HEALTH_FAKE_IDLE=0 ONE_HEALTH_FAKE_DISK_GB=21 $TBIN --test-health | tee $T/health/out.txt | grep -q '^health ok'"
+grep "✗" "$T/health/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
 [ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
 

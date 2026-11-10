@@ -133,6 +133,8 @@ mkdir -p "$T/stoptree"; check "stop means stop (One): every program a stopped he
 grep "✗" "$T/stoptree/out.txt" 2>/dev/null | sed 's/^/    /'
 mkdir -p "$T/budget"; check "a budget per job: its share of the week (with its sub-helpers), warned at 80%, paused at it (orange), Give more / Switch account / Stop it" bash -c "ONE_SUPPORT_DIR=$T/budget $TBIN --test-budgets | tee $T/budget/out.txt | grep -q '^budgets ok'"
 grep "✗" "$T/budget/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/phone"; check "hand-offs from the phone: one page only (taps, typing, Done; nothing else), sealed with a key only the link has, one phone, ends when done or on another site, audited without what was typed" bash -c "ONE_SUPPORT_DIR=$T/phone $TBIN --test-phone-handoff | tee $T/phone/out.txt | grep -q '^phone handoff ok'"
+grep "✗" "$T/phone/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the usage meter bundled" test -f "$APP/Contents/Resources/usage_meter.py"
 check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
 mkdir -p "$T/health"; check "health watchdog: One's own, his tools' and his own told apart (never Docker, databases, Chrome or /Applications), a stopped helper's leftover closed by itself and a working helper's kept, Leave it for a day, the plain lines and One --health" bash -c "ONE_SUPPORT_DIR=$T/health ONE_HEALTH_FAKE_IDLE=0 ONE_HEALTH_FAKE_DISK_GB=21 $TBIN --test-health | tee $T/health/out.txt | grep -q '^health ok'"

@@ -139,3 +139,48 @@ enum Messenger {
         }
     }
 }
+
+// MARK: - The phone hand-off link (PhoneSession.swift): sent only to their own chat, edited when it ends
+
+extension Messenger {
+    /// A value from One's engine settings (`hermes/.env`), never logged.
+    static func envValue(_ key: String) -> String? {
+        let text = (try? String(contentsOf: Env.hermesHome.appendingPathComponent(".env"), encoding: .utf8)) ?? ""
+        for line in text.split(whereSeparator: \.isNewline) {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            guard l.hasPrefix(key + "=") else { continue }
+            let v = l.dropFirst(key.count + 1).trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+            return v.isEmpty ? nil : v
+        }
+        return nil
+    }
+    static func bot(_ method: String, _ body: [String: Any]) -> [String: Any]? {
+        guard let token = envValue(tokenKey), let u = URL(string: "https://api.telegram.org/bot\(token)/\(method)"),
+            let d = try? JSONSerialization.data(withJSONObject: body)
+        else { return nil }
+        var req = URLRequest(url: u)
+        req.httpMethod = "POST"
+        req.httpBody = d
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 15
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var out: [String: Any]?
+        URLSession.shared.dataTask(with: req) { d, _, _ in
+            out = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            done.signal()
+        }.resume()
+        _ = done.wait(timeout: .now() + 20)
+        return out
+    }
+    /// The hand-off link as one message with an "Open the page" button, to their home chat only. Its message id.
+    static func sendLink(_ text: String, url: String) -> Int? {
+        guard let chat = envValue("TELEGRAM_HOME_CHANNEL") else { return nil }
+        let r = bot("sendMessage", ["chat_id": chat, "text": text, "reply_markup": ["inline_keyboard": [[["text": "Open the page", "url": url]]]]])
+        return (r?["result"] as? [String: Any])?["message_id"] as? Int
+    }
+    /// The same message once the link has ended (the button goes).
+    static func editLink(_ id: Int, _ text: String) {
+        guard let chat = envValue("TELEGRAM_HOME_CHANNEL") else { return }
+        _ = bot("editMessageText", ["chat_id": chat, "message_id": id, "text": text])
+    }
+}

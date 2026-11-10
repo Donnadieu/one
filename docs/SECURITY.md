@@ -216,6 +216,26 @@ each enforced in code rather than by convention:
   are listed in one note, and the next new message carries that list with the standing rule that sending, posting,
   spending and deleting still need a fresh yes.
 
+## Hand-offs from the phone (0.9.107)
+
+A step only the person can do (a code, a sign-in, a robot check) can be finished from their phone
+(`PhoneHandoff.swift`, `PhoneSession.swift`, `PhoneServer.swift`, `PhonePage.swift`):
+- **One page only.** One attaches to that one tab's own DevTools socket (`/devtools/page/<id>`), never the browser
+  endpoint, and forwards only taps, scrolls, text (max 200 characters, one line) and Enter/Backspace/Tab
+  (`PhoneHandoff.allowed`); anything else is dropped and logged. The tab leaving the step's site (other than that
+  site's known sign-in hosts) ends the link. No address bar, tabs, downloads or file pickers on the phone page.
+- **Short life, one phone.** 10 minutes, or until Done / Not now / the step answered at the Mac; the first phone to
+  open it is the only one (a second socket gets 409). The loopback server (127.0.0.1 only) serves only
+  `/h/<room>` and `/ws/<room>`; the room is 128 random bits.
+- **Sealed end to end.** AES-GCM with a 256-bit key that exists only in the link's `#` fragment (never sent to any
+  server; the page drops it from the address bar on load). The tunnel (`cloudflared` quick tunnel, started for that
+  hand-off only) sees only ciphertext.
+- **Only to them.** The link goes only to `TELEGRAM_HOME_CHANNEL`; off when the phone chat or the tunnel tool is missing.
+- **Audit.** `handoff/<id>.audit.jsonl` + `hermes/logs/one-handoff.log`: created, sent, opened (browser, country),
+  each input's kind (never what was typed), navigations, refused phones, dropped messages, ended (why).
+- Not covered: passkeys and security keys can't be done through a picture of a page (the site's own phone route is
+  offered instead), and a person who forwards the link before opening it hands that one page to whoever opens it first.
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

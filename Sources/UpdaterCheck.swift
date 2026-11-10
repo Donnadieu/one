@@ -68,7 +68,7 @@ enum UpdaterCheck {
             "a partly done run says so in its own words", rs["c3"].map { Routines.missLine($0).hasPrefix("Partly done: the X post worked") } ?? false)
         check("and isn't orange", rs["c3"].map { $0.miss == .partly && !$0.needsLook } ?? false)
         check("its reason keeps which part failed", rs["c3"]?.reason?.contains("Facebook") ?? false)
-        check("any other failure reads as didn't run", rs["d4"].map { Routines.missWord($0) == "didn't run" } ?? false)
+        check("any other failure reads as didn't work", rs["d4"].map { Routines.missWord($0) == "didn't work" } ?? false)
         check("and is orange", rs["d4"]?.needsLook ?? false)
         runChecks(check, now: now)
         quitChecks(check)
@@ -149,7 +149,7 @@ enum UpdaterCheck {
         check("the dial draws a partly done run half filled", kinds["cut"] == .partly && kinds["half"] == .partly)
         check("a caught up run with a check, a bare one orange", kinds["caught"] == .done && kinds["bare"] == .failed)
         check(
-            "one short legend", Dial.legend == "Done · Partly · Didn't run"
+            "one short legend", Dial.legend == "Done · Partly · Missed · Didn't work"
         )
     }
 

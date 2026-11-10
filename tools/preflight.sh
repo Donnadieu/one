@@ -302,6 +302,11 @@ check "a new version is announced once; same, older or zip-less never; never ins
 grep "✗" "$T/upd/t/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the test left your real settings alone" test "$RD_BEFORE" = "$(defaults read ai.forjado.one updateAnnounced 2>/dev/null)"
 
+echo "Routines: only a real failure is orange"
+mkdir -p "$T/rtn"
+check "a routine that ran all its runs leaves the dial for the quiet Finished list (Run again asks first); paused, missed while the Mac slept, still to come and never run stay calm; only a real failure is orange" bash -c "ONE_SUPPORT_DIR=$T/rtn $TBIN --test-routines | tee $T/rtn/out.txt | grep -q '^routines ok'"
+grep "✗" "$T/rtn/out.txt" 2>/dev/null | sed 's/^/    /'
+
 if [ $CI = 0 ]; then
 echo "Screens"
 mkdir -p "$T/r"; # Renders read the real brain (live-rooms) but get a scratch home, so they can't touch the engine.

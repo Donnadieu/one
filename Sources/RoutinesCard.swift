@@ -36,7 +36,7 @@ extension RoutinesPanel {
                 if id.hasPrefix("skill:"), let sk = s.skills.first(where: { "skill:" + $0.path == id }) {
                     skillCard(sk, now: s.now)
                 } else if let r = s.routines.first(where: { $0.id == id }) {
-                    routineCard(r, now: s.now)
+                    if r.state == .finished && !r.outside { finishedCard(r, now: s.now) } else { routineCard(r, now: s.now) }
                 }
             }
             .frame(width: 250).starCalm().transition(.opacity)

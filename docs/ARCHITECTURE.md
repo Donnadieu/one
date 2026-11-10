@@ -110,6 +110,8 @@
 | RoutinesDial.swift | UI | the 24-hour day dial (Claude Design "Routines View Options", B): marks, bands, labels pushed apart, skills as stars; `One --render-routines <png>` |
 | RoutinesView.swift | UI | the Routines panel (top row › Routines): dial around the assistant's orb, header counts, "Not on today's dial", runs outside One, star hover; closes with X, a click outside, Esc |
 | RoutinesCard.swift | UI | the panel's floating card (Run now / Pause / Turn back on via `hermes cron`, Ask), the "want me to save how I did …?" question by the orb, the fading "I learned something new" notice |
+| RoutinesFinished.swift | UI | the quiet, folded "Finished" list for routines that ran every time they were set to ("Finished Nov 8 · ran 15 times", off the dial), their card (past reports, Run again after a yes: a one-shot is re-armed, a used-up routine comes back as a new one with the same settings) |
+| RoutinesCheck.swift | check | `One --test-routines`: which look each routine state gets; only a real failure is orange; finished leaves the dial; Run again's engine commands |
 | World.swift | UI | the orb (`Presence`), floating tiles, `WorldCanvas` |
 | Connections.swift | UI + bridge | Connections world, Calendar/Mail bridge (`One --cal/--mail`), the "Something else…" brief (goal first, per the shipped `connect-goal-first` skill); what's connected is read off the main thread and kept (`ConnectionsWorld.Status`, `prefetch`), never per frame |
 | ConnectionsCheck.swift | dev only | `One --test-connections-open [rounds] [png dir]` (from a test copy): opens Connections as the toolbar sheet in a test window and fails if any frame after the slide takes over 25 ms |

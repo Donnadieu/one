@@ -1,83 +1,53 @@
 import Foundation
 
-// MARK: - A [helper: Title | job] line is opaque
+// MARK: - A [helper: Title | job] tag is opaque
 // Oct 28, 2026: two helpers never started because their job text quoted "[close-helper: …]" and "[stop-helper: …]".
 // The stop/close tags were read first, anywhere in the reply, so each helper line was cut in two: nothing started,
 // the whole job text showed in the chat and was read aloud, and a close ran on a made-up name.
-// Now helper lines come out first, whole; nothing inside one is ever read as a stop, close, choices or job-kind tag.
-// Checked by `One --test-helpers` (HelperCheck.swift) and `make helpers-check` (HelperStress.swift).
+// Nov 10, 2026: a job over several paragraphs was read only to the end of its first line (see TagLines.swift).
+// Now every tag comes out in one pass, outermost first, each to its own closing "]": nothing inside a helper's job
+// is ever read as a stop, close, tell, choices or job-kind tag, and every paragraph of it reaches the helper.
+// Checked by `One --test-helpers` (HelperCheck.swift, HelperSpanCheck.swift) and `make helpers-check` (HelperStress.swift).
 
 extension Helpers {
-    /// The tags in a finished reply, read in the only safe order: helper lines first, whole; then tell lines, whole;
-    /// then the stop and close lines in what's left. A stop, close or tell quoted inside a helper's job (or a stop or
-    /// close quoted inside a tell's message) is part of that job or message, never acted on.
+    /// The tags in a finished reply, read in one pass, outermost first: helper tags, tell tags, stop and close tags,
+    /// each whole. A stop, close or tell quoted inside a helper's job (or a stop or close quoted inside a tell's
+    /// message) is part of that job or message, never acted on.
     static func read(_ reply: String) -> (said: String, jobs: [(String, String)], stops: [String], closes: [String], tells: [(String, String)]) {
-        let (clean, jobs) = extract(reply)
-        var said = jobs.isEmpty && !reply.components(separatedBy: "\n").contains(where: isLine) ? reply : clean
-        // Tell lines next, whole: a message to a helper may quote a stop, close or choices tag; it goes to the helper.
-        let (untold, tells) = HelperTell.extract(said)
-        said = untold  // one with no "|" never shows either
-        let (unstopped, stops) = HelperStop.extract(said)
-        if !stops.isEmpty { said = unstopped }
+        let c = Array(reply)
+        let hs = TagLines.hits(c, tags: TagLines.acted, streaming: false)
+        guard !hs.isEmpty else { return (reply, [], [], [], []) }
+        TagLines.logOpen(hs)
+        var jobs: [(String, String)] = []
+        var tells: [(String, String)] = []
+        var stops: [String] = []
         var closes: [String] = []
-        for tag in HelperClose.tags {  // [done-helper: …], or the older [close-helper: …]
-            let (unclosed, names) = HelperStop.extract(said, tag: tag)
-            if !names.isEmpty { said = unclosed }
-            closes += names
-        }
-        return (said, jobs, stops, closes, tells)
-    }
-
-    /// A line the assistant meant as a helper: it starts with "[helper:". Never shown, never spoken.
-    static func isLine(_ l: String) -> Bool {
-        l.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("[helper:")
-    }
-
-    /// Splits a reply into what's left to say and the helper lines, each whole. A helper line that doesn't end in "]"
-    /// takes the following lines up to the one that does (the job ran onto a new line), if one comes before a blank line.
-    static func lines(_ text: String) -> (keep: [String], helpers: [String]) {
-        let all = text.components(separatedBy: "\n")
-        var keep: [String] = []
-        var found: [String] = []
-        var i = 0
-        while i < all.count {
-            let tl = all[i].trimmingCharacters(in: .whitespaces)
-            guard isLine(tl) else {
-                keep.append(all[i])
-                i += 1
-                continue
+        var seen = Set<String>()
+        for h in hs {
+            guard let body = h.body else { continue }
+            switch h.tag {
+            case "helper":
+                let j = job(body)
+                if let j { jobs.append(j) } else { logOdd("[helper:" + body, started: false) }  // never shown either way
+            case "tell-helper":
+                if let t = HelperTell.parts(body) { tells.append(t) }  // one with no "|" never shows either
+            default:
+                let n = body.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+                guard !n.isEmpty, seen.insert(h.tag + ":" + n.lowercased()).inserted else { continue }  // the same line twice counts once
+                if h.tag == "stop-helper" { stops.append(n) } else { closes.append(n) }  // [done-helper: …] or the older [close-helper: …]
             }
-            var line = tl
-            var j = i
-            if !tl.hasSuffix("]") {
-                var k = i + 1
-                while k < all.count, k <= i + 10 {
-                    let n = all[k].trimmingCharacters(in: .whitespaces)
-                    if n.isEmpty || n.hasPrefix("[") { break }  // a new tag line ([choices: …], another helper) is never part of it
-                    if n.hasSuffix("]") {
-                        line = all[i...k].map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
-                        j = k
-                        break
-                    }
-                    k += 1
-                }
-            }
-            found.append(line)
-            i = j + 1
         }
-        return (keep, found)
+        return (TagLines.cut(c, hs), jobs, stops, closes, tells)
     }
 
-    /// Title and job from one helper line: the title is the text up to the first "|", the job the rest up to the last "]".
-    /// Recovers a line that lost its closing "]" too. nil when there's no title or no job.
-    static func parse(_ line: String) -> (String, String)? {
-        let tl = line.trimmingCharacters(in: .whitespaces)
-        guard isLine(tl) else { return nil }
-        var body = Substring(tl.dropFirst(8))
-        if let k = body.lastIndex(of: "]") { body = body[..<k] }
-        let parts = body.split(separator: "|", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
-        return (parts[0], parts[1])
+    /// Title and job from what's after "[helper:": the title is the text up to the first "|" (one line), the job
+    /// everything after it, every paragraph. nil when there's no title or no job.
+    static func job(_ body: String) -> (String, String)? {
+        guard let bar = body.firstIndex(of: "|") else { return nil }
+        let title = body[..<bar].trimmingCharacters(in: .whitespacesAndNewlines)
+        let task = body[body.index(after: bar)...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !title.contains("\n"), !task.isEmpty else { return nil }
+        return (title, task)
     }
 
     /// A helper line that wasn't written right: logged to hermes/logs/one-helpers.log (started anyway when it could be read).

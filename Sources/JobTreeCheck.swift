@@ -22,8 +22,9 @@ enum JobTreeCheck {
         return p.processIdentifier
     }
     static func alive(_ pid: pid_t) -> Bool { kill(pid, 0) == 0 && ProcTable.info(pid) != nil }
-    static func child(of parent: pid_t, named: String) -> pid_t? {
-        ProcTable.descendants(of: [parent], in: ProcTable.all()).first { $0.name == named }?.pid
+    /// The `sleep <arg>` under a process (by its argument: a shell may or may not run its last command itself).
+    static func child(of parent: pid_t, arg: String) -> pid_t? {
+        ProcTable.descendants(of: [parent], in: ProcTable.all()).first { $0.name == "sleep" && GatewayGuard.arguments(of: $0.pid).contains(arg) }?.pid
     }
 
     @MainActor static func run() async -> Int32 {
@@ -43,7 +44,7 @@ enum JobTreeCheck {
         let others = spawn("exec /bin/sleep 304")  // another helper's
         let stranger = spawn("exec /bin/sleep 305")  // on nobody's record (the person's own)
         try? await Task.sleep(for: .milliseconds(600))
-        let orphan = child(of: script, named: "sleep")
+        let orphan = child(of: script, arg: "302")
         check("set up: the script's run is under it", orphan != nil)
         let live: [String: [StopStatus.Live]] = [
             sid: [
@@ -70,7 +71,7 @@ enum JobTreeCheck {
         check(
             "another helper's go on that helper's record, not this one's",
             !rec.contains { $0.pid == others } && JobTree.ledger(o.id).contains { $0.pid == others })
-        try? await Task.sleep(for: .seconds(3))  // the script ends: its run now has no parent
+        for _ in 0..<40 where alive(script) { try? await Task.sleep(for: .milliseconds(250)) }  // the script ends: its run has no parent
         check(
             "set up: the run lost its parent (its script ended)",
             orphan.flatMap { ProcTable.info($0)?.ppid }.map { $0 != script } == true && !alive(script))

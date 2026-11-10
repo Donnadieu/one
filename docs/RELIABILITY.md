@@ -106,6 +106,13 @@ person's own Mac, not about a server One's team operates.
   "still running" forever, silently blocking that routine from ever firing
   again; `Routines.inFlight` (0.9.80) now matches the engine's own claim
   TTL instead of treating a missing `at` as live.
+- Nov 9 2026: "Argo P009 check" ran its 15 allowed runs with no errors and the Routines dial still drew it orange
+  with an X ("didn't run"), and a time missed while the lid was closed got the same alarm. The alarm now has one
+  source of truth, the engine's own failure record (`Routines.failedRecord`: an error status, a failure streak, an
+  error left on the job, a stuck schedule, a `[CRON_FAILURE]` report) drawn only through `Dial.alarm`; a routine that
+  ran all its runs moves to the Finished list, and a missed time is a calm "Missed" mark. Checked by preflight
+  "Routines" (`One --test-routines`). Run again on a finished routine can be refused by the engine's lifecycle guard
+  (a prompt naming an iCloud path, as Argo's does); then the card hands the job, already approved, to the assistant.
 
 A requirement with no row above, or a row saying NOT YET ENFORCED, is a real
 gap: file it in `docs/exec-plans/tech-debt-tracker.md` rather than assuming

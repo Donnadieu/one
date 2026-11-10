@@ -16,6 +16,9 @@ struct RoutinesPanel: View {
     @State var busy = false
     @State var noticeGone = false
     @State var picked = false
+    @State var finishedOpen = false  // the Finished list starts folded
+    @State var renewAsk: String?  // a finished routine's id while "Run it again?" waits for a yes
+    @State var renewHelp: String?  // Run again didn't take: offer to hand it to the assistant
 
     var body: some View {
         let s = fixed ?? snap
@@ -73,6 +76,7 @@ struct RoutinesPanel: View {
                 .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + 84)
             starHits(stars, skills: s.skills)
             legend.starCalm(floor: 0.15).offset(x: 24, y: 644)
+            finishedSection(L.finished, now: s.now)
             learnedNotice(s)
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
@@ -128,7 +132,7 @@ struct RoutinesPanel: View {
     /// The legend: each of the dial's marks, drawn the same way, with its word (`Dial.legend` says the same in text).
     var legend: some View {
         let items: [(Dial.Kind, String)] = [
-            (.done, "Done"), (.partly, "Partly"), (.failed, "Didn't run"),
+            (.done, "Done"), (.partly, "Partly"), (.missed, "Missed"), (.failed, "Didn't work"),
         ]
         return HStack(spacing: 14) {
             ForEach(items.indices, id: \.self) { i in
@@ -174,7 +178,7 @@ struct RoutinesPanel: View {
     }
 
     func header(_ s: RoutinesSnapshot) -> some View {
-        let mine = s.routines.filter { !$0.outside }.count
+        let mine = s.routines.filter { !$0.outside && $0.state != .finished }.count  // finished ones have their own list
         let asks = pendingAsks.count
         return VStack(alignment: .leading, spacing: 4) {
             Text("Routines").font(.system(size: 21, weight: .semibold))

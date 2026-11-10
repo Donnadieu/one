@@ -29,6 +29,25 @@ struct Routine: Identifiable, Equatable {
     var caughtUpAt: Date? { state == .worked ? notes.caughtUpAt : nil }
     /// Didn't finish, and it did nothing it can show: this one needs a look (orange).
     var needsLook: Bool { state == .failed && miss != .partly }
+    /// How many times it has run (the engine's repeat count), and whether it was set to run once.
+    var runs = 0
+    var once = false
+    /// Finished routines only: its very last run didn't work (the engine's own record says so).
+    var lastFailed = false
+
+    /// How the panel draws it. Only a real failure gets the alarm (orange, an X); a routine that finished on purpose,
+    /// a paused one, a missed time (the Mac asleep or closed) and one that never ran yet each look calm.
+    enum Look: Equatable { case alarm, partly, calm, running, paused, finished, waiting }
+    var look: Look {
+        switch state {
+        case .failed: return needsLook ? .alarm : .partly
+        case .worked: return .calm
+        case .running: return .running
+        case .paused: return .paused
+        case .finished: return .finished
+        case .never: return .waiting
+        }
+    }
 }
 
 struct SkillStar: Identifiable, Equatable {
@@ -99,33 +118,61 @@ enum Routines {
         // Hermes itself (cron/jobs.py `_claim_is_live`) only trusts a claim for `claimTTL`.
         let claimAt = date((j["fire_claim"] as? [String: Any])?["at"])
         let claimed = claimAt.map { now.timeIntervalSince($0) < Routines.claimTTL } ?? false
+        let broke = failedRecord(j, out: dir.appendingPathComponent("output/\(id)"))
         var st: Routine.State
         if !enabled && jobState == "completed" {
-            st = .finished
+            st = .finished  // ran every time it was set to (or a one-shot that ran): done on purpose, never orange
         } else if !enabled || jobState == "paused" {
             st = .paused
         } else if claimed || (dispatched != nil && (last == nil || dispatched! > last!) && now.timeIntervalSince(dispatched!) < 3 * 3600) {
             st = .running
-        } else if last == nil {
+        } else if last == nil && jobState != "error" {
             st = .never
         } else {
-            st = (j["last_status"] as? String) == "error" ? .failed : .worked
+            st = broke ? .failed : .worked
         }
         let (often, today, every) = when(sched, now: now)
         let err = (j["last_error"] as? String) ?? ((j["last_failure"] as? [String: Any])?["detail"] as? String)
         // A run marked failed may have done most of its work, or had its missing part made up later: read what it did.
         var notes = RunNotes()
-        if let last, st == .failed || (st == .running && (j["last_status"] as? String) == "error") {
+        if let last, st == .failed || (st == .running && broke) {
             notes = lastRunNotes(j, id: id, dir: dir, last: last, next: next, now: now)
             if st == .failed && notes.madeUp { st = .worked }
         }
         var r = Routine(
             id: id, title: title, what: lastSaid(dir.appendingPathComponent("output/\(id)")), often: often, today: today, every: every,
             lastRun: last, next: st == .finished ? nil : next, state: st,
-            reason: (st == .failed || (st == .running && (j["last_status"] as? String) == "error")) ? plainError(err) : nil)
+            reason: (st == .failed || (st == .running && broke)) ? plainError(err) : nil)
         r.miss = notes.hasWork && !notes.nothing ? .partly : miss(err)
         r.notes = notes
+        let rep = j["repeat"] as? [String: Any]
+        r.runs = (rep?["completed"] as? Int) ?? 0
+        r.once = runsOnce(sched)
+        r.lastFailed = st == .finished && broke
         return r
+    }
+
+    /// The engine's own record says the last run failed: its status (anything but ok; a report that worked but
+    /// couldn't be delivered still worked), a failure streak, an error left on the job, a schedule it can't work out,
+    /// or the run's report starting with the job's own `[CRON_FAILURE]` line. Nothing else is a failure: a time missed
+    /// while the Mac was asleep or closed, a pause, or a routine that ran all the times it was set to.
+    static func failedRecord(_ j: [String: Any], out: URL?) -> Bool {
+        let status = j["last_status"] as? String
+        if let status, !status.isEmpty, status != "ok", status != "delivery_failed" { return true }
+        if ((j["failure_streak"] as? Int) ?? 0) > 0 && status != "delivery_failed" { return true }
+        if let e = j["last_error"] as? String, !e.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if (j["state"] as? String) == "error" { return true }
+        return out.map(flaggedFailure) ?? false
+    }
+
+    /// The newest report's answer starts with `[CRON_FAILURE]` on a line of its own.
+    static func flaggedFailure(_ out: URL) -> Bool {
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: out.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
+        guard let f = files.last, let text = try? String(contentsOf: out.appendingPathComponent(f), encoding: .utf8),
+            let body = text.components(separatedBy: "## Response").dropFirst().first
+        else { return false }
+        let first = body.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return first == "[CRON_FAILURE]"
     }
 
     /// Titles of One's own routines at work right now. A restart (an update) would cut them off midway.
@@ -157,7 +204,7 @@ enum Routines {
     /// The short word for that run on the dial and the card.
     static func missWord(_ r: Routine) -> String {
         switch r.miss {
-        case .cut, .stopped: return "didn't run"  // nothing it can show; its card says why
+        case .cut, .stopped: return "didn't work"  // nothing it can show; its card says why
         case .partly: return "partly"
         }
     }

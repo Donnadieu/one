@@ -15,9 +15,12 @@ enum Dial {
     static let r0: CGFloat = 180  // the ring
     static let rl: CGFloat = 228  // where labels start
 
-    enum Kind { case done, partly, failed, running, next, missed, paused }
+    enum Kind: CaseIterable { case done, partly, failed, running, next, missed, paused }
     /// The legend under the dial. Keep it in step with `mark` below.
-    static let legend = "Done · Partly · Didn't run"
+    static let legend = "Done · Partly · Missed · Didn't work"
+    /// The alarm (orange, an X) is for a run that really failed, and nothing else: a time missed while the Mac was
+    /// asleep or closed, a paused routine and one still to come all stay calm.
+    static func alarm(_ k: Kind) -> Bool { k == .failed }
     struct Mark: Identifiable {
         var id: String { "\(rid)-\(minute)" }
         let rid: String
@@ -49,6 +52,7 @@ enum Dial {
         var labels: [Label] = []
         var later: [Routine] = []  // not today: weekly, once on another day, never ran
         var outside: [Routine] = []
+        var finished: [Routine] = []  // ran every time they were set to: off the dial, in the quiet Finished list
         var nowMinute = 0
     }
 
@@ -62,9 +66,15 @@ enum Dial {
         let now = Routines.minutes(s.now)
         L.nowMinute = now
         var bandIndex = 0
+        // A routine renewed with Run again comes back as a new routine of the same name: its finished copy steps aside.
+        let active = Set(s.routines.filter { $0.state != .finished && !$0.outside }.map(\.title))
         for r in s.routines {
             if r.outside {
                 L.outside.append(r)
+                continue
+            }
+            if r.state == .finished {
+                if !active.contains(r.title) { L.finished.append(r) }
                 continue
             }
             if let every = r.every {
@@ -82,7 +92,7 @@ enum Dial {
                 continue
             }
             if r.today.isEmpty {
-                if r.state != .finished || (r.lastRun.map { Routines.sameDay($0, s.now) } ?? false) { L.later.append(r) }
+                L.later.append(r)
                 continue
             }
             let past = r.today.filter { $0 <= now }
@@ -103,8 +113,8 @@ enum Dial {
                         if t == lastRanSlot && r.state == .failed { k = r.miss == .partly ? .partly : .failed }
                         sub += " · " + (k == .done ? "done" : Routines.missWord(r))
                     } else {
-                        k = .missed
-                        sub += " · didn't run"
+                        k = .missed  // no run on record and no error: the Mac was asleep or closed, or One wasn't open
+                        sub += " · missed"
                     }
                 } else {
                     k = .next
@@ -114,18 +124,20 @@ enum Dial {
                 let th = Double(t) / 1440 * 2 * .pi
                 L.labels.append(
                     Label(
-                        rid: r.id, key: t, title: r.title, sub: sub, orange: [.failed, .missed].contains(k), from: p,
+                        rid: r.id, key: t, title: r.title, sub: sub, orange: alarm(k), from: p,
                         at: point(Double(t), rl), right: sin(th) >= -0.01))
             }
         }
         L.later.sort { ($0.next ?? .distantFuture) < ($1.next ?? .distantFuture) }
+        L.finished.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
         L.labels = spread(L.labels)
         return L
     }
 
     static func word(_ r: Routine) -> String {
         switch r.state {
-        case .worked, .finished: return "done"  // made up later counts as done; its card says when
+        case .worked: return "done"  // made up later counts as done; its card says when
+        case .finished: return r.lastFailed ? "finished, last run didn't work" : "finished"
         case .failed: return Routines.missWord(r)
         case .running: return "running now"
         case .never: return "not run yet"
@@ -219,7 +231,7 @@ enum Dial {
             tick.addLine(to: CGPoint(x: p.x - 0.7, y: p.y + 2.1))
             tick.addLine(to: CGPoint(x: p.x + 2.8, y: p.y - 1.9))
             ctx.stroke(tick, with: .color(WorldLook.bg), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-        case .failed, .missed:  // didn't run: one look
+        case .failed:  // a run that really failed: the only alarm
             glow(&ctx, p, orange, 0.35)
             ctx.fill(dot(p, 6), with: .color(orange))
             var x = Path()
@@ -228,6 +240,10 @@ enum Dial {
             x.move(to: CGPoint(x: p.x + 2, y: p.y - 2))
             x.addLine(to: CGPoint(x: p.x - 2, y: p.y + 2))
             ctx.stroke(x, with: .color(WorldLook.bg), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        case .missed:  // nothing ran (the Mac asleep or closed): a faint ring with a dot, calm
+            ctx.fill(dot(p, 5), with: .color(WorldLook.bg))
+            ctx.stroke(dot(p, 5), with: .color(cream.opacity(0.32)), lineWidth: 1.1)
+            ctx.fill(dot(p, 1.5), with: .color(cream.opacity(0.45)))
         case .partly:
             // Half filled, calm cream (not orange): some of it worked.
             ctx.fill(dot(p, 6), with: .color(WorldLook.bg))
@@ -279,7 +295,7 @@ enum Dial {
 // and skills (read only), with one made-up "want me to save…?" question so that moment shows.
 enum RoutinesRender {
     static func cli(_ args: [String]) {
-        guard let k = args.firstIndex(of: "--render-routines"), k + 1 < args.count else { return }
+        guard let k = args.firstIndex(of: "--render-routines"), k + 1 < args.count else { return RoutinesCheck.cli(args) }
         MainActor.assumeIsolated { png(args[k + 1]) }
         exit(0)
     }
@@ -298,7 +314,12 @@ enum RoutinesRender {
         let pick =
             ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t }?.id }
             ?? ProcessInfo.processInfo.environment["ONE_RENDER_SKILL"].flatMap { n in s.skills.first { $0.name == n }.map { "skill:" + $0.path } }
-        let v = RoutinesPanel(m: m, fixed: s, sel: pick, picked: pick != nil).frame(width: 1200, height: 740).background(WorldLook.bg)
+        // ONE_RENDER_FINISHED=1 unfolds the Finished list; ONE_RENDER_RENEW=1 shows the picked card's "Run it again?" question.
+        let env = ProcessInfo.processInfo.environment
+        let v = RoutinesPanel(
+            m: m, fixed: s, sel: pick, picked: pick != nil, finishedOpen: env["ONE_RENDER_FINISHED"] == "1",
+            renewAsk: env["ONE_RENDER_RENEW"] == "1" ? pick : nil
+        ).frame(width: 1200, height: 740).background(WorldLook.bg)
         let r = ImageRenderer(content: v)
         r.scale = 2
         if let img = r.nsImage, let t = img.tiffRepresentation, let rep = NSBitmapImageRep(data: t),

@@ -10,7 +10,7 @@ Each rule names what enforces it. A rule without an enforcer is a gap.
 | A helper orb has three looks only: working, needs you, done | `Helper.viewState` + `One --test-helpers` (HelperCheck) |
 | Helpers finishing together get one quiet line, never a turn each, never repeated | SayQueue `.helperNews` + helpers-check part `queue` (QueueCheck) |
 | The long app notes go once per conversation, not on every message | `NoteCache` + `One --test-helpers` |
-| The routines dial says Done, Partly or Didn't run | `Dial.legend` + preflight "Updater" (UpdaterCheck) |
+| The routines dial says Done, Partly, Missed or Didn't work; only a real failure is orange, a routine that ran all its runs moves to Finished | `Dial.legend`, `Dial.alarm`, `Routines.failedRecord` + preflight "Updater" (UpdaterCheck) and "Routines" (`One --test-routines`, RoutinesCheck) |
 | No broad process kills | `one-lint: broad-kill` |
 | No Telegram/WhatsApp | `one-lint: no-messaging` |
 | Programs only run from services | `one-lint: process-area` |

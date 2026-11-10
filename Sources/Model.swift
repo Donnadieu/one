@@ -228,6 +228,9 @@ final class Model: ObservableObject {
     @Published var limitNotice: LimitNotice?
     @Published var week: WeekMeter?  // the AI plan's week, under the main orb (Budget.swift)
     var budgetReading = false
+    var phoneSessions: [String: PhoneSession] = [:]  // live phone hand-offs by request (PhoneSession.swift)
+    var phoneSent: Set<String> = []
+    var humanStepSeen: [String: Date] = [:]
     var lastMeter = Date.distantPast
     /// The last account seen active (the `←`) for each provider, so a pool failover is only ever told once.
     var lastActiveEntry: [String: String] = [:]

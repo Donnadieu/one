@@ -262,6 +262,7 @@ extension Model {
         if JobTree.ticks % 3 == 0 { tendJobTrees() }
         if JobTree.ticks % 15 == 0 { tendBudgets() }  // what each job used of the week (Budget.swift)
         HealthWatch.tend(helpers: helpers)  // a look at the Mac's health every 30 s, off the main thread (HealthRun.swift)
+        tendPhoneHandoffs()  // a step only they can do goes to their phone (PhoneSession.swift)
     }
 
     /// Every 6 s while helpers work: each one's programs go into its record (JobTree.track).

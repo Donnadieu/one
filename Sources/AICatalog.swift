@@ -84,7 +84,11 @@ enum AICatalog {
         return (try? JSONDecoder().decode([EngineAI].self, from: d)) ?? []
     }
 
-    static func providers() async -> [EngineAI] { decode(await run(["providers"])) }
+    /// A first run after an install or update can take a while (the engine warms up), so it gets two minutes and one retry.
+    static func providers() async -> [EngineAI] {
+        let first = decode(await run(["providers"], timeout: 120))
+        return first.isEmpty ? decode(await run(["providers"], timeout: 120)) : first
+    }
 
     /// The engine's model list for one AI (its live list once a key is in, else its own).
     static func models(_ id: String) async -> [String] {
@@ -129,9 +133,11 @@ enum AICatalog {
         if (200..<300).contains(status) || status == 429 { return .fine }
         return .unknown
     }
-    static func check(_ ai: EngineAI, key: String, session: URLSession = .shared) async -> KeyCheck {
+    /// `fetch` answers a request with its HTTP status (nil = no answer); tests pass a stand-in.
+    static func check(_ ai: EngineAI, key: String, fetch: ((URLRequest) async -> Int?)? = nil) async -> KeyCheck {
         guard let r = checkRequest(ai, key: key) else { return .unknown }
-        let got = try? await session.data(for: r)
+        if let fetch { return verdict(status: await fetch(r)) }
+        let got = try? await URLSession.shared.data(for: r)
         return verdict(status: got.flatMap { ($0.1 as? HTTPURLResponse)?.statusCode })
     }
 }

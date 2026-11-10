@@ -9,6 +9,7 @@ enum OtherAIsCheck {
         let engine = args.contains("--test-other-ais-engine")
         guard engine || args.contains("--test-other-ais") else { return false }
         TestWorld.enter()
+        setvbuf(stdout, nil, _IONBF, 0)  // each line shows at once, so a stuck step names itself in CI
         Task { @MainActor in exit(engine ? await runEngine() : await run()) }
         return true
     }
@@ -91,12 +92,12 @@ enum OtherAIsCheck {
         check("no answer = couldn't reach", AICatalog.verdict(status: nil) == .unreachable)
         check("anything else = let the ready test decide", AICatalog.verdict(status: 500) == .unknown)
         for (status, want) in [(200, AICatalog.KeyCheck.fine), (401, .refused)] {
-            StubAI.status = status
-            let got = await AICatalog.check(row("deepseek"), key: "abc", session: StubAI.session)
+            let got = await AICatalog.check(row("deepseek"), key: "abc") { r in
+                r.value(forHTTPHeaderField: "Authorization") == "Bearer abc" ? status : 500
+            }
             check("a stand-in AI answering \(status) gives \(want)", got == want)
         }
-        StubAI.status = nil
-        let off = await AICatalog.check(row("deepseek"), key: "abc", session: StubAI.session)
+        let off = await AICatalog.check(row("deepseek"), key: "abc") { _ in nil }
         check("a stand-in AI that's offline gives couldn't reach", off == .unreachable)
         check("the failure line names the AI and the cause", OtherAIResult.refused.line("DeepSeek") == "DeepSeek said this key isn't valid.")
         check("a key with a line break is refused before it reaches the engine", await AICatalog.saveKey("deepseek", "a\nb") == false)
@@ -151,26 +152,4 @@ enum OtherAIsCheck {
         print(failures == 0 ? "other ais engine ok" : "other ais engine: \(failures) failed")
         return failures == 0 ? 0 : 1
     }
-}
-
-/// A stand-in AI for the key check: answers every request with `status`, or fails like an offline Mac when nil.
-final class StubAI: URLProtocol {
-    nonisolated(unsafe) static var status: Int?
-    static var session: URLSession {
-        let c = URLSessionConfiguration.ephemeral
-        c.protocolClasses = [StubAI.self]
-        return URLSession(configuration: c)
-    }
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() {
-        guard let s = StubAI.status, let u = request.url, let r = HTTPURLResponse(url: u, statusCode: s, httpVersion: nil, headerFields: nil) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
-            return
-        }
-        client?.urlProtocol(self, didReceive: r, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{}".utf8))
-        client?.urlProtocolDidFinishLoading(self)
-    }
-    override func stopLoading() {}
 }

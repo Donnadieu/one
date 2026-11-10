@@ -137,6 +137,10 @@ check "the usage meter bundled" test -f "$APP/Contents/Resources/usage_meter.py"
 check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
 mkdir -p "$T/health"; check "health watchdog: One's own, his tools' and his own told apart (never Docker, databases, Chrome or /Applications), a stopped helper's leftover closed by itself and a working helper's kept, Leave it for a day, the plain lines and One --health" bash -c "ONE_SUPPORT_DIR=$T/health ONE_HEALTH_FAKE_IDLE=0 ONE_HEALTH_FAKE_DISK_GB=21 $TBIN --test-health | tee $T/health/out.txt | grep -q '^health ok'"
 grep "✗" "$T/health/out.txt" 2>/dev/null | sed 's/^/    /'
+check "one helper at a time on a repo's main (engine): which commands count (a push of another branch never); two helpers pushing to main at once: the second waits, is told to rebase, then pushes, history linear; a turn that runs out, a stop and a finished turn free main" /usr/bin/python3 tools/main-queue-check.py
+mkdir -p "$T/rt"; check "every repo job gets its own copy, also a repo named by name (Forge Desktop, Donnadieu/one, the One repo; never an everyday 'one'); the orb says whose turn it is on main" bash -c "ONE_SUPPORT_DIR=$T/rt $TBIN --test-repo-turns | tee $T/rt/out.txt | grep -q '^repo turns ok'"
+grep "✗" "$T/rt/out.txt" 2>/dev/null | sed 's/^/    /'
+check "the main-queue plugin bundled" test -f "$APP/Contents/Resources/one-main-queue/__init__.py"
 check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
 [ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
 

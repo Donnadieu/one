@@ -9,6 +9,7 @@ enum Diagnostics {
         JobTreeCheck.main(args)  // `--test-stop-tree` (JobTree.swift)
         BudgetCheck.main(args)  // `--test-budgets` (Budget.swift)
         HealthCheck.main(args)  // `--test-health` (HealthCheck.swift)
+        RepoTurnsCheck.main(args)  // `--test-repo-turns` (RepoQueue.swift)
         Pulse.cli(args)  // `--crash-line <pid>`: the one-line crash summary Pulse logs after a crash
         LinkGuard.cli(args)  // `--link-guard [--dry-run]`, `--test-link-guard`, `--test-rooms-privacy`, `--render-share-rooms`
     }

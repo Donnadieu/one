@@ -4,7 +4,7 @@ import Foundation
 
 @MainActor
 extension Model {
-    /// Look only (LookOnly.swift), its own copy of a repo another helper is working in (HelperRepos.swift), and
+    /// Look only (LookOnly.swift), its own copy of every repo the job names (HelperRepos.swift, RepoIndex.swift), and
     /// today's related results from earlier helpers (HelperFindings.swift). Each adds one plain line to its steps.
     func helperStartNotes(_ id: UUID, title: String, task: String) async -> String {
         var out = ""
@@ -27,22 +27,23 @@ extension Model {
         return out
     }
 
-    /// The repos this job names that another helper is working in right now get a copy of their own for this one.
+    /// Every repo this job names (by path or by name) gets a copy of its own for this helper, even when it's alone in
+    /// it. A repo the job already names a copy (worktree) of is worked on there: no second copy.
     private func ownCopies(_ id: UUID, title: String, task: String) async -> String {
         let repos = await Task.detached { HelperRepos.repos(in: task) }.value
         guard !repos.isEmpty else { return "" }
+        let covered = Set(repos.compactMap { HelperRepos.mainRepo(of: $0) })
         var mine: [String] = []
-        var copies: [(copy: HelperRepos.Copy, other: String)] = []
-        for r in repos {
-            guard
-                let other = helpers.first(where: { $0.id != id && HelperRepos.busy($0) && ($0.repos ?? HelperRepos.repos(in: $0.task)).contains(r) })
-            else {
-                mine.append(r)
+        var copies: [(copy: HelperRepos.Copy, other: String?)] = []
+        for r in repos where !covered.contains(r) {
+            let other = helpers.first(where: { $0.id != id && HelperRepos.busy($0) && ($0.repos ?? HelperRepos.repos(in: $0.task)).contains(r) })
+            if other == nil && HelperRepos.mainRepo(of: r) != nil {
+                mine.append(r)  // the job's own copy already
                 continue
             }
             if let c = await Task.detached(operation: { HelperRepos.make(repo: r, title: title, helper: id) }).value {
-                copies.append((c, other.title))
-                update(id) { HelperTrail.add("Working in its own copy of \((r as NSString).lastPathComponent) (another helper is in it)", to: &$0) }
+                copies.append((c, other?.title))
+                update(id) { HelperTrail.add(HelperRepos.trailLine(r, other: other != nil), to: &$0) }
             } else {
                 mine.append(r)  // git said no: it works as before
             }

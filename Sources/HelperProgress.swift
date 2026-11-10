@@ -226,6 +226,7 @@ extension Model {
     }
     /// The line under a helper's orb, live.
     func progressLine(_ h: Helper, now: Date, short: Bool = false) -> String {
+        if let q = RepoQueue.line(h, now: now) { return q }  // waiting its turn on a repo's main (RepoQueue.swift)
         guard h.state == "working", let p = pulses[h.id] else { return HelperRings.status(h) }
         return HelperProgress.line(p, fallback: h.line, now: now, building: HelperProgress.waitingForBuild(p), short: short)
     }
@@ -245,7 +246,7 @@ struct HelperProgressView: View {
             if let p = m.pulses[h.id] {
                 content(p, now: now)
             } else {
-                Text(h.line).foregroundStyle(.secondary)
+                Text(HelperRings.status(h)).foregroundStyle(.secondary)
             }
         }
     }

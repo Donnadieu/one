@@ -2,9 +2,10 @@ import Foundation
 
 // MARK: - Each helper gets its own copy of a repo
 
-/// When a new helper's job names a git repo (a path in the job text) that another helper is working in right now,
-/// One gives the new helper its own copy: a git worktree next to the repo (`<repo>-<job>`, on its own branch
-/// `helper/<job>-<id>`, from the repo's last saved state). The helper is told to work only there. When its orb is
+/// When a new helper's job names a git repo (a path in the job text, or a name: RepoIndex.swift), One gives the
+/// helper its own copy, even when it's alone in it: a git worktree next to the repo (`<repo>-<job>`, on its own branch
+/// `helper/<job>-<id>`, from the repo's last saved state), so the person's own checkout and other helpers' work are
+/// never touched. A job that names a copy (worktree) already works there. The helper is told to work only there. When its orb is
 /// taken off the screen (or at the next launch, if One closed first), the copy goes: a clean copy is removed, and
 /// its branch too if nothing was saved on it; a copy with unsaved changes is kept and logged, never deleted.
 /// Copies are listed in `Support/One/helper-copies.json`. Repos inside the brain or One's own data are never copied.
@@ -21,8 +22,9 @@ enum HelperRepos {
 
     // MARK: Which repos a job names
 
-    /// The git repos a job names by path (`~/Repos/forge`, `/Users/x/Repos/one`, quoted paths with spaces),
-    /// each as its root folder. Never the brain or One's own data (except `work/`, where helpers clone things).
+    /// The git repos a job names by path (`~/Repos/forge`, `/Users/x/Repos/one`, quoted paths with spaces) or by
+    /// name ("Forge Desktop", `Donnadieu/one`: RepoIndex), each as its root folder. Never the brain or One's own data
+    /// (except `work/`, where helpers clone things).
     static func repos(in text: String) -> [String] {
         let home = NSHomeDirectory()
         var found: [String] = []
@@ -37,7 +39,19 @@ enum HelperRepos {
                 if let root = root(of: path), !found.contains(root), allowed(root) { found.append(root) }
             }
         }
+        for r in RepoIndex.find(in: text) where !found.contains(r) { found.append(r) }
         return found
+    }
+
+    /// The repo a helper's copy (a linked worktree: `.git` is a file) belongs to, or nil for a repo's own checkout.
+    static func mainRepo(of root: String) -> String? {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root + "/.git", isDirectory: &isDir), !isDir.boolValue,
+            let s = try? String(contentsOfFile: root + "/.git", encoding: .utf8)
+        else { return nil }
+        let gitdir = s.replacingOccurrences(of: "gitdir:", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let cut = gitdir.range(of: "/.git/worktrees/") else { return nil }
+        return norm(String(gitdir[..<cut.lowerBound]))
     }
 
     /// The nearest folder at or above `path` that holds `.git`. The home folder itself never counts.
@@ -140,19 +154,25 @@ enum HelperRepos {
 
     // MARK: What the helper is told
 
-    static func note(_ copies: [(copy: Copy, other: String)]) -> String {
+    static func note(_ copies: [(copy: Copy, other: String?)]) -> String {
         guard !copies.isEmpty else { return "" }
         let home = NSHomeDirectory()
         func tilde(_ p: String) -> String { p.hasPrefix(home) ? "~" + p.dropFirst(home.count) : p }
         let lines = copies.map { c in
-            "- \(tilde(c.copy.repo)) is in use by the helper \"\(c.other)\". Your own copy: \(tilde(c.copy.path)) "
-                + "(branch \(c.copy.branch), from commit \(c.copy.base.prefix(8)), the repo's last saved state)."
+            (c.other.map { "- \(tilde(c.copy.repo)) is in use by the helper \"\($0)\". Your own copy: " }
+                ?? "- Your own copy of \(tilde(c.copy.repo)): ")
+                + "\(tilde(c.copy.path)) (branch \(c.copy.branch), from commit \(c.copy.base.prefix(8)), the repo's last saved state)."
         }
-        return "\n\n(One app note, not from the user: YOUR OWN COPY. Another helper is working in the same project right now, so One "
-            + "made you your own copy (a git worktree) to work in:\n" + lines.joined(separator: "\n")
+        let why = copies.contains { $0.other != nil } ? "Another helper is working in the same project right now, so One" : "One"
+        return "\n\n(One app note, not from the user: YOUR OWN COPY. \(why) made you your own copy (a git worktree) to work in, so the "
+            + "original folder and other helpers' work are never touched:\n" + lines.joined(separator: "\n")
             + "\nDo all your work, builds and commits in your copy, never in the original folder, and don't switch branches there. "
-            + "To share your work, push your branch or merge it the way the project usually does. One removes the copy when "
-            + "they're done with you; anything not committed is kept.)"
+            + "To share your work, push your branch or merge it the way the project usually does. Putting work on main (a push to "
+            + "main, a merge, a release) waits its turn when another helper is doing the same: keep working on your branch "
+            + "meanwhile. One removes the copy when they're done with you; anything not committed is kept.)"
+    }
+    static func trailLine(_ repo: String, other: Bool) -> String {
+        "Working in its own copy of \((repo as NSString).lastPathComponent)" + (other ? " (another helper is in it)" : "")
     }
 
     // MARK: Helpers

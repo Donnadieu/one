@@ -1,0 +1,7 @@
+name: one-main-queue
+version: "1.0.0"
+description: "One: one helper at a time puts work on a repo's main. A push to main, a merge or rebase of the main checkout, gh pr merge and gh release create wait their turn in a per-repo queue; when it's their turn and main moved, the helper is told to rebase and re-run its checks first."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - pre_tool_call
+  - post_llm_call

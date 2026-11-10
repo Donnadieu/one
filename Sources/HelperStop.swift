@@ -148,7 +148,7 @@ struct HelperCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(h.title).font(.headline)
-                Text("· " + HelperStop.word(h)).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
+                Text("· " + (RepoQueue.word(h) ?? HelperStop.word(h))).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
                 Spacer()
                 Button {
                     m.openHelper = nil
@@ -160,6 +160,7 @@ struct HelperCard: View {
             if let a = h.asked, !a.isEmpty { LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true) }
             if h.state == "working" {
                 HelperProgressView(m: m, h: h)  // the real step, its time, its plan line; Nudge when it's gone quiet
+                RepoQueueNote(h: h, indent: m.pulses[h.id] != nil)  // waiting its turn on main (RepoQueue.swift)
                 if let g = m.goals[h.id.uuidString], g.active { GoalLine(g: g, stop: nil) }  // its standing goal (Goals.swift)
                 if !h.reply.isEmpty { ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading) }
             } else if h.reply.isEmpty {
@@ -276,7 +277,7 @@ struct HelperStopScene: View {
         [
             ("helper-stop", AnyView(Self())), ("helper-stop-working", AnyView(Self(working: true))),
             ("helper-stop-got-it", AnyView(Self(opened: "done"))), ("helper-stop-needs-yes", AnyView(Self(opened: "needsYes"))),
-        ] + StopTreeScene.renders
+        ] + StopTreeScene.renders + RepoTurnScene.renders
     }
     func card(_ stopped: Helper) -> Helper {
         if working { return Self.helper("working", line: "Checking Google Flights…") }

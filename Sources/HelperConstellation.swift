@@ -102,7 +102,7 @@ enum HelperRings {
         if h.state == "needsYes" { return "Needs your yes" }
         if h.waiting { return "Done · tap to take a look" }
         if h.state == "done" { return "Done" }
-        return h.line
+        return RepoQueue.line(h) ?? h.line  // waiting its turn on a repo's main (RepoQueue.swift)
     }
 }
 
@@ -248,7 +248,7 @@ struct HelperTag: View {
         VStack(spacing: 1) {
             Text(title).font(.system(size: look.title, weight: .semibold))
                 .foregroundStyle(warm ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(opened ? 0.62 : 1))
-            Text(line).font(.system(size: look.line))
+            Text(RepoQueue.wraps(line) ? RepoQueue.keepTogether(line) : line).font(.system(size: look.line)).lineLimit(RepoQueue.wraps(line) ? 3 : 1)
                 .foregroundStyle(
                     warm ? Color(hex: 0xF6B46E, 0.8) : WorldLook.cream.opacity(opened ? 0.36 : 0.52))
         }

@@ -223,17 +223,32 @@ struct BudgetArc: View {
 struct BudgetRow: View {
     @ObservedObject var m: Model
     let h: Helper
+    @State var picking = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let w = Budget.words(h) {
-                Menu {
-                    ForEach(Array(Budget.choices.enumerated()), id: \.offset) { _, c in
-                        Button(c.map { Budget.pct($0) + " of the week" } ?? "No limit") { m.setBudget(h.id, c) }
-                    }
+                Button {
+                    picking.toggle()
                 } label: {
                     Text(w + " this week").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.6))
+                        .underline(picking, color: WorldLook.cream.opacity(0.3))
                 }
-                .menuStyle(.borderlessButton).fixedSize().help("Change how much of the week this job may use")
+                .buttonStyle(.plain).help("Change how much of the week this job may use")
+                if picking {
+                    HStack(spacing: 6) {
+                        ForEach(Array(Budget.choices.enumerated()), id: \.offset) { _, c in
+                            let on = h.budgetOff == true ? c == nil : (c != nil && Budget.of(h) == c)
+                            Button(c.map { Budget.pct($0) } ?? "No limit") {
+                                m.setBudget(h.id, c)
+                                picking = false
+                            }
+                            .font(.system(size: 12, weight: on ? .semibold : .regular))
+                            .padding(.horizontal, 10).frame(height: 24)
+                            .background(Capsule().strokeBorder(WorldLook.cream.opacity(on ? 0.7 : 0.25)))
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
             if h.pausedForBudget == true, let b = Budget.of(h) {
                 HStack(spacing: 8) {

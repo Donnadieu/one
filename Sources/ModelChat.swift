@@ -156,6 +156,7 @@ extension Model {
         var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
         h.started = Date()
         h.routine = routine
+        h.budget = Budget.parse(task)  // "Budget 10%:" or "Goal (…, 10%):"; else the default (Budget.swift)
         HelperTrail.flush(h)
         withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { helpers.append(h) }
         let id = h.id

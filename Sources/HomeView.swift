@@ -93,6 +93,7 @@ struct HomeView: View {
                                     GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in pager.pageTop = y } })
                             if !(historyShown && m.openHelper == nil) {
                                 HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
+                                WeekLine(m: m)  // the plan's week, under the orbs (Budget.swift)
                             }
                             if m.isReady && m.thinking && m.openHelper == nil && !historyShown {
                                 StepLine(text: m.working ?? "Working on it…").foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)

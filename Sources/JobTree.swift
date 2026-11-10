@@ -243,6 +243,7 @@ extension HelperTrail {
 extension Model {
     /// The person stopped this helper on purpose: its work is cancelled and it stays stopped, even after a restart.
     func stopHelper(_ id: UUID) {
+        if helpers.first(where: { $0.id == id })?.pausedForBudget == true { return stopPausedHelper(id) }  // Budget.swift
         var cancel = false
         var busy = false
         update(id) {
@@ -259,6 +260,7 @@ extension Model {
         tendGoals()
         JobTree.ticks += 1
         if JobTree.ticks % 3 == 0 { tendJobTrees() }
+        if JobTree.ticks % 15 == 0 { tendBudgets() }  // what each job used of the week (Budget.swift)
     }
 
     /// Every 6 s while helpers work: each one's programs go into its record (JobTree.track).

@@ -226,6 +226,9 @@ final class Model: ObservableObject {
     /// (a usage limit, never One's choice): the plain-words card in chat, with a one-tap way to keep it
     /// (Accounts.swift, LimitBanner.swift). Nil once Omar acts on it or it clears itself.
     @Published var limitNotice: LimitNotice?
+    @Published var week: WeekMeter?  // the AI plan's week, under the main orb (Budget.swift)
+    var budgetReading = false
+    var lastMeter = Date.distantPast
     /// The last account seen active (the `←`) for each provider, so a pool failover is only ever told once.
     var lastActiveEntry: [String: String] = [:]
     @Published var signInChoice: Provider?

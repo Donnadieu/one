@@ -180,7 +180,7 @@ struct HelperConstellation: View {
             state: h.viewState, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened,
             tag: HelperTag(
                 title: h.title, line: line, look: look, warm: warm, opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now)),
-            sleeping: sleeping)
+            sleeping: sleeping, fill: h.state == "working" || h.pausedForBudget == true ? Budget.fill(h) : nil)
         return Button {
             if stopAsk == h.id { return }  // the long press already asked; this is its release
             m.focusHelper(h.id)
@@ -216,6 +216,7 @@ struct HelperFace: View {
     let opened: Bool
     let tag: HelperTag
     var sleeping = false
+    var fill: Double? = nil  // used ÷ budget: the thin arc (Budget.swift)
     var body: some View {
         VStack(spacing: gap) {
             ZStack(alignment: .bottomTrailing) {
@@ -224,6 +225,7 @@ struct HelperFace: View {
                     SleepingOrb(size: orb, t: t)
                 } else {
                     HelperOrb(state: state, t: t, size: orb, check: false).frame(width: orb, height: orb)
+                        .overlay { if let f = fill { BudgetArc(fill: f, size: orb * 1.32) } }  // its share of the week (Budget.swift)
                 }
                 if opened && !sleeping { HelperTick(size: orb >= 40 ? 15 : orb >= 34 ? 13 : 11).offset(x: 3, y: 3) }
             }

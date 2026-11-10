@@ -126,7 +126,7 @@ enum Goals {
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let head = t.range(of: #"^[Gg][Oo][Aa][Ll]\s*(\([^)\n]*\))?\s*:"#, options: .regularExpression) else { return nil }
         let g = t[head.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        let inParens = t[head].range(of: #"\d{1,12}"#, options: .regularExpression).flatMap { Int(t[$0]) }
+        let inParens = t[head].range(of: #"\d{1,12}(?![\d%])(?!\s+%)"#, options: .regularExpression).flatMap { Int(t[$0]) }
         return g.isEmpty ? nil : (g, inParens)
     }
 

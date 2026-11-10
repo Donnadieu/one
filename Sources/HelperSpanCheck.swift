@@ -106,10 +106,11 @@ extension HelperCheck {
             tellOpen.tells.first?.1 == "Skip the tests.\n\nShip it." && tellOpen.said == "Sent.")
 
         // 6. The voice never reads a tag, even one the parser can't read (no colon, odd case).
-        let odd = "Sure.\n[Helper - Fix it | do the secret thing]\nThen more secret text."
+        let odd = Speaker.spoken("Sure.\n[Helper - Fix it | do the secret thing]\nAnything else?").joined(separator: " ")
         check(
-            "a tag written wrong is never read aloud",
-            !Speaker.spoken(odd).joined().contains("secret") && Speaker.spoken(odd).joined().contains("Sure"))
+            "a tag line written wrong is never read aloud (\(odd))", !odd.contains("secret") && odd.contains("Sure") && odd.contains("Anything else"))
+        let run = Speaker.spoken("Sure. [helper Fix it | the secret job, no colon").joined(separator: " ")
+        check("nor one with no colon run into a sentence (\(run))", !run.contains("secret") && run.contains("Sure"))
         check(
             "nor a tag in the middle of a sentence",
             !Speaker.spoken("Okay. Sending it now [helper: X | the hidden job]").joined().contains("hidden"))

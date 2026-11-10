@@ -88,8 +88,8 @@ enum PhoneHandoffCheck {
                 && PhoneHandoff.open(PhoneHandoff.seal(msg, l.key)!, SymmetricKey(size: .bits256)) == nil)
         check(
             "the page has no key in it and escapes the job's title",
-            !PhonePage.html(title: "x", ends: Date()).contains(l.keyText) && PhonePage.html(title: "<b>", ends: Date()).contains("&lt;b&gt;")
-                && !PhonePage.html(title: "<b>", ends: Date()).contains("<b>"))
+            !PhonePage.html(title: "x", ends: Date()).contains(l.keyText) && PhonePage.html(title: "<i>x", ends: Date()).contains("&lt;i&gt;x")
+                && !PhonePage.html(title: "<i>x", ends: Date()).contains("<i>x"))
         let f = [UInt8](PhoneSocket.encode(Data(repeating: 7, count: 70_000)))
         var round = Data(f)
         check("socket frames of any size read back", PhoneSocket.frame(&round)?.1.count == 70_000)

@@ -149,6 +149,11 @@ mkdir -p "$T/accounts"
 check "account parsing, naming and limit-notice checks" bash -c "ONE_SUPPORT_DIR=$T/accounts $TBIN --test-accounts | tee $T/accounts/out.txt | grep -q '✓'; ! grep -q '✗' $T/accounts/out.txt"
 grep "✗" "$T/accounts/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "Other AIs and thinking levels: the engine's list, a key's check, each brain's level"
+mkdir -p "$T/oa"
+check "Other AIs keeps plain-key AIs only, groups never drop one, presets set Max/Medium/Low and step down, keys checked as each AI expects" bash -c "ONE_SUPPORT_DIR=$T/oa $TBIN --test-other-ais | tee $T/oa/out.txt | grep -q '^other ais ok'"
+grep -q "^other ais ok" "$T/oa/out.txt" 2>/dev/null || grep -v "^✓" "$T/oa/out.txt" 2>/dev/null | tail -6 | sed 's/^/    /'  # what failed, or where it stopped
+
 echo "Blocked on a step only you can do: ask, never substitute"
 mkdir -p "$T/bl"
 check "rule in SOUL and every helper turn (first, follow-up, picked back up); One spots a robot check, asks Can I show you the window?, turns that helper orange, shows nothing by itself" bash -c "ONE_SUPPORT_DIR=$T/bl $TBIN --test-blocked | tee $T/bl/out.txt | grep -q '^blocked ok'"

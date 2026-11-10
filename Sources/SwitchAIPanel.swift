@@ -10,6 +10,9 @@ struct SwitchAIPanel: View {
     let close: () -> Void
     @State private var current: Provider?
     @State private var localPicker = false
+    /// "Other AIs": every AI the engine takes a key for (OtherAIsView.swift).
+    @State private var otherPicker = SwitchAIPanel.renderOther
+    nonisolated(unsafe) static var renderOther = false
     @State private var loadedCurrent = false
     /// Which provider's accounts screen is open (Direction B, Nov 9 2026): tapping a provider you're
     /// already signed in to manages its accounts instead of switching straight away, since several
@@ -27,6 +30,8 @@ struct SwitchAIPanel: View {
                 waiting(msg)
             } else if localPicker {
                 LocalModelPicker(m: m) { localPicker = false }
+            } else if otherPicker {
+                OtherAIsView(m: m, back: { otherPicker = false }, close: close)
             } else if let p = accountsFor {
                 ProviderAccountsView(m: m, provider: p, isCurrent: current == p, back: { accountsFor = nil })
             } else {
@@ -58,6 +63,11 @@ struct SwitchAIPanel: View {
                     if m.signedIn[p] == true { accountsFor = p } else { Task { await m.choose(p) } }
                 }
             }
+            providerRow(
+                symbol: "ellipsis.circle", title: "Other AIs", subtitle: "Bring your own key. Less hand-held.",
+                isCurrent: current == nil && loadedCurrent && !m.providerRaw.isEmpty && m.providerRaw != "local"
+                    && Provider(rawValue: m.providerRaw) == nil
+            ) { otherPicker = true }
             providerRow(
                 symbol: "desktopcomputer", title: "Local model",
                 subtitle: "Private and free, but slower and less capable.",

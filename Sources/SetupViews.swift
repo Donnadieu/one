@@ -201,6 +201,7 @@ struct OnboardingView: View {
     @State var text = ""
     @State var paste = ""
     @State private var localPicker = false
+    @State private var otherPicker = false
     var body: some View {
         Group {
             if m.step == .world {
@@ -220,6 +221,9 @@ struct OnboardingView: View {
         }
         .background(Mist())
         .onePopup($localPicker) { _ in LocalModelPicker(m: m) { localPicker = false } }
+        .onePopup($otherPicker) { _ in
+            OtherAIsView(m: m, back: { otherPicker = false }, close: { otherPicker = false }).padding(28).frame(minWidth: 380, maxWidth: 440)
+        }
         .task {
             await m.beginOnboarding()
         }
@@ -259,6 +263,20 @@ struct OnboardingView: View {
                             .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
                     }.buttonStyle(.plain).disabled(m.busy)
                 }
+                Button {
+                    otherPicker = true
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "ellipsis.circle").font(.system(size: 20, weight: .light)).frame(width: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Other AIs").font(.headline)
+                            Text("Bring your own key. Less hand-held.").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }.padding(12).contentShape(Rectangle())
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
+                }.buttonStyle(.plain).disabled(m.busy)
                 Button {
                     localPicker = true
                 } label: {

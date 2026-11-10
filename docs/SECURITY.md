@@ -14,6 +14,12 @@ boundaries today, not an aspirational version of them.
   too, so a copy created or left world/group-readable before this existed
   gets re-hardened the next time the gateway checks it. Fixed in 0.9.81 —
   see Known findings for the prior state.
+- **Keys pasted in Switch AI › Other AIs**: checked first against the AI's
+  own model list (a refused key is never kept), then saved by the engine's
+  own `save_provider_env_credential` (`tools/overlay/tools/one_ai_catalog.py
+  save-key`) into `hermes/.env` (0600) plus its credential pool. The key goes
+  in on **stdin** (`hermesRun(input:)`), never `argv`, and the script prints
+  only `ok` and the variable's name; the field is cleared after use.
 - **Google OAuth tokens**: `tools/google_signin.py` writes
   `google_tokens/<email>.json` and explicitly `os.chmod(path, 0o600)`s it,
   and (since 0.9.81) `chmod(0o700)`s the containing `google_tokens/`

@@ -63,7 +63,7 @@ cp tools/speak.py tools/speak_file.py tools/install_voice.sh "$APP/Contents/Reso
 cp tools/overlay/agent/vault_backends/keepass.py "$APP/Contents/Resources/"
 cp tools/overlay/tools/one_human_step.py "$APP/Contents/Resources/"
 cp tools/overlay/acp_adapter/one_goals.py tools/overlay/hermes_cli/one_goal_progress.py "$APP/Contents/Resources/"
-cp tools/overlay/tools/one_my_chrome.py "$APP/Contents/Resources/"
+cp tools/overlay/tools/one_my_chrome.py tools/overlay/tools/one_ai_catalog.py "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/one-browser-guard"
 cp tools/overlay/plugins/one-browser-guard/__init__.py tools/overlay/plugins/one-browser-guard/plugin.yaml "$APP/Contents/Resources/one-browser-guard/"
 mkdir -p "$APP/Contents/Resources/one-learning-cap"

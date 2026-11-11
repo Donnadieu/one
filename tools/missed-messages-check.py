@@ -133,7 +133,7 @@ async def main():
 
     print("5. a code a helper waits on, sent back from the phone")
     import json as _json
-    hd = Path(home).parent / "handoff"
+    hd = Path(home) / "handoff"  # its own folder: never a stale answer from an earlier run
     os.environ["ONE_HANDOFF_DIR"] = str(hd)
     hd.mkdir(parents=True, exist_ok=True)
     (hd / "ab12.request.json").write_text(_json.dumps({"id": "ab12", "site": "docusign.com", "kind": "code"}))
@@ -143,7 +143,11 @@ async def main():
           and chat_words is None)
     (hd / "ab12.phone.json").write_text(_json.dumps({"id": "ab12", "chat": "8628960251", "at": NOW.timestamp()}))
     words = await call(msg("What's the weather?", dt.timedelta(seconds=4)))
-    check("a normal message still goes to the assistant while One waits for a code", words is None)
+    said = _json.loads((hd / "ab12.answer.json").read_text()) if (hd / "ab12.answer.json").exists() else {}
+    check("while a helper waits on a code, any other reply goes to that helper as their message (Nov 11 2026)",
+          (words or {}).get("action") == "skip" and said.get("answer") == "message" and said.get("text") == "What's the weather?")
+    (hd / "ab12.answer.json").unlink(missing_ok=True)  # One asks again (a new code step)
+    tg.sent.clear()
     other = await call(msg("482 913", dt.timedelta(seconds=3), chat="999"))
     check("a code from another chat is not taken", other is None and not (hd / "ab12.answer.json").exists())
     got = await call(msg("482 913", dt.timedelta(seconds=3)))
@@ -155,7 +159,7 @@ async def main():
     check("the log never holds the code", "482913" not in log and "482 913" not in log)
     late = await call(msg("123456", dt.timedelta(seconds=2)))
     check("once answered, the next code-looking message is just a message", late is None)
-    check("\"code is 77-31-90\" and \"G-123456\" read right", m.clean_code("code is 77-31-90") == "773190" and m.clean_code("G-123456") == "G123456"
+    check("\"code is 77-31-90\" and \"G-123456\" read right (Google's G- is shown beside its box, never typed)", m.clean_code("code is 77-31-90") == "773190" and m.clean_code("G-123456") == "123456"
           and m.clean_code("call me at 5pm please") == "")
 
 

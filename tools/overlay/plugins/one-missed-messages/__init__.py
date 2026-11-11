@@ -19,6 +19,7 @@ import asyncio
 import datetime as _dt
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -210,14 +211,42 @@ def _handoff_dir() -> Path:
     return Path(d) if d else _home().parent / "handoff"
 
 
-def clean_code(raw: str) -> str:
-    import re
-    t = str(raw or "").strip()
-    if len(t) > 40:
-        return ""
-    m = re.fullmatch(r"(?:(?:the )?code(?: is)?[:\s]*)?([A-Za-z0-9][A-Za-z0-9\s\-]{2,14})\.?", t, re.I)
-    c = re.sub(r"[\s\-]", "", m.group(1)) if m else ""
-    return c if 4 <= len(c) <= 10 and sum(ch.isdigit() for ch in c) >= 3 else ""
+# What a reply means (the same rules as tools/one_human_step.py's reply_kind; keep them together). Only something that
+# looks like a code is typed into the page: 4 to 8 digits, or the site's own format. "no code" / "cancel" end the ask;
+# anything else goes to the waiting helper as their message (Nov 11 2026: a 7-character reply was typed into DocuSign's
+# 6-digit box, and "no code" / "I'm not receiving any code" changed nothing).
+NO_CODE_RE = re.compile(
+    r"\b(no (code|text|sms|message)|nothing (came|yet|arrived|here)|did ?n[o']?t (get|receive|come|arrive|see)|"
+    r"never (got|get|came|come|arrived|received)|not (getting|receiving|received|gotten|got|seeing)|"
+    r"have ?n[o']?t (got|gotten|received|seen))\b", re.I)
+CANCEL_RE = re.compile(r"^\W*(cancel|stop|never ?mind|forget (it|about it)|skip( it)?|abort|quit)\b", re.I)
+
+
+def clean_code(raw: str, fmt: Optional[dict] = None) -> str:
+    t = re.sub(r"^\s*(?:the\s+)?code(?:\s+is)?\s*[:\-]?\s*", "", str(raw or ""), flags=re.I).strip().rstrip(".")
+    t = re.sub(r"^[A-Za-z]{1,2}-(?=[\d\s\-]{4,}$)", "", t)  # Google's "G-123456": the G- is shown beside its box
+    c = re.sub(r"[\s\-\u2010-\u2015.]", "", t)
+    if re.fullmatch(r"\d{4,8}", c):
+        return c
+    fmt = fmt or {}
+    mx = int(fmt.get("max") or 0)
+    if fmt.get("digits") is False and 4 <= mx <= 10 and len(c) == mx and re.fullmatch(r"[A-Za-z0-9]+", c) \
+            and any(ch.isdigit() for ch in c):
+        return c
+    return ""
+
+
+def reply_kind(raw: str, fmt: Optional[dict] = None) -> tuple:
+    """("code", code) | ("cancelled", "") | ("no_code", "") | ("message", their words)."""
+    c = clean_code(raw, fmt)
+    if c:
+        return "code", c
+    t = " ".join(str(raw or "").split())
+    if CANCEL_RE.search(t):
+        return "cancelled", ""
+    if len(t) <= 80 and NO_CODE_RE.search(t.replace("\u2019", "'")):
+        return "no_code", ""
+    return "message", t
 
 
 def open_code_ask(chat: str, now: float) -> Optional[dict]:
@@ -239,11 +268,9 @@ def open_code_ask(chat: str, now: float) -> Optional[dict]:
     return best
 
 
-def take_code_reply(chat: str, text: str, now: float) -> Optional[str]:
-    """Writes the code as the waiting step's answer; returns the step's site, or None when this isn't a code reply."""
-    code = clean_code(text)
-    if not code:
-        return None
+def take_code_reply(chat: str, text: str, now: float) -> Optional[tuple]:
+    """Answers the code step waiting on this phone chat with their reply: the code, "no code", "cancel", or (anything
+    else) their message for the helper. Returns (what, site), or None when no code step waits on this chat."""
     ask = open_code_ask(chat, now)
     if ask is None:
         return None
@@ -253,29 +280,42 @@ def take_code_reply(chat: str, text: str, now: float) -> Optional[str]:
         req = json.loads((d / f"{rid}.request.json").read_text())
     except Exception:
         req = {}
+    what, value = reply_kind(text, req.get("format") or {})
+    data: dict = {"answer": what, "by": "phone", "at": now}
+    if what == "code":
+        data["code"] = value
+    elif what == "message":
+        data["text"] = value
     tmp = d / f"{rid}.answer.tmp"
-    tmp.write_text(json.dumps({"answer": "code", "code": code, "by": "phone", "at": now}))
+    tmp.write_text(json.dumps(data))
     os.replace(tmp, d / f"{rid}.answer.json")
-    _log(f"code hand-off {rid}: the phone reply went to the page ({len(code)} characters, never shown to the assistant)")
-    return str(req.get("site") or "the site")
+    _log(f"code hand-off {rid}: the phone reply answered it ({what}; never shown to the assistant)")
+    return what, str(req.get("site") or "the site")
+
+
+SAID = {"code": "Got it. Typing it into {site} now.",
+        "no_code": "OK, I told the helper the code never came. It won't ask again by itself.",
+        "cancelled": "OK, cancelled. The helper stops at this step.",
+        "message": "Passed that to the helper that was waiting on the {site} code."}
 
 
 async def _code_reply(event: Any, gateway: Any, chat: str) -> Optional[dict]:
     text = str(getattr(event, "text", "") or "")
     try:
-        site = take_code_reply(chat, text, _now().timestamp())
+        hit = take_code_reply(chat, text, _now().timestamp())
     except Exception as e:
         _log(f"code reply: {e}")
         return None
-    if site is None:
+    if hit is None:
         return None
+    what, site = hit
     try:
         adapter = (getattr(gateway, "adapters", None) or {}).get(event.source.platform)
         if adapter is not None:
-            await adapter.send(chat, f"Got it. Typing it into {site} now.")
+            await adapter.send(chat, SAID[what].format(site=site))
     except Exception as e:
         _log(f"code reply: couldn't confirm: {e}")
-    return {"action": "skip", "reason": "a code for a waiting hand-off; typed into the page, never shown to the assistant"}
+    return {"action": "skip", "reason": f"a reply to a waiting code hand-off ({what}); never shown to the assistant"}
 
 
 def register(ctx) -> None:

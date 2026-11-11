@@ -253,6 +253,7 @@ extension Model {
             cancel = HelperTrail.stopByYou(&$0)
         }
         saveTrail(id)
+        endHumanSteps(session: helpers.first(where: { $0.id == id })?.sid, "cancelled")  // its open ask ends, its card goes
         if cancel, let sid = helpers.first(where: { $0.id == id })?.sid { Engine.shared.cancel(session: sid) }
         if busy { stopTree(id) }  // its whole tree: sub-helpers, background programs, test apps (JobTree.swift)
     }

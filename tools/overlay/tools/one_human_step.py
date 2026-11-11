@@ -453,10 +453,62 @@ def _cdp(ws_url: str, calls: list[tuple[str, dict]], timeout: float = 6.0) -> li
     return out
 
 
+CODE_FORMAT_JS = r"""(() => {
+  const vis = (e) => { const s = getComputedStyle(e); return s.display !== "none" && s.visibility !== "hidden" && e.getClientRects().length > 0; };
+  const inputs = Array.from(document.querySelectorAll("input")).filter((e) => !e.disabled && !e.readOnly && vis(e)
+    && ["text", "tel", "number", "password", ""].includes(e.type));
+  const num = (e) => e.type === "tel" || e.type === "number" || e.inputMode === "numeric" || /^(\[0-9|\\d)/.test(e.pattern || "");
+  const boxes = inputs.filter((e) => e.maxLength === 1);
+  if (boxes.length >= 4 && boxes.length <= 8) return JSON.stringify({digits: boxes.every(num), max: boxes.length});
+  const e = inputs.find((x) => (x.autocomplete || "").toLowerCase().includes("one-time-code"))
+    || inputs.find((x) => /otp|one.?time|passcode|verification|security code|\bcode\b/i.test([x.name, x.id, x.placeholder, x.getAttribute("aria-label")].join(" ")))
+    || inputs.find((x) => num(x) && x.maxLength >= 4 && x.maxLength <= 8);
+  return JSON.stringify(e ? {digits: num(e), max: e.maxLength > 0 ? e.maxLength : 0} : {digits: true, max: 0});
+})()"""
+
+# What the person sent back for a code ask (the card's box, or a reply in the phone chat). Only something that looks
+# like a code is ever typed into the page: 4 to 8 digits, or the site's own format (a box that isn't numeric takes
+# letters and digits of exactly its length). "no code" / "cancel" end the ask; anything else is a message for the
+# helper (Nov 11 2026: a 7-character reply was typed into DocuSign's 6-digit box, and "no code" changed nothing).
+# The same rules live in the phone plugin (plugins/one-missed-messages); keep them together.
+NO_CODE_RE = re.compile(
+    r"\b(no (code|text|sms|message)|nothing (came|yet|arrived|here)|did ?n[o']?t (get|receive|come|arrive|see)|"
+    r"never (got|get|came|come|arrived|received)|not (getting|receiving|received|gotten|got|seeing)|"
+    r"have ?n[o']?t (got|gotten|received|seen))\b", re.I)
+CANCEL_RE = re.compile(r"^\W*(cancel|stop|never ?mind|forget (it|about it)|skip( it)?|abort|quit)\b", re.I)
+
+
+def code_of(raw: str, fmt: Optional[dict] = None) -> str:
+    """The code in what the person sent, without spaces or dashes; '' when it doesn't look like this site's code."""
+    t = re.sub(r"^\s*(?:the\s+)?code(?:\s+is)?\s*[:\-]?\s*", "", str(raw or ""), flags=re.I).strip().rstrip(".")
+    t = re.sub(r"^[A-Za-z]{1,2}-(?=[\d\s\-]{4,}$)", "", t)  # Google's "G-123456": the G- is shown beside its box
+    c = re.sub(r"[\s\-\u2010-\u2015.]", "", t)
+    if re.fullmatch(r"\d{4,8}", c):
+        return c
+    fmt = fmt or {}
+    mx = int(fmt.get("max") or 0)
+    if fmt.get("digits") is False and 4 <= mx <= 10 and len(c) == mx and re.fullmatch(r"[A-Za-z0-9]+", c) \
+            and any(ch.isdigit() for ch in c):
+        return c
+    return ""
+
+
+def reply_kind(raw: str, fmt: Optional[dict] = None) -> tuple[str, str]:
+    """("code", code) | ("cancelled", "") | ("no_code", "") | ("message", their words)."""
+    c = code_of(raw, fmt)
+    if c:
+        return "code", c
+    t = " ".join(str(raw or "").split())
+    if CANCEL_RE.search(t):
+        return "cancelled", ""
+    if len(t) <= 80 and NO_CODE_RE.search(t.replace("\u2019", "'")):
+        return "no_code", ""
+    return "message", t
+
+
 def clean_code(raw: str) -> str:
     """The code as the person sent it, without spaces or dashes; '' when it doesn't look like a code."""
-    c = re.sub(r"[\s\-\u2010-\u2015.]", "", str(raw or ""))
-    return c if re.fullmatch(r"[A-Za-z0-9]{4,10}", c) and sum(ch.isdigit() for ch in c) >= 3 else ""
+    return code_of(raw)
 
 
 def type_code(ws_url: str, code: str) -> dict:
@@ -589,6 +641,53 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+def _stopped() -> bool:
+    """The helper was stopped: the engine's Stop (session/cancel) sets the interrupt bit of this tool's thread.
+    Nov 11 2026: a stopped helper's hand_off kept waiting and writing new asks for minutes."""
+    try:
+        from tools.interrupt import is_interrupted
+        return bool(is_interrupted())
+    except Exception:
+        return False
+
+
+def _tab_gone(port: int, target_id: str) -> bool:
+    """The helper's tab was closed (the browser answers, and that tab isn't in it any more)."""
+    try:
+        return not any(t.get("id") == target_id for t in _http_json("127.0.0.1", port, "/json/list"))
+    except Exception:
+        return False  # the browser isn't answering (it may be restarting): can't tell, keep waiting
+
+
+def _close_ask(req: dict, why: str) -> None:
+    """Answers our own ask so One takes its card away (a stop, a closed tab). Never overwrites a real answer."""
+    f = handoff_dir() / f"{req['id']}.answer.json"
+    if not f.exists():
+        _write_json(f, {"answer": "cancelled", "by": why, "at": time.time()})
+
+
+ENDED = {
+    "cancelled": ("The person cancelled this step. Stop here: don't ask again and don't work around it. Tell them in one "
+                  "short line where the job stopped."),
+    "no_code": ("The person says no code ever arrived. Don't ask again by yourself. Look at the page: is it really on the "
+                "code step, and are the phone number or email right? You may press the site's own 'send the code again' "
+                "once, check the code box is there, and only then call hand_off again; otherwise tell them plainly in "
+                "one line and ask what they want."),
+    "message": ("The person sent you a message while you waited (in 'message'). Read it and act on it now. The page is "
+                "still open on this step; One's ask is closed."),
+    "stopped": "This helper was stopped. Do nothing more on this step.",
+    "tab_closed": "The tab this step was on was closed, so the ask is over. Don't ask again; tell the person plainly in one line.",
+    "code_failed": ("Two codes didn't work, so One stopped asking. Don't ask a third time by yourself: tell the person "
+                    "plainly in one line that the site refused both codes, and ask whether to send a new code or stop."),
+}
+
+
+def _ended(answer: str, site: str, **extra: Any) -> dict:
+    out = {"success": False, "answer": answer, "moved_on": False, "site": site, **extra}
+    out["next"] = ENDED.get(answer, ENDED["cancelled"])
+    return out
+
+
 def _open_request(target_id: str) -> Optional[dict]:
     d = handoff_dir()
     for f in d.glob("*.request.json"):
@@ -629,6 +728,18 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                              "<url>) and carry on the job on that tab. Never mix work between two different hidden "
                              "browsers mid-job; finish this task on the one that's signed in.")}
     tab = pick_step_tab(host, p, prefer_url=current)
+    if kind == "code":
+        # Never ask for a code the site hasn't sent: the page must show a code box. Nov 11 2026: DocuSign's SMS step
+        # asks for a phone number first, at the same address the code box later appears on.
+        code_tab = pick_step_tab(host, p, kinds=("code",), prefer_url=current)
+        if code_tab is None or not code_tab.get("ws"):
+            site = _site(current or (tab or {}).get("url", "")) or "the site"
+            return {"success": False, "error_type": "not_a_code_step", "site": site,
+                    "next": ("This page isn't asking for a code: there's no code box on it, so nobody was asked. If it "
+                             "asks for a phone number or an email, fill it in, press its Send Code (or Send me a code) "
+                             "button, check that the code box appeared, and only then call hand_off kind=code. Never "
+                             "ask the person for a code the site hasn't sent.")}
+        tab = code_tab
     if tab is None:
         # No tab looks like a human step: show the agent's own page (the person may see something the probe missed).
         pages = _pages(host, p)
@@ -640,17 +751,20 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
     k = kind if kind in ASKING else (tab["kind"] if tab["kind"] in ASKING else "check")
     site = _site(tab["url"]) or "the site"
     if k == "code" and tab.get("ws"):
-        out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait)
+        out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait, session=tid)
         _failures.pop(_key(tid, site), None)
         return out
     req = _open_request(tab["target_id"])
     if req is None:
         req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": k, "port": p,
                "target_id": tab["target_id"], "url": tab["url"], "title": tab.get("title", ""),
-               "line": line_for(site, k), "phone_fallback": phone_fallback(site, k), "why": why[:200]}
+               "line": line_for(site, k), "phone_fallback": phone_fallback(site, k), "why": why[:200], "session": tid}
         _write_json(handoff_dir() / f"{req['id']}.request.json", req)
     start_url = tab["url"]
-    answer = _wait(req, tab.get("ws") or "", start_url, WAIT_SECONDS if wait is None else wait)
+    # A robot check, passkey or security key is done in a real window: One closes the hidden browser for it and reopens
+    # the page in a new tab, so "the tab is gone" means nothing there.
+    watch_tab = p if k not in ("check", "passkey", "security_key") else 0
+    answer = _wait(req, tab.get("ws") or "", start_url, WAIT_SECONDS if wait is None else wait, port=watch_tab)
     _failures.pop(_key(tid, site), None)
     if answer is None:
         return {"success": False, "error_type": "still_waiting", "site": site, "asking": ASKING[k],
@@ -660,6 +774,12 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
         return {"success": False, "answer": "not_at_mac", "site": site, "phone_fallback": req["phone_fallback"],
                 "next": ("The person isn't at the Mac. Give them phone_fallback in one or two short lines, adapted to the job. "
                          "The page stays open on this step; if they later say they're back, call hand_off again.")}
+    if answer in ("stopped", "tab_closed"):
+        _close_ask(req, answer)
+        return _ended(answer, site)
+    if answer in ENDED:
+        ans = _read_json(handoff_dir() / f"{req['id']}.answer.json") or {}
+        return _ended(answer, site, **({"message": str(ans.get("text") or "")} if answer == "message" else {}))
     # A robot check is done in a plain Chrome window: One closes the hidden browser for it, then starts it again and
     # reopens the page in a new tab. Carry on there; the old tab is gone.
     ans = _read_json(handoff_dir() / f"{req['id']}.answer.json") or {}
@@ -684,7 +804,9 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
     return out
 
 
-def _wait(req: dict, ws: str, start_url: str, seconds: float) -> Optional[str]:
+def _wait(req: dict, ws: str, start_url: str, seconds: float, port: int = 0) -> Optional[str]:
+    """Waits for the person: "done", "away", "message", "cancelled", "stopped", "tab_closed", or None (time's up).
+    Every answer ends the wait; nothing here ever asks again."""
     d = handoff_dir()
     ans_file = d / f"{req['id']}.answer.json"
     deadline = time.time() + max(0.0, seconds)
@@ -693,12 +815,23 @@ def _wait(req: dict, ws: str, start_url: str, seconds: float) -> Optional[str]:
     while True:
         a = _read_json(ans_file)
         if a and a.get("answer"):
-            return "away" if a["answer"] == "away" else "done"
+            got = str(a["answer"])
+            if got in ("away", "not_at_mac"):
+                return "away"
+            if got == "message":
+                return "message"
+            if got in ("cancelled", "no_code"):
+                return "cancelled"
+            return "done"
+        if _stopped():
+            return "stopped"
         now = time.time()
         if now >= deadline:
             return None
         if ws and now - last_probe > 3:
             last_probe = now
+            if port and _tab_gone(port, req["target_id"]) and not _read_json(ans_file):
+                return "tab_closed"
             step = page_step(ws)
             gone = step.get("kind") not in HUMAN_KINDS and step.get("kind") != "unknown"
             if gone and step.get("url") != start_url:
@@ -741,31 +874,58 @@ def _after_code(ws: str, seconds: float = 12.0) -> dict:
     return {"moved": False, "url": last.get("url", ""), "title": last.get("title", "")}
 
 
-def _code_request(tab: dict, site: str, port: int, why: str, line: str = "") -> dict:
+MAX_CODE_TRIES = 2  # codes the person sends for one hand-off; after the second wrong one it stops (never a third ask)
+_code_tries: dict[str, int] = {}  # tab -> codes the person sent so far, across still_waiting calls
+
+
+def _code_format(ws: str) -> dict:
+    try:
+        raw = _page_eval(ws, CODE_FORMAT_JS)
+        return json.loads(raw) if isinstance(raw, str) else {}
+    except Exception:
+        return {}
+
+
+def _code_request(tab: dict, site: str, port: int, why: str, line: str = "", session: str = "", fmt: Optional[dict] = None,
+                  phone: bool = False, attempt: int = 1) -> dict:
     req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": "code", "port": port,
            "target_id": tab["target_id"], "url": tab["url"], "title": tab.get("title", ""),
            "line": line or line_for(site, "code"), "phone_fallback": phone_fallback(site, "code"), "why": why[:200],
-           "box": True}
+           "box": True, "session": session, "format": fmt or {}, "try": attempt, "of": MAX_CODE_TRIES}
+    if phone:
+        req["phone"] = True  # the last code came from their phone chat: One asks there again, not on the Mac
     _write_json(handoff_dir() / f"{req['id']}.request.json", req)
     return req
 
 
-def code_step(tab: dict, site: str, port: int, why: str, seconds: float) -> dict:
+def code_step(tab: dict, site: str, port: int, why: str, seconds: float, session: str = "") -> dict:
     """A code step, without ever moving the page: an inbox first, else One asks for the code (card box at the Mac,
-    phone chat when they're away), and it goes into this same open tab."""
+    phone chat when they're away), and it goes into this same open tab.
+
+    Every answer ends the wait (Nov 11 2026, 0.9.113 looped on DocuSign for minutes): a code is tried, and after
+    MAX_CODE_TRIES wrong ones it stops with code_failed; "no code", "cancel", "I'm not at the Mac" (no phone chat), a
+    message from the person, the helper being stopped, or its tab being closed each end it at once."""
     ws, tid = tab["ws"], tab["target_id"]
     t0 = time.time()
     since = t0 - 600
     tried: set[str] = set()
     use_inbox = os.environ.get("ONE_INBOX_CODES") != "0" and (_inbox_stand_in() is not None or bool(_google_tokens()))
+    fmt = _code_format(ws)
 
     def result(moved: dict, source: str, answer: str = "done") -> dict:
+        _code_tries.pop(tid, None)
         out = {"success": bool(moved["moved"]), "answer": answer, "moved_on": bool(moved["moved"]), "site": site,
                "url": moved.get("url", ""), "title": moved.get("title", ""), "source": source, "target_id": tid}
         out["next"] = (f"The code went into the page and it moved on. Carry on with the job by yourself on this same "
                        f"tab (target {tid}); don't ask the person anything else about this step." if moved["moved"] else
-                       f"The code went in but {site} still asks for one. Tell the person plainly and stop.")
+                       f"The page still asks for a code. Don't ask again by yourself; tell the person plainly and stop.")
         return out
+
+    def ended(answer: str, req: Optional[dict] = None, **extra: Any) -> dict:
+        _code_tries.pop(tid, None)
+        if req is not None and answer in ("stopped", "tab_closed"):
+            _close_ask(req, answer)
+        return _ended(answer, site, **extra)
 
     def try_code(code: str) -> dict:
         tried.add(code)
@@ -775,6 +935,8 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float) -> dict
     # 1. A code already in an inbox One can read: nobody is asked.
     if use_inbox:
         for i in range(4):
+            if _stopped():
+                return ended("stopped")
             c = inbox_code(site, since, frozenset(tried))
             if c:
                 moved = try_code(c)
@@ -783,34 +945,56 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float) -> dict
             if i < 3:
                 time.sleep(4)
     # 2. Ask the person: One's card box, or their phone chat. The page never moves. A second call (still_waiting)
-    # keeps the same ask.
-    req = _open_request(tid) or _code_request(tab, site, port, why)
+    # keeps the same ask and the same count of tries.
+    req = _open_request(tid) or _code_request(tab, site, port, why, session=session, fmt=fmt,
+                                              attempt=_code_tries.get(tid, 0) + 1)
     deadline = t0 + max(0.0, seconds)
     last_inbox = time.time()
+    last_tab = 0.0
     while time.time() < deadline:
+        if _stopped():
+            return ended("stopped", req)
+        if time.time() - last_tab > 2:
+            last_tab = time.time()
+            if _tab_gone(port, tid) and not (handoff_dir() / f"{req['id']}.answer.json").exists():
+                return ended("tab_closed", req)
         f = handoff_dir() / f"{req['id']}.answer.json"
         a = _read_json(f)
         if a and a.get("answer"):
-            if a["answer"] == "away":
+            got = str(a["answer"])
+            source = str(a.get("by") or "person")
+            if got in ("away", "not_at_mac"):
+                _code_tries.pop(tid, None)
                 return {"success": False, "answer": "not_at_mac", "site": site, "phone_fallback": req["phone_fallback"],
                         "next": ("The person isn't at the Mac and their phone chat isn't set up. Tell them in one short "
                                  "line; the page stays open on this step. If they say they're back, call hand_off again.")}
-            code = clean_code(a.get("code", ""))
-            source = str(a.get("by") or "person")
-            if code:
+            if got == "message":
+                return ended("message", message=str(a.get("text") or ""))
+            if got == "code":
+                what, value = reply_kind(a.get("code", ""), fmt)
                 # The code is used once and never kept: drop it from the answer file before typing it.
-                _write_json(f, {"answer": "code", "by": source, "at": a.get("at", time.time()), "length": len(code)})
-                moved = try_code(code)
+                _write_json(f, {"answer": "code", "by": source, "at": a.get("at", time.time()), "length": len(value)})
+                if what == "message":
+                    return ended("message", message=value)
+                if what != "code":
+                    return ended(what)
+                n = _code_tries.get(tid, 0) + 1
+                _code_tries[tid] = n
+                moved = try_code(value)
                 if moved["moved"]:
                     return result(moved, source, "code")
-                req = _code_request(tab, site, port, why, f"That code didn't work. Type the newest code {site} sent you, "
-                                                           "then tap Send.")
+                if n >= MAX_CODE_TRIES:
+                    return ended("code_failed", tries=n)
+                req = _code_request(tab, site, port, why, f"That code didn't work. Type the newest code {site_name(site)} "
+                                                          "sent you, then tap Send.", session=session, fmt=fmt,
+                                    phone=source == "phone", attempt=n + 1)
                 continue
-            moved = _after_code(ws, 2.0)  # Done with no code: did the page move on by itself?
-            if moved["moved"]:
-                return result(moved, source)
-            req = _code_request(tab, site, port, why)
-            continue
+            if got in ("cancelled", "no_code"):
+                return ended(got)
+            if got == "done":
+                moved = _after_code(ws, 2.0)  # Done with no code: did the page move on by itself?
+                return result(moved, source) if moved["moved"] else ended("cancelled")
+            return ended("cancelled")  # an answer we don't know: never ask again on our own
         if use_inbox and time.time() - last_inbox > 8:
             last_inbox = time.time()
             c = inbox_code(site, since, frozenset(tried))
@@ -906,7 +1090,12 @@ def install(ns: dict) -> None:
         "kind=sign_in there): One shows this same live tab (never reopened) with Done / I'm not at the Mac and the call waits, "
         "then reports moved_on. kind=code shows no page at all: the code is read from an inbox One can read, or One's "
         "card (or the person's phone chat) asks for it and it is typed into this same open tab; the call waits and "
-        "reports moved_on or a phone_fallback. enter_code hands off by itself after 2 failed tries. Call hand_off "
+        "reports moved_on or a phone_fallback. kind=code only works on a page that shows a code box: on a page that "
+        "asks for a phone number or email first, fill it in, press its Send Code button, check the code box appeared, "
+        "and only then call hand_off (otherwise it refuses with not_a_code_step). The person gets at most 2 tries; every "
+        "answer ends the wait: code_failed, no_code, cancelled, not_at_mac, message (their words, in 'message': act on "
+        "them), stopped, tab_closed. Never call hand_off again by yourself after one of those; tell the person plainly "
+        "and ask. enter_code hands off by itself after 2 failed tries. Call hand_off "
         "yourself for every other human-only step too, including a plain sign-in page you can't get past — asking the "
         "person in chat does NOT open any window by itself; this call is what writes the request and shows it. "
         "find_session (url required): before EVER asking a person to sign in, call this. It checks every other hidden "

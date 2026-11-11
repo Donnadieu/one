@@ -152,6 +152,7 @@ def brief(r):
 
 
 print("1. DocuSign's SMS step before Send Code: the page asks for a phone number, not a code")
+before = state()  # the site's counters so far (another check may share this server)
 tab = only_tab(ENTER)
 t0 = time.time()
 r = hs.hand_off("code", TID, wait=12)
@@ -161,9 +162,10 @@ check("hand_off kind=code refuses: no code box on the page", r.get("success") is
 check("it refuses at once (no wait)", took < 8)
 check("nobody was asked (no request written)", requests(tab) == [])
 check("it tells the helper to send the code first", "send code" in str(r.get("next", "")).lower())
-check("the site never sent a text", state()["sms_sent"] == 0)
+check("the site never sent a text", state()["sms_sent"] == before["sms_sent"])
 
 print("2. after Send Code, the person types a wrong code twice: two tries, then code_failed, never a third ask")
+fails_before = state()["sms_verify_fail"]
 tab, ok = code_tab()
 check("the helper pressed Send Code and the code box appeared (same address)", ok and ev(tab, "location.pathname").endswith("enterphone"))
 box = start(wait=60)
@@ -181,7 +183,7 @@ print("   hand_off:", brief(r))
 check("after the second wrong code it stops: answer code_failed", r.get("answer") == "code_failed" and r.get("success") is False)
 time.sleep(3)
 check("never a third ask", len(requests(tab)) == 2)
-check("the site saw exactly two tries", state()["sms_verify_fail"] == 2)
+check("the site saw exactly two tries", state()["sms_verify_fail"] - fails_before == 2)
 
 print("3. one wrong code, then the right one: it still goes through")
 tab, ok = code_tab()

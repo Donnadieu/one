@@ -230,6 +230,7 @@ final class Model: ObservableObject {
     var budgetReading = false
     var phoneSessions: [String: PhoneSession] = [:]  // live phone hand-offs by request (PhoneSession.swift)
     var phoneSent: Set<String> = []
+    var hiddenSteps: Set<String> = []  // code asks moved to the phone or ended: their card never comes back
     var humanStepSeen: [String: Date] = [:]
     var lastMeter = Date.distantPast
     /// The last account seen active (the `←`) for each provider, so a pool failover is only ever told once.

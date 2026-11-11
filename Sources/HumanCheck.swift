@@ -41,10 +41,18 @@ enum HumanCheck {
     /// Robot checks end by themselves when the check's cookie lands; other steps end on Done or Chrome closing.
     static func watchesCookie(_ kind: String) -> Bool { kind == "check" }
 
-    /// A plain Chrome window on the saved profile: no DevTools port, no automation flags, no headless.
-    static func headedArguments(profile: String, url: String, app: String) -> [String] {
-        ["-n", "-a", app, "--args", "--user-data-dir=\(profile)", "--no-first-run", "--no-default-browser-check", url]
+    /// A plain Chrome window on the saved profile: no automation flags, no headless. A robot check gets no DevTools
+    /// port at all. Every other step (a code, a sign-in…) gets one on its own port (never the hidden browser's, so
+    /// no helper drives the window): nothing connects while they work, and One only uses it after Done to keep
+    /// the page's short-lived sign-ins (`keepSessionCookies`) before the window quits.
+    static func headedArguments(profile: String, url: String, app: String, port: Int? = nil) -> [String] {
+        var a = ["-n", "-a", app, "--args", "--user-data-dir=\(profile)", "--no-first-run", "--no-default-browser-check"]
+        if let port { a += ["--remote-debugging-port=\(port)", "--remote-debugging-address=127.0.0.1"] }
+        return a + [url]
     }
+
+    /// The window's own DevTools port: none for a robot check, else the hidden browser's port + 20000.
+    static func windowPort(kind: String, hiddenPort: Int) -> Int? { watchesCookie(kind) ? nil : hiddenPort + 20000 }
 
     static func log(_ s: String) { BrowserKeeper.log("human check: " + s) }
 
@@ -74,14 +82,17 @@ enum HumanCheck {
         defer { active = nil }
         log("\(s.site): closing the hidden browser and opening a plain Chrome window on the same profile")
         await closeHidden(port: s.port, profile: s.profile)
-        if let e = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app)) { log("couldn't open the window: \(e)") }
+        let wport = windowPort(kind: s.kind, hiddenPort: s.port)
+        if let e = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app, port: wport)) {
+            log("couldn't open the window: \(e)")
+        }
         for _ in 0..<20 where s.pid == nil {
             try? await Task.sleep(for: .milliseconds(500))
             s.pid = mainChrome(profile: s.profile)
         }
         if s.pid == nil {
             log("\(s.site): the window didn't open; trying once more")
-            _ = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app))
+            _ = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app, port: wport))
             for _ in 0..<20 where s.pid == nil {
                 try? await Task.sleep(for: .milliseconds(500))
                 s.pid = mainChrome(profile: s.profile)
@@ -114,6 +125,11 @@ enum HumanCheck {
         }
         log("\(s.site): \(why); closing the window and hiding the browser again")
         await MainActor.run { HumanCheckCard.close() }
+        // What they did in the window (a code typed, a sign-in) often lives in short-lived sign-ins only: keep them
+        // through the quit, or the hidden browser comes back on the step before.
+        if let wport, BrowserKeeper.alive(wport) {
+            log("\(s.site): kept \(await keepSessionCookies(port: wport)) short-lived sign-ins from the window")
+        }
         if let pid = s.pid ?? mainChrome(profile: s.profile) { await quit(pid) }
         // The keeper starts the hidden browser again (same profile, normal user agent) as soon as nothing holds the profile.
         active = nil
@@ -134,7 +150,12 @@ enum HumanCheck {
     // MARK: The hidden browser and the window
 
     /// Closes the hidden browser politely (it saves its cookies), then makes sure nothing holds the profile.
+    /// First its short-lived sign-ins are made to last (`keepSessionCookies`): a sign-up's or log-in's progress
+    /// often lives only there, and Chrome drops those when it closes, so the window opened a step back, on the
+    /// site's log-in page (DocuSign's sign-up, Nov 11 2026).
     static func closeHidden(port: Int, profile: String) async {
+        let kept = await keepSessionCookies(port: port)
+        log("kept \(kept) short-lived sign-ins for the window")
         if let ws = BrowserKeeper.version(port)?["webSocketDebuggerUrl"] as? String, let u = URL(string: ws) {
             let task = URLSession.shared.webSocketTask(with: u)
             task.resume()
@@ -147,6 +168,75 @@ enum HumanCheck {
             if i == 20 { kill(pid, SIGTERM) }
             try? await Task.sleep(for: .milliseconds(500))
         }
+    }
+
+    // MARK: Short-lived sign-ins
+
+    /// How long a short-lived sign-in is kept once One makes it last: long enough for any one step, then gone.
+    static let keepFor: TimeInterval = 6 * 3600
+
+    /// Chrome keeps a site's short-lived sign-ins (session cookies: a sign-up's progress, a log-in half done) only
+    /// in memory and drops them when it closes. Giving each one an expiry, over this browser's DevTools socket,
+    /// makes the close write it to the profile, so the next Chrome on that profile (the window, or the hidden one
+    /// after it) opens on the same step. Proved on a throwaway profile Nov 11 2026: without this a session cookie
+    /// was gone after a close and reopen; with it, kept. Returns how many were kept.
+    static func keepSessionCookies(port: Int) async -> Int {
+        guard let ws = BrowserKeeper.version(port)?["webSocketDebuggerUrl"] as? String, let u = URL(string: ws) else { return 0 }
+        let task = URLSession(configuration: .ephemeral).webSocketTask(with: u)
+        task.maximumMessageSize = 32 << 20
+        task.resume()
+        let watchdog = Task {
+            try? await Task.sleep(for: .seconds(8))
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        defer {
+            watchdog.cancel()
+            task.cancel(with: .normalClosure, reason: nil)
+        }
+        guard let got = await cdpCall(task, id: 1, "Storage.getCookies"), let all = got["cookies"] as? [[String: Any]] else { return 0 }
+        let kept = lasting(all, now: Date())
+        guard !kept.isEmpty, await cdpCall(task, id: 2, "Storage.setCookies", ["cookies": kept]) != nil else { return 0 }
+        return kept.count
+    }
+
+    /// The session cookies among `cookies` (Storage.getCookies), as cookies to set again with an expiry. A
+    /// host-only cookie is set by its URL (a `domain` would widen it to subdomains, and `__Host-` cookies refuse
+    /// one); a domain cookie (".site.com") keeps its domain.
+    static func lasting(_ cookies: [[String: Any]], now: Date) -> [[String: Any]] {
+        cookies.compactMap { c in
+            guard c["session"] as? Bool == true, let name = c["name"] as? String, let domain = c["domain"] as? String, !domain.isEmpty
+            else { return nil }
+            var d: [String: Any] = ["name": name, "value": c["value"] as? String ?? "", "expires": now.timeIntervalSince1970 + keepFor]
+            for k in ["path", "secure", "httpOnly", "sameSite", "priority", "sourceScheme", "sourcePort", "partitionKey"] {
+                if let v = c[k] { d[k] = v }
+            }
+            if domain.hasPrefix(".") {
+                d["domain"] = domain
+            } else {
+                let scheme = (c["secure"] as? Bool ?? false) ? "https" : "http"
+                d["url"] = "\(scheme)://\(domain)\(c["path"] as? String ?? "/")"
+            }
+            return d
+        }
+    }
+
+    /// One DevTools call on a browser socket and its answer (nil on an error or a closed socket).
+    static func cdpCall(_ task: URLSessionWebSocketTask, id: Int, _ method: String, _ params: [String: Any] = [:]) async -> [String: Any]? {
+        guard let d = try? JSONSerialization.data(withJSONObject: ["id": id, "method": method, "params": params]) else { return nil }
+        do {
+            try await task.send(.string(String(decoding: d, as: UTF8.self)))
+            for _ in 0..<200 {
+                var text = ""
+                switch try await task.receive() {
+                case .string(let t): text = t
+                case .data(let b): text = String(decoding: b, as: UTF8.self)
+                @unknown default: continue
+                }
+                guard let j = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any], j["id"] as? Int == id else { continue }
+                return j["error"] == nil ? (j["result"] as? [String: Any] ?? [:]) : nil
+            }
+        } catch { return nil }
+        return nil
     }
 
     /// Quits the window's Chrome politely, the way ⌘Q does, so it writes its cookies first. SIGTERM (0.9.51-0.9.53)

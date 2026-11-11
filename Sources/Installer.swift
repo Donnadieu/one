@@ -161,10 +161,30 @@ enum Installer {
         t += text
         return (try? t.write(to: target, atomically: true, encoding: .utf8)) != nil
     }
+    /// Hook appended to the engine's `agent/account_usage.py`: Anthropic's meter reads percent (1.0 = 1%), never a
+    /// fraction, and `limits[].percent` when sent (`agent/one_account_usage.py`, copied next to it). Nov 11 2026: the
+    /// pinned Hermes read 1% as 100%.
+    static let usageHook = """
+
+        # One: the Claude plan's meter reads percent, never a fraction (agent/one_account_usage.py, added by One).
+        try:
+            import sys as _one_sys
+            from agent.one_account_usage import install as _one_account_usage_install
+            _one_account_usage_install(_one_sys.modules[__name__])
+        except Exception as _one_exc:  # never break the usage meter
+            logger.warning("one_account_usage not installed: %s", _one_exc)
+
+        """
+    @discardableResult static func applyUsageMeter() -> Bool {
+        hook(
+            "agent", "one_account_usage", into: "account_usage.py", mark: "_one_account_usage_install", text: usageHook,
+            needs: ["def _usage_windows(", "def _fetch_anthropic_account_usage(", "\"utilization\"", "logger = "])
+    }
     /// `One --apply-overlay`'s lines for the hooks One adds to the engine.
     static func hooksReport() -> String {
         (applyHumanStep() ? "human-step overlay ok" : "human-step overlay failed") + "\n"
-            + (applyGoals() ? "goals overlay ok" : "goals overlay failed")
+            + (applyGoals() ? "goals overlay ok" : "goals overlay failed") + "\n"
+            + (applyUsageMeter() ? "usage overlay ok" : "usage overlay failed")
     }
     /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
     static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
@@ -228,6 +248,7 @@ enum Installer {
                     applyOverlay()
                     applyHumanStep()
                     applyGoals()
+                    applyUsageMeter()
                     BundledSkills.sync()
                     _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)

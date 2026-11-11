@@ -136,6 +136,16 @@ grep "✗" "$T/budget/out.txt" 2>/dev/null | sed 's/^/    /'
 mkdir -p "$T/phone"; check "hand-offs from the phone: one page only (taps, typing, Done; nothing else), sealed with a key only the link has, one phone, ends when done or on another site, audited without what was typed" bash -c "ONE_SUPPORT_DIR=$T/phone $TBIN --test-phone-handoff | tee $T/phone/out.txt | grep -q '^phone handoff ok'"
 grep "✗" "$T/phone/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the usage meter bundled" test -f "$APP/Contents/Resources/usage_meter.py"
+check "with its percent overlay" test -f "$APP/Contents/Resources/one_account_usage.py"
+mkdir -p "$T/usageovl/engine/agent"
+: > "$T/usageovl/engine/agent/__init__.py"
+cp tests/fixtures/account_usage_pristine.py "$T/usageovl/engine/agent/account_usage.py"
+check "the usage overlay hooks a clean engine's meter (pinned Hermes)" bash -c "ONE_SUPPORT_DIR=$T/usageovl $BIN --apply-overlay | grep -q 'usage overlay ok'"
+check "and copies the module next to it" cmp tools/overlay/agent/one_account_usage.py "$T/usageovl/engine/agent/one_account_usage.py"
+cp "$T/usageovl/engine/agent/account_usage.py" "$T/usageovl/once.py"
+ONE_SUPPORT_DIR="$T/usageovl" "$BIN" --apply-overlay >/dev/null
+check "second run changes nothing" cmp "$T/usageovl/once.py" "$T/usageovl/engine/agent/account_usage.py"
+check "the Claude meter reads percent (Nov 11: 1% read as 100%): 1.0 = 1%, 100 = 100%, limits[].percent wins, Codex fractions untouched" /usr/bin/python3 tools/usage-meter-check.py "$T/usageovl/engine" tests/fixtures/account_usage_pristine.py
 check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
 mkdir -p "$T/health"; check "health watchdog: One's own, his tools' and his own told apart (never Docker, databases, Chrome or /Applications), a stopped helper's leftover closed by itself and a working helper's kept, Leave it for a day, the plain lines and One --health" bash -c "ONE_SUPPORT_DIR=$T/health ONE_HEALTH_FAKE_IDLE=0 ONE_HEALTH_FAKE_DISK_GB=21 $TBIN --test-health | tee $T/health/out.txt | grep -q '^health ok'"
 grep "✗" "$T/health/out.txt" 2>/dev/null | sed 's/^/    /'

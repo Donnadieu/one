@@ -97,7 +97,7 @@ enum PhoneHandoff {
     /// The registrable part of a host: "www.amazon.com" -> "amazon.com", "a.b.co.uk" -> "b.co.uk".
     static func site(_ host: String) -> String {
         let p = host.lowercased().split(separator: ".").map(String.init)
-        guard p.count > 2 else { return p.joined(separator: ".") }
+        guard p.count > 2, !p.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return p.joined(separator: ".") }
         let two = p.suffix(2).joined(separator: ".")
         let short = ["co.uk", "com.au", "co.jp", "com.br", "co.nz", "com.mx", "co.in"]
         return short.contains(two) ? p.suffix(3).joined(separator: ".") : two

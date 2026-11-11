@@ -247,6 +247,21 @@ A step only the person can do (a code, a sign-in, a robot check) can be finished
 - Not covered: passkeys and security keys can't be done through a picture of a page (the site's own phone route is
   offered instead), and a person who forwards the link before opening it hands that one page to whoever opens it first.
 
+## Codes and live tabs in hand-offs (0.9.113)
+
+A step only the person can do no longer closes the hidden browser and reopens its page (that lost any page reached
+by a form POST: DocuSign's code page went to its log-in page). By kind (`HumanCheck.windowKinds`, `HumanStep.takesCode`):
+- **A code** never shows a browser. The engine (`tools/overlay/tools/one_human_step.py`, `code_step`) first looks for
+  the code in an inbox One can read: Gmail accounts the engine already holds tokens for (`hermes/google_tokens/`),
+  read-only (`messages` list + metadata), only mail newer than the step and whose sender or subject names the site
+  (another site's code is never used). Else One's card asks for it in a box; away from the Mac the ask goes to the
+  owner's own phone chat (`TELEGRAM_HOME_CHANNEL` only) and the reply is the code: the engine's phone plugin
+  (`one-missed-messages`, `take_code_reply`) writes it straight into the step's answer file and the message is
+  skipped, so the code never reaches the assistant, the conversation or a log. The engine reads it once, rewrites the
+  answer file without it and types it into the still-open tab over that tab's own DevTools socket.
+- **A sign-in or approve** is shown as the SAME live tab in One's window (StepWindow), never reopened.
+- **A robot check, passkey or security key** keeps the plain Chrome window (they need a real window).
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

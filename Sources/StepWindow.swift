@@ -61,6 +61,13 @@ struct StepWindowView: View {
     let answer: (String) -> Void
     var body: some View {
         VStack(spacing: 0) {
+            // The page's real address, live (it's the helper's own tab, never reopened).
+            HStack(spacing: 6) {
+                Image(systemName: page.url.hasPrefix("https:") ? "lock.fill" : "globe").foregroundStyle(.secondary)
+                Text(page.url.isEmpty ? ask.url : page.url).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7).background(.ultraThinMaterial)
             StepCanvasHost(canvas: page.canvas).frame(minWidth: 480, minHeight: 360)
                 .overlay {
                     if page.frames == 0 {
@@ -92,6 +99,8 @@ final class StepPage: ObservableObject {
     let canvas = StepCanvas()
     @Published var frames = 0
     @Published var problem: String?
+    /// The tab's address right now (from the page itself, then every navigation of its main frame).
+    @Published var url = ""
     /// The page's size in its own (CSS) pixels, from the last picture.
     var pageSize = CGSize(width: 1, height: 1)
     private var socket: URLSessionWebSocketTask?
@@ -114,6 +123,23 @@ final class StepPage: ObservableObject {
         send("Page.enable")
         send("Page.bringToFront")
         send("Page.startScreencast", ["format": "jpeg", "quality": 80, "everyNthFrame": 1])
+        Task { await firstLook() }
+    }
+
+    /// The address and a first picture at once: a still page sends no screencast frame until something changes, so
+    /// the window would otherwise sit dark.
+    func firstLook() async {
+        let r = await call("Runtime.evaluate", ["expression": "[location.href, innerWidth, innerHeight]", "returnByValue": true])
+        if let v = (r["result"] as? [String: Any])?["value"] as? [Any], v.count == 3 {
+            if let u = v[0] as? String { url = u }
+            if let w = v[1] as? Double, let h = v[2] as? Double, w > 0, h > 0, frames == 0 { pageSize = CGSize(width: w, height: h) }
+        }
+        let shot = await call("Page.captureScreenshot", ["format": "jpeg", "quality": 80])
+        if frames == 0, let b = shot["data"] as? String, let d = Data(base64Encoded: b), let img = NSImage(data: d) {
+            canvas.image = img
+            canvas.needsDisplay = true
+            frames = 1
+        }
     }
 
     /// The socket only (no picture stream): used by checks.
@@ -157,6 +183,12 @@ final class StepPage: ObservableObject {
         guard let j = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
         if let id = j["id"] as? Int, let c = replies.removeValue(forKey: id) {
             c.resume(returning: j["result"] as? [String: Any] ?? [:])
+            return
+        }
+        if j["method"] as? String == "Page.frameNavigated", let f = (j["params"] as? [String: Any])?["frame"] as? [String: Any],
+            f["parentId"] == nil, let u = f["url"] as? String
+        {
+            url = u
             return
         }
         guard j["method"] as? String == "Page.screencastFrame", let p = j["params"] as? [String: Any] else { return }

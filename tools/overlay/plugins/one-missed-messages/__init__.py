@@ -167,6 +167,10 @@ async def pre_gateway_dispatch(event: Any = None, gateway: Any = None, session_s
     now = _now()
     age = now - sent
     key = _key(platform, chat)
+    if age <= LIVE:
+        hit = await _code_reply(event, gateway, chat)
+        if hit is not None:
+            return hit
     if age > RECENT:
         _pending.setdefault(key, []).append({"at": sent.isoformat(), "what": summary(event)})
         old = _timers.get(key)
@@ -189,6 +193,89 @@ async def pre_gateway_dispatch(event: Any = None, gateway: Any = None, session_s
         except Exception as e:
             _log(f"{key}: couldn't read the list: {e}")
     return None
+
+
+# ---------------------------------------------------------------------------
+# A code a helper is waiting on, sent back from the phone (One's code hand-off, HumanStep.swift)
+# ---------------------------------------------------------------------------
+# When a helper is stuck on a code step and the person is away, One asks in their phone chat ("Reply here with just
+# the code") and writes `handoff/<id>.phone.json`. Their reply is the code: it goes straight into that step's answer
+# file (the engine types it into the still-open page) and NEVER reaches the assistant or the conversation.
+
+CODE_ASK_LIFE = 15 * 60
+
+
+def _handoff_dir() -> Path:
+    d = os.environ.get("ONE_HANDOFF_DIR")
+    return Path(d) if d else _home().parent / "handoff"
+
+
+def clean_code(raw: str) -> str:
+    import re
+    t = str(raw or "").strip()
+    if len(t) > 40:
+        return ""
+    m = re.fullmatch(r"(?:(?:the )?code(?: is)?[:\s]*)?([A-Za-z0-9][A-Za-z0-9\s\-]{2,14})\.?", t, re.I)
+    c = re.sub(r"[\s\-]", "", m.group(1)) if m else ""
+    return c if 4 <= len(c) <= 10 and sum(ch.isdigit() for ch in c) >= 3 else ""
+
+
+def open_code_ask(chat: str, now: float) -> Optional[dict]:
+    """The newest code step whose ask went to this phone chat and that's still waiting."""
+    d = _handoff_dir()
+    best = None
+    for f in d.glob("*.phone.json") if d.is_dir() else []:
+        try:
+            ph = json.loads(f.read_text())
+        except Exception:
+            continue
+        rid = str(ph.get("id") or "")
+        if not rid or now - float(ph.get("at", 0)) > CODE_ASK_LIFE or str(ph.get("chat", chat)) != chat:
+            continue
+        if not (d / f"{rid}.request.json").exists() or (d / f"{rid}.answer.json").exists():
+            continue
+        if best is None or float(ph.get("at", 0)) > float(best.get("at", 0)):
+            best = ph
+    return best
+
+
+def take_code_reply(chat: str, text: str, now: float) -> Optional[str]:
+    """Writes the code as the waiting step's answer; returns the step's site, or None when this isn't a code reply."""
+    code = clean_code(text)
+    if not code:
+        return None
+    ask = open_code_ask(chat, now)
+    if ask is None:
+        return None
+    d = _handoff_dir()
+    rid = ask["id"]
+    try:
+        req = json.loads((d / f"{rid}.request.json").read_text())
+    except Exception:
+        req = {}
+    tmp = d / f"{rid}.answer.tmp"
+    tmp.write_text(json.dumps({"answer": "code", "code": code, "by": "phone", "at": now}))
+    os.replace(tmp, d / f"{rid}.answer.json")
+    _log(f"code hand-off {rid}: the phone reply went to the page ({len(code)} characters, never shown to the assistant)")
+    return str(req.get("site") or "the site")
+
+
+async def _code_reply(event: Any, gateway: Any, chat: str) -> Optional[dict]:
+    text = str(getattr(event, "text", "") or "")
+    try:
+        site = take_code_reply(chat, text, _now().timestamp())
+    except Exception as e:
+        _log(f"code reply: {e}")
+        return None
+    if site is None:
+        return None
+    try:
+        adapter = (getattr(gateway, "adapters", None) or {}).get(event.source.platform)
+        if adapter is not None:
+            await adapter.send(chat, f"Got it. Typing it into {site} now.")
+    except Exception as e:
+        _log(f"code reply: couldn't confirm: {e}")
+    return {"action": "skip", "reason": "a code for a waiting hand-off; typed into the page, never shown to the assistant"}
 
 
 def register(ctx) -> None:

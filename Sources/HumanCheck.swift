@@ -34,9 +34,13 @@ enum HumanCheck {
     nonisolated(unsafe) static var requested: String?
     static let waitLimit: TimeInterval = 600
 
-    /// Every step only a person can do (robot check, sign-in, code, passkey, approve) gets the real window: the live
-    /// view had no address bar, showed a dark page and its clicks were DevTools clicks a robot check refuses.
-    static func wanted(_ a: HumanStepAsk) -> Bool { !a.kind.isEmpty }
+    /// Only the steps that need a real browser window get it: a robot check (a click through DevTools is refused) and
+    /// a passkey or security key (a hidden browser can't show the Mac's passkey sheet). Their pages come back after a
+    /// reopen. Everything else keeps the page where it is, because closing and reopening loses any page reached by a
+    /// form POST (DocuSign's code page went to its log-in page, 0.9.58 to 0.9.112, Nov 11 2026): a code goes in from
+    /// the card's box (HumanStep.swift), a sign-in or approve is shown live, the same tab (StepWindow.swift).
+    static let windowKinds: Set<String> = ["check", "passkey", "security_key"]
+    static func wanted(_ a: HumanStepAsk) -> Bool { windowKinds.contains(a.kind) }
 
     /// Robot checks end by themselves when the check's cookie lands; other steps end on Done or Chrome closing.
     static func watchesCookie(_ kind: String) -> Bool { kind == "check" }

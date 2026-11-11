@@ -25,6 +25,9 @@ struct HumanStepAsk: Identifiable, Equatable {
     let target: String
     let url: String
     var ask = false  // One's own ask (BlockedAsk): "Yes, show it" / "Not now" first, then Done
+    var session = ""  // the helper's conversation that's waiting on it (a message to that helper ends the wait)
+    var phone = false  // a retry whose last code came from their phone chat: asked there again, not on the Mac
+    var retry = false  // the code before didn't work
 }
 
 enum HumanStep {
@@ -47,7 +50,8 @@ enum HumanStep {
             out.append(
                 HumanStepAsk(
                     id: id, site: site, kind: kind, line: j["line"] as? String ?? line(site: site, kind: kind), port: port, target: target,
-                    url: j["url"] as? String ?? "", ask: j["ask"] as? Bool ?? false))
+                    url: j["url"] as? String ?? "", ask: j["ask"] as? Bool ?? false, session: j["session"] as? String ?? "",
+                    phone: j["phone"] as? Bool ?? false, retry: (j["try"] as? Int ?? 1) > 1))
         }
         return out
     }
@@ -66,9 +70,14 @@ enum HumanStep {
     /// A code step: the card's box (and a phone reply) answer it; no browser is ever shown.
     static func takesCode(_ kind: String) -> Bool { kind == "code" }
 
-    /// What the phone chat says when a code step waits and they're away: their reply is the code.
-    static func phoneAsk(site: String, title: String) -> String {
-        "\(PhoneHandoff.site(site).capitalizedFirst) sent you a code for \(title). Reply here with just the code and I'll type it into the page."
+    /// What the phone chat says when a code step waits and they're away: their reply is the code, or a way out.
+    static func phoneAsk(site: String, title: String, retry: Bool = false) -> String {
+        let s = PhoneHandoff.site(site)
+        let first =
+            retry
+            ? "That code didn't work. Reply with the newest code \(s) sent you for \(title)."
+            : "\(s.capitalizedFirst) sent you a code for \(title). Reply here with just the code and I'll type it into the page."
+        return first + " Or reply \"no code\" if it never came, or \"cancel\"."
     }
 
     /// Marks that a code step's ask went to the phone chat (the engine's phone plugin takes the reply as the code).
@@ -104,8 +113,14 @@ extension Model {
         tendFolderLedger()  // a folder added outside the ask-in-chat flow gets flagged (FolderApprovals.swift)
         // Hidden browsers never in the Dock or in front; one macOS made a normal app restarts once nothing uses it.
         HiddenBrowser.tend(idle: !helpers.contains(where: HelperClose.busy) && humanSteps.isEmpty)
-        let now = HumanStep.pending()
+        // A code ask they moved to the phone ("I'm not at the Mac") stays off the Mac: its card never comes back.
+        let now = HumanStep.pending().filter { !hiddenSteps.contains($0.id) }
         for a in now where !humanSteps.contains(where: { $0.id == a.id }) {
+            // A retry whose last code came from the phone is asked there again, not on the Mac.
+            if a.phone, HumanStep.takesCode(a.kind), askCodeByPhone(a) {
+                hiddenSteps.insert(a.id)
+                continue
+            }
             humanSteps.append(a)
             let w = StepWindow(a) { [weak self] answer in self?.answerHumanStep(a.id, answer) }
             HumanStep.windows[a.id] = w
@@ -119,8 +134,16 @@ extension Model {
     func answerHumanStep(_ id: String, _ answer: String) {
         // A robot check in a real window: One closes it and answers once the browser is hidden again.
         if HumanCheck.request(id, answer) { return }
-        // A code with "I'm not at the Mac": the ask goes to their phone chat and the card stays; their reply is the code.
-        if answer == "away", let a = humanSteps.first(where: { $0.id == id }), HumanStep.takesCode(a.kind), askCodeByPhone(a) { return }
+        // A code with "I'm not at the Mac": the card always closes, at once and for good. With a phone chat the ask goes
+        // there (their reply is the code, "no code" or "cancel"); without one the engine hears "away" and stops waiting.
+        // (0.9.113: once the phone had been asked, this button did nothing and the card stayed up, Nov 11 2026.)
+        if answer == "away", let a = humanSteps.first(where: { $0.id == id }) ?? HumanStep.pending().first(where: { $0.id == id }),
+            HumanStep.takesCode(a.kind)
+        {
+            hiddenSteps.insert(id)
+            closeHumanStep(id)
+            if askCodeByPhone(a) { return }
+        }
         HumanStep.answer(id, answer)
         closeHumanStep(id)
         blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
@@ -162,6 +185,19 @@ extension Model {
         closeHumanStep(id)
     }
 
+    /// A message to a helper (typed in its orb, a tell, a reply) ends whatever hand-off it's waiting on, with their
+    /// words: the helper reads them at once instead of after the wait (0.9.113: "I'm not receiving any code" sat
+    /// behind the code wait). A stop ends it as "cancelled". A robot-check window that's open finishes on its own.
+    func endHumanSteps(session sid: String?, _ answer: String, text: String? = nil) {
+        guard let sid, !sid.isEmpty else { return }
+        for a in HumanStep.pending() where a.session == sid && HumanCheck.active?.id != a.id {
+            HumanStep.answer(a.id, answer, extra: text.map { ["text": $0, "by": "person"] } ?? [:])
+            hiddenSteps.insert(a.id)
+            closeHumanStep(a.id)
+            HumanCheck.log("\(a.site): the ask ended (\(answer)) for its helper")
+        }
+    }
+
     /// Sends a code step's ask to their phone chat once. False when there's no phone chat (then it's a plain "away").
     @discardableResult func askCodeByPhone(_ a: HumanStepAsk) -> Bool {
         if phoneSent.contains(a.id) { return true }
@@ -169,7 +205,7 @@ extension Model {
         phoneSent.insert(a.id)
         HumanStep.markPhoneAsk(a.id, chat: chat)
         let title = helpers.first(where: { $0.state == "working" })?.title ?? "your job"
-        let text = HumanStep.phoneAsk(site: a.site, title: title)
+        let text = HumanStep.phoneAsk(site: a.site, title: title, retry: a.retry)
         Task.detached { Messenger.tell(text) }
         HumanCheck.log("\(a.site): code step; the ask went to the phone chat")
         return true
@@ -197,6 +233,12 @@ struct HumanStepCard: View {
                         .onSubmit { Model.shared.sendHumanCode(a.id, code) }
                     Button("Send") { Model.shared.sendHumanCode(a.id, code) }.buttonStyle(.borderedProminent)
                         .disabled(code.trimmingCharacters(in: .whitespaces).count < 4)
+                    Spacer()
+                }
+                // Always a way out: each ends the ask at once and the helper is told which.
+                HStack {
+                    Button("I didn't get a code") { answer("no_code") }.buttonStyle(.bordered)
+                    Button("Cancel") { answer("cancelled") }.buttonStyle(.bordered)
                     Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
                     Spacer()
                 }

@@ -3,6 +3,19 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A code ask always ends, and never before a code was sent (0.9.114, Nov 11 2026)
+
+**Problem.** On 0.9.113 a helper on DocuSign's SMS step pressed Send Code (the code box did appear, at the same address
+as the phone-number step) and handed off; the text never reached Omar. In `code_step` (`one_human_step.py:794-812` at
+v0.9.113) only `away` ended the wait: any other answer without a code fell to "Done with no code" and made a new ask,
+and a wrong code made a new ask with no limit. "I'm not at the Mac" on the card did nothing once the phone had been
+asked (`HumanStep.swift:123` + `:167` returned before writing an answer). A message to the helper waited behind the tool
+call, and a Stop didn't end it (the tool thread kept polling with its cached tab id).
+**Picked.** Two tries, then `code_failed`; every answer (and Stop, and a closed tab) ends the wait; a message to the
+helper becomes the answer; the code ask refuses on a page with no code box. Proof: tests/handoff/e2e_code_loop.py,
+phone_replies.py and `HumanStepWaysOutCheck` (red on v0.9.113, green after).
+**Rejected.** Keeping the retry loop with a longer limit (Omar: never ask a third time on its own).
+
 ## Hand-offs keep the helper's own tab (0.9.113, Nov 11 2026)
 
 **Problem.** From 0.9.58 (Oct 28 2026, `HumanCheck.wanted` widened from robot checks to every kind) to 0.9.112, a step

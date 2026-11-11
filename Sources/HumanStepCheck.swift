@@ -187,6 +187,7 @@ enum HumanStepCheck {
         let away = (try? Data(contentsOf: HumanStep.dir.appendingPathComponent("\(fake).answer.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         check("I'm not at the Mac reaches the engine", away?["answer"] as? String == "away" && !m.humanSteps.contains { $0.id == fake })
+        fails += await codeWaysOut(m)
         print(fails == 0 ? "PASS human step (One's half)" : "FAIL human step (\(fails))")
         return fails == 0 ? 0 : 1
     }

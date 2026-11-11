@@ -46,6 +46,8 @@ struct FollowUp: Identifiable, Equatable {
 @MainActor
 extension Model {
     func followUp(_ c: Composed, helper: UUID?, hidden: Bool) {
+        // A helper waiting on a hand-off reads this now, not after the wait (HumanStep.swift).
+        if let h = helper, !hidden { endHumanSteps(session: helpers.first { $0.id == h }?.sid, "message", text: c.typed) }
         followUps.append(FollowUp(c: c, helper: helper, hidden: hidden))
         pumpFollowUps()
         if let h = helper { nextUpForHelper(h) } else { nextUpReady() }

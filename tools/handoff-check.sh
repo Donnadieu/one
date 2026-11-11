@@ -36,8 +36,19 @@ ONE_SUPPORT_DIR="$S/support" ONE_HANDOFF_CDP=http://127.0.0.1:$PORT ONE_HANDOFF_
 rc=$?
 wait $EP
 erc=$?
+# The code hand-off's ways out (Nov 11 2026): its own handoff folder, after the two halves above (they close every tab).
+mkdir -p "$S/loop-handoff"
+( cd "$ENG" && HERMES_RUNTIME_DIR="$SUP/hermes/tools" HERMES_HOME="$S/hh" OVERLAY="$REPO/tools/overlay/tools/one_human_step.py" \
+  ONE_HANDOFF_DIR="$S/loop-handoff" ONE_HANDOFF_CDP=http://127.0.0.1:$PORT ONE_TEST_WEB=$WEBP \
+  ONE_TEST_SCRIPT="$REPO/tests/handoff/e2e_code_loop.py" \
+  perl -e 'alarm 360; exec @ARGV' "$ENG/.hermes/bin/hermes" --run-module one_handoff_run > "$S/loop.txt" 2>&1 )
+lrc=$?
+python3 tests/handoff/phone_replies.py > "$S/phone.txt" 2>&1
+prc=$?
 echo "One's half:"; cat "$S/one.txt"
 echo "Engine half:"; grep -v '^hermes:\|Preparing\|Installing' "$S/engine.txt"
+echo "Code hand-off ways out:"; grep -v '^hermes:\|Preparing\|Installing' "$S/loop.txt"
+echo "Phone replies:"; cat "$S/phone.txt"
 grep "human check:\|hidden browser:" "$S/support/selftest-hermes/logs/one-browser-keeper.log" 2>/dev/null | tail -8 | sed 's/^/  keeper: /'
 rm -f "$ENG/one_handoff_run.py"
 kill $CHR 2>/dev/null
@@ -45,5 +56,6 @@ kill $CHR 2>/dev/null
 for p in $(pgrep -f -- "--user-data-dir=$S/chrome" 2>/dev/null); do kill "$p" 2>/dev/null; done
 kill $WEB 2>/dev/null
 defaults delete ai.forjado.one.handoff-test >/dev/null 2>&1
-[ $rc = 0 ] && [ $erc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" && { echo "PASS handoff"; exit 0; }
-echo "FAIL handoff (one=$rc engine=$erc)"; exit 1
+[ $rc = 0 ] && [ $erc = 0 ] && [ $lrc = 0 ] && [ $prc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" && grep -q "CODE LOOP PASS" "$S/loop.txt" \
+  && { echo "PASS handoff"; exit 0; }
+echo "FAIL handoff (one=$rc engine=$erc loop=$lrc phone=$prc)"; exit 1

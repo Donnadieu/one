@@ -22,6 +22,7 @@
 - `tools/knowledge-base-check.sh`: knowledge-base integrity test (part of `make check` as
   `make knowledgebase`) — every doc this repo's harness mandates exists, `doc-gardening.py --check`
   is clean (delegated to, never duplicated), and AGENTS.md stays a table of contents (≤200 lines).
+- [decisions.md](decisions.md): design decisions that are easy to undo by accident, newest first
 - [QUALITY_SCORE.md](QUALITY_SCORE.md): per-area grading
 - [exec-plans/README.md](exec-plans/README.md): active and completed plans, tech debt
 - [first-time-user-test.md](first-time-user-test.md): the kit for watching one non-technical

@@ -262,6 +262,23 @@ by a form POST: DocuSign's code page went to its log-in page). By kind (`HumanCh
 - **A sign-in or approve** is shown as the SAME live tab in One's window (StepWindow), never reopened.
 - **A robot check, passkey or security key** keeps the plain Chrome window (they need a real window).
 
+## A code ask always ends (0.9.114)
+
+0.9.113 looped on DocuSign's SMS step (Nov 11 2026): every answer that wasn't a code, and every wrong code, made a new
+ask, so the card never went away and a stopped helper kept writing asks for minutes. Now (`code_step`, `_wait`):
+- `hand_off kind=code` refuses (`not_a_code_step`, nobody asked) unless the page shows a code box: a phone-number or
+  email step has to send the code first.
+- The person gets at most 2 codes per hand-off; after the second wrong one it ends with `code_failed`.
+- Every answer ends the wait: `no_code` ("I didn't get a code"), `cancelled`, `not_at_mac` (also the literal string),
+  `message` (their words, from the helper's orb, a tell or the phone chat: `Model.endHumanSteps`), and the engine's own
+  `stopped` (the helper's Stop sets its tool thread's interrupt bit) or `tab_closed`. One also answers `cancelled` for
+  a stopped helper's ask (`JobTree.stopHelper`), so its card goes.
+- Only something that looks like a code is typed in: 4 to 8 digits, or exactly the box's length in letters and digits
+  when the box isn't numeric (`reply_kind`, also in the phone plugin). "no code", "cancel" and any other phone reply
+  answer the ask instead (never typed, never shown to the assistant).
+- "I'm not at the Mac" on a code card always closes it (`Model.hiddenSteps`); the ask continues in the phone chat when
+  there is one, else the engine hears `away`.
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

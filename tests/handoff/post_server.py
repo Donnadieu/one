@@ -11,6 +11,9 @@ a log-in page. So a hand-off only works if the person is given the very tab the 
   POST /approve           "Confirm it's you": checkbox #ok, hidden invite, button #cont -> POST /approved
   GET  /approve           302 -> /login.html
   POST /approved          ticked + live invite -> 302 /welcome.html?who=approved
+  GET  /v2/usertoaccountinvite/smsverification-enterphone   like DocuSign's SMS step (pages/sms-enterphone.html): asks
+                          for a phone number first; only after Send Code does the same page show the code box
+  POST /sms/send          Send Code (counted: sms_sent)       POST /sms/verify   {"ok": right code} (sms_verify_fail)
   GET  /state.json        what the server saw (invites issued and used), for the checks
 Usage: python3 post_server.py <port> <pages dir>
 """
@@ -19,7 +22,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 CODE = "424242"
-STATE = {"invites": {}, "used": [], "gets_bounced": 0, "verify_fail": 0}
+STATE = {"invites": {}, "used": [], "gets_bounced": 0, "verify_fail": 0, "sms_sent": 0, "sms_verify_fail": 0, "sms_ok": 0}
+ENTER_PHONE = "/v2/usertoaccountinvite/smsverification-enterphone"
 
 
 def page(title: str, body: str) -> bytes:
@@ -71,12 +75,22 @@ class H(SimpleHTTPRequestHandler):
             return self._send(json.dumps(STATE).encode())
         if p == "/approve-start":
             return self._send(page("Start", "<form method=post action=/approve><button id=start>Start</button></form>"))
+        if p == ENTER_PHONE:
+            with open(f"{self.directory}/sms-enterphone.html", "rb") as fh:
+                return self._send(fh.read())
         return super().do_GET()
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
         f = {k: v[0] for k, v in parse_qs(self.rfile.read(n).decode()).items()}
         p = self.path.split("?", 1)[0]
+        if p == "/sms/send":
+            STATE["sms_sent"] += 1
+            return self._send(b'{"sent": true}')
+        if p == "/sms/verify":
+            ok = f.get("code", "").strip() == CODE
+            STATE["sms_ok" if ok else "sms_verify_fail"] += 1
+            return self._send(json.dumps({"ok": ok}).encode())
         if p == "/send-code":
             inv = secrets.token_hex(8)
             STATE["invites"][inv] = f.get("email", "")

@@ -163,9 +163,15 @@ extension Model {
             if s.ended == nil { s.stop("answered at the Mac") }
             phoneSessions[id] = nil
         }
-        guard !Env.selfTest || PhoneSession.publicBase != nil, PhoneHandoff.ready || PhoneSession.publicBase != nil else { return }
         let idle = PhoneHandoff.idleSeconds
-        for a in humanSteps where phoneSessions[a.id] == nil && !phoneSent.contains(a.id) {
+        // A code step away from the Mac: the ask goes to the phone chat and their reply is the code (no page, no link).
+        for a in humanSteps where HumanStep.takesCode(a.kind) && !phoneSent.contains(a.id) {
+            let seen = humanStepSeen[a.id] ?? now
+            humanStepSeen[a.id] = seen
+            if PhoneHandoff.due(waited: now.timeIntervalSince(seen), idle: idle) { askCodeByPhone(a) }
+        }
+        guard !Env.selfTest || PhoneSession.publicBase != nil, PhoneHandoff.ready || PhoneSession.publicBase != nil else { return }
+        for a in humanSteps where phoneSessions[a.id] == nil && !phoneSent.contains(a.id) && !HumanStep.takesCode(a.kind) {
             let seen = humanStepSeen[a.id] ?? now
             humanStepSeen[a.id] = seen
             guard PhoneHandoff.due(waited: now.timeIntervalSince(seen), idle: idle) else { continue }

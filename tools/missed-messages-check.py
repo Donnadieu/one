@@ -131,6 +131,33 @@ async def main():
     log = (Path(home) / "logs" / "one-missed-messages.log").read_text()
     check("each note is logged", log.count("not acted on") == 2)
 
+    print("5. a code a helper waits on, sent back from the phone")
+    import json as _json
+    hd = Path(home).parent / "handoff"
+    os.environ["ONE_HANDOFF_DIR"] = str(hd)
+    hd.mkdir(parents=True, exist_ok=True)
+    (hd / "ab12.request.json").write_text(_json.dumps({"id": "ab12", "site": "docusign.com", "kind": "code"}))
+    tg.sent.clear()
+    chat_words = await call(msg("What's the weather?", dt.timedelta(seconds=4)))
+    check("before One asks, a code-looking reply is just a message", await call(msg("482913", dt.timedelta(seconds=3))) is None
+          and chat_words is None)
+    (hd / "ab12.phone.json").write_text(_json.dumps({"id": "ab12", "chat": "8628960251", "at": NOW.timestamp()}))
+    words = await call(msg("What's the weather?", dt.timedelta(seconds=4)))
+    check("a normal message still goes to the assistant while One waits for a code", words is None)
+    other = await call(msg("482 913", dt.timedelta(seconds=3), chat="999"))
+    check("a code from another chat is not taken", other is None and not (hd / "ab12.answer.json").exists())
+    got = await call(msg("482 913", dt.timedelta(seconds=3)))
+    ans = _json.loads((hd / "ab12.answer.json").read_text()) if (hd / "ab12.answer.json").exists() else {}
+    check("their reply is the code: it goes to the step's answer, never to the assistant",
+          (got or {}).get("action") == "skip" and ans.get("answer") == "code" and ans.get("code") == "482913" and ans.get("by") == "phone")
+    check("they're told it's going in", tg.sent and tg.sent[-1][1] == "Got it. Typing it into docusign.com now.")
+    log = (Path(home) / "logs" / "one-missed-messages.log").read_text()
+    check("the log never holds the code", "482913" not in log and "482 913" not in log)
+    late = await call(msg("123456", dt.timedelta(seconds=2)))
+    check("once answered, the next code-looking message is just a message", late is None)
+    check("\"code is 77-31-90\" and \"G-123456\" read right", m.clean_code("code is 77-31-90") == "773190" and m.clean_code("G-123456") == "G123456"
+          and m.clean_code("call me at 5pm please") == "")
+
 
 asyncio.run(main())
 print("missed messages ok" if fails == 0 else f"missed messages FAILED ({fails})")

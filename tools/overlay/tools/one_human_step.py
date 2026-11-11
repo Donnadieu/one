@@ -26,6 +26,7 @@ import re
 import secrets
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -351,6 +352,9 @@ _APPS = {"amazon.": "the Amazon app", "google.": "the Google app or Gmail", "app
 
 
 def line_for(site: str, kind: str) -> str:
+    if kind == "code":
+        # A code step never shows a browser: the page may exist only in the open tab (see "Codes" below).
+        return f"Type the code {site} sent you, then tap Send. I'll put it into the page."
     if kind == "sign_in":
         return f"I need you for one step: sign in to {site}. Tap Show the window to do it there, then tap Done."
     return (f"I need you for one step: {site} is asking for {ASKING.get(kind, 'a quick check')}. "
@@ -363,8 +367,200 @@ def phone_fallback(site: str, kind: str) -> str:
     step = {"approve": f"If {site} sent a sign-in request to your phone, approve it there now; I'll notice the page move on.",
             "code": f"You can do this part yourself in {where}.",
             }.get(kind, f"You can do this part yourself in {where}.")
+    if kind == "code":
+        return (f"One sends the ask to your phone chat: reply there with just the code {site} sent you and it goes "
+                f"straight into the page, which stays open on this step.")
     return (f"{step} Or, when you're back at the Mac, say so: the {site} page stays open on this same step and "
             "I'll show it to you again. Never send me the code here; it can't be used from the chat.")
+
+
+# ---------------------------------------------------------------------------
+# Codes: never a browser window (Omar, Nov 11 2026)
+# ---------------------------------------------------------------------------
+# A code page is often the answer to a form POST (DocuSign's sign-up: "enter the code we sent"). Its state lives in
+# the open tab (hidden fields), so ANY reopen of that address (a new tab, a reload, a window on the same profile)
+# lands on the site's log-in page. One 0.9.58 to 0.9.112 closed the hidden browser and reopened the address in a
+# window, so the person saw "Log in" instead of the code box. Now a code step never moves the page: One asks for the
+# code (its card's box at the Mac, a reply in the phone chat when they're away) and this types it into the
+# still-open tab and submits; a code that lands in an inbox One can read (Gmail) is filled with nobody asked.
+# The code is never logged and never enters the conversation.
+
+CODE_RE = re.compile(r"(?<![\w-])(\d{4,8})(?![\w-])")
+_given: dict[str, tuple[str, str]] = {}  # request id -> (code, where it came from); read once
+
+FIND_BOXES_JS = r"""(() => {
+  const vis = (e) => { const s = getComputedStyle(e); return s.display !== "none" && s.visibility !== "hidden" && e.getClientRects().length > 0; };
+  const inputs = Array.from(document.querySelectorAll("input")).filter((e) => !e.disabled && !e.readOnly && vis(e)
+    && ["text", "tel", "number", "password", ""].includes(e.type));
+  const label = (e) => [e.name, e.id, e.getAttribute("aria-label"), e.getAttribute("placeholder"),
+    ...(e.labels ? Array.from(e.labels, (l) => l.textContent) : [])].filter(Boolean).join(" ").toLowerCase();
+  const boxes = inputs.filter((e) => e.maxLength === 1);
+  let pick = [];
+  if (boxes.length >= 4 && boxes.length <= 8) pick = boxes;
+  else {
+    const score = (e) => ((e.autocomplete || "").toLowerCase().includes("one-time-code") ? 100
+      : /otp|one.?time|passcode|verification|authenticator|security code|\bcode\b/.test(label(e)) && !/promo|coupon|zip|postal|country|gift/.test(label(e)) ? 80
+      : (e.type === "tel" || e.type === "number" || e.inputMode === "numeric") && e.maxLength >= 4 && e.maxLength <= 8 ? 55 : 0);
+    const best = inputs.map((e) => [score(e), e]).filter((x) => x[0] > 0).sort((a, b) => b[0] - a[0])[0];
+    if (best) pick = [best[1]];
+  }
+  window.__oneCodeBoxes = pick;
+  for (const e of pick) { e.value = ""; e.dispatchEvent(new Event("input", { bubbles: true })); }
+  return pick.length;
+})()"""
+
+FOCUS_JS = "(() => { const e = (window.__oneCodeBoxes || [])[%d]; if (!e) return false; e.focus(); return document.activeElement === e; })()"
+
+SUBMIT_JS = r"""(() => {
+  const e = (window.__oneCodeBoxes || [])[0];
+  if (!e || !e.isConnected) return "gone";
+  const f = e.form || e.closest("form");
+  const vis = (b) => b.getClientRects().length > 0 && !b.disabled;
+  const scope = f || document;
+  const buttons = Array.from(scope.querySelectorAll("button, input[type=submit]")).filter(vis);
+  const b = buttons.find((x) => (x.type || "").toLowerCase() === "submit" && f)
+    || buttons.find((x) => /verify|continue|submit|next|confirm|sign in|done|ok/i.test(x.innerText || x.value || ""));
+  if (b) { b.click(); return "clicked"; }
+  if (f && f.requestSubmit) { f.requestSubmit(); return "submitted"; }
+  return "enter";
+})()"""
+
+
+def _cdp(ws_url: str, calls: list[tuple[str, dict]], timeout: float = 6.0) -> list[Any]:
+    """Several DevTools calls on one tab's socket, in order; their results (None on an error)."""
+    from websockets.sync.client import connect
+    out: list[Any] = []
+    with connect(ws_url, open_timeout=timeout, close_timeout=1, max_size=8 << 20) as ws:
+        for i, (m, p) in enumerate(calls, 1):
+            ws.send(json.dumps({"id": i, "method": m, "params": p}))
+            deadline = time.time() + timeout
+            got = None
+            while time.time() < deadline:
+                msg = json.loads(ws.recv(timeout=max(0.1, deadline - time.time())))
+                if msg.get("id") == i:
+                    got = msg.get("result") if "error" not in msg else None
+                    break
+            out.append(got)
+    return out
+
+
+def clean_code(raw: str) -> str:
+    """The code as the person sent it, without spaces or dashes; '' when it doesn't look like a code."""
+    c = re.sub(r"[\s\-\u2010-\u2015.]", "", str(raw or ""))
+    return c if re.fullmatch(r"[A-Za-z0-9]{4,10}", c) and sum(ch.isdigit() for ch in c) >= 3 else ""
+
+
+def type_code(ws_url: str, code: str) -> dict:
+    """Types `code` into the code box of this very tab (trusted key input, one box or split boxes) and submits.
+    Never reloads or reopens the page. Returns {"filled": n, "submit": how} or {"error": ...}."""
+    try:
+        n = _page_eval(ws_url, FIND_BOXES_JS)
+        if not n:
+            return {"error": "no_code_field"}
+        n = int(n)
+        if n == 1:
+            _cdp(ws_url, [("Runtime.evaluate", {"expression": FOCUS_JS % 0, "returnByValue": True}),
+                          ("Input.insertText", {"text": code})])
+        else:
+            calls: list[tuple[str, dict]] = []
+            for i, ch in enumerate(code[:n]):
+                calls += [("Runtime.evaluate", {"expression": FOCUS_JS % i, "returnByValue": True}),
+                          ("Input.insertText", {"text": ch})]
+            _cdp(ws_url, calls)
+        time.sleep(0.8)  # many sites submit by themselves when the last digit lands
+        before = _page_eval(ws_url, "location.href + '|' + document.readyState")
+        how = _page_eval(ws_url, SUBMIT_JS) if before else "navigated"
+        if how == "enter":
+            _cdp(ws_url, [("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "text": "\r",
+                                                      "windowsVirtualKeyCode": 13}),
+                          ("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter",
+                                                      "windowsVirtualKeyCode": 13})])
+        return {"filled": n, "submit": how or "navigated"}
+    except Exception as exc:  # the page navigated mid-call is fine: the check after says whether it moved on
+        return {"filled": 0, "error": type(exc).__name__}
+
+
+def _brand(site: str) -> str:
+    parts = [p for p in site.lower().split(".") if p]
+    if len(parts) >= 3 and parts[-2] in ("co", "com", "org", "net", "ac", "gov") and len(parts[-1]) == 2:
+        return parts[-3]
+    return parts[-2] if len(parts) >= 2 else (parts[0] if parts else "")
+
+
+def _inbox_stand_in() -> Optional[Path]:
+    d = os.environ.get("ONE_INBOX_DIR")  # checks only: a folder of {"from","subject","snippet","at"} files
+    return Path(d) if d else None
+
+
+def _google_tokens() -> list[Path]:
+    try:
+        from hermes_constants import get_hermes_home
+        home = Path(get_hermes_home())
+    except Exception:
+        home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+    files = sorted((home / "google_tokens").glob("*.json")) if (home / "google_tokens").is_dir() else []
+    one = home / "google_token.json"
+    return files + ([one] if one.exists() else [])
+
+
+def _google_access(token_file: Path) -> Optional[str]:
+    try:
+        t = json.loads(token_file.read_text())
+        body = urllib.parse.urlencode({"client_id": t["client_id"], "client_secret": t["client_secret"],
+                                       "refresh_token": t["refresh_token"], "grant_type": "refresh_token"}).encode()
+        req = urllib.request.Request(t.get("token_uri") or "https://oauth2.googleapis.com/token", data=body)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return json.loads(r.read().decode()).get("access_token")
+    except Exception:
+        return None
+
+
+def _gmail(token: str, path: str) -> Any:
+    req = urllib.request.Request("https://gmail.googleapis.com/gmail/v1/users/me/" + path,
+                                 headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read().decode())
+
+
+def inbox_code(site: str, since: float, tried: frozenset = frozenset()) -> Optional[str]:
+    """The newest code from `site` that reached an inbox One can read after `since` (Gmail accounts connected to
+    the engine), or None. Matches the sender or subject to the site's name, so another site's code is never used."""
+    if os.environ.get("ONE_INBOX_CODES") == "0":
+        return None
+    brand = _brand(site)
+    if len(brand) < 3:
+        return None
+    found: list[tuple[float, str]] = []
+    stand_in = _inbox_stand_in()
+    if stand_in is not None:
+        for f in stand_in.glob("*.json"):
+            m = _read_json(f) or {}
+            if float(m.get("at", 0)) >= since and brand in (str(m.get("from", "")) + str(m.get("subject", ""))).lower():
+                c = CODE_RE.search(str(m.get("subject", ""))) or CODE_RE.search(str(m.get("snippet", "")))
+                if c:
+                    found.append((float(m["at"]), c.group(1)))
+    else:
+        for tf in _google_tokens()[:12]:
+            tok = _google_access(tf)
+            if not tok:
+                continue
+            try:
+                q = urllib.parse.quote(f"after:{int(since) - 60} {brand}")
+                for m in (_gmail(tok, f"messages?maxResults=5&q={q}").get("messages") or [])[:5]:
+                    msg = _gmail(tok, f"messages/{m['id']}?format=metadata&metadataHeaders=Subject&metadataHeaders=From")
+                    at = int(msg.get("internalDate", 0)) / 1000
+                    hdr = {h["name"].lower(): h["value"] for h in (msg.get("payload") or {}).get("headers", [])}
+                    if at < since or brand not in (hdr.get("from", "") + hdr.get("subject", "")).lower():
+                        continue
+                    c = CODE_RE.search(hdr.get("subject", "")) or CODE_RE.search(msg.get("snippet", ""))
+                    if c:
+                        found.append((at, c.group(1)))
+            except Exception:
+                continue
+    for _, c in sorted(found, reverse=True):
+        if c not in tried:
+            return c
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +630,10 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                "title": t.get("title", ""), "kind": kind or "check", "score": 0}
     k = kind if kind in ASKING else (tab["kind"] if tab["kind"] in ASKING else "check")
     site = _site(tab["url"]) or "the site"
+    if k == "code" and tab.get("ws"):
+        out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait)
+        _failures.pop(_key(tid, site), None)
+        return out
     req = _open_request(tab["target_id"])
     if req is None:
         req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": k, "port": p,
@@ -504,6 +704,121 @@ def _wait(req: dict, ws: str, start_url: str, seconds: float) -> Optional[str]:
 
 def _key(tid: str, site: str) -> str:
     return f"{tid}|{site}"
+
+
+WRONG_RE = re.compile(r"didn'?t work|invalid|incorrect|expired|wrong|try again|not valid", re.I)
+
+
+def _after_code(ws: str, seconds: float = 12.0) -> dict:
+    """Waits for the page to settle after a code went in: {"moved": bool, "url", "title"}."""
+    end = time.time() + seconds
+    last: dict = {}
+    gone = 0
+    while time.time() < end:
+        time.sleep(1.0)
+        st = page_step(ws)
+        if st.get("kind") == "unknown":
+            continue  # navigating
+        last = st
+        if st.get("kind") != "code":
+            gone += 1
+            if gone >= 2 or seconds <= 2:  # twice in a row: not just a page between two renders
+                return {"moved": True, "url": st.get("url", ""), "title": st.get("title", "")}
+            continue
+        gone = 0
+        text = _page_eval(ws, "(document.body && document.body.innerText || '').slice(0, 3000)") or ""
+        if WRONG_RE.search(str(text)):
+            break
+    return {"moved": False, "url": last.get("url", ""), "title": last.get("title", "")}
+
+
+def _code_request(tab: dict, site: str, port: int, why: str, line: str = "") -> dict:
+    req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": "code", "port": port,
+           "target_id": tab["target_id"], "url": tab["url"], "title": tab.get("title", ""),
+           "line": line or line_for(site, "code"), "phone_fallback": phone_fallback(site, "code"), "why": why[:200],
+           "box": True}
+    _write_json(handoff_dir() / f"{req['id']}.request.json", req)
+    return req
+
+
+def code_step(tab: dict, site: str, port: int, why: str, seconds: float) -> dict:
+    """A code step, without ever moving the page: an inbox first, else One asks for the code (card box at the Mac,
+    phone chat when they're away), and it goes into this same open tab."""
+    ws, tid = tab["ws"], tab["target_id"]
+    t0 = time.time()
+    since = t0 - 600
+    tried: set[str] = set()
+    use_inbox = os.environ.get("ONE_INBOX_CODES") != "0" and (_inbox_stand_in() is not None or bool(_google_tokens()))
+
+    def result(moved: dict, source: str, answer: str = "done") -> dict:
+        out = {"success": bool(moved["moved"]), "answer": answer, "moved_on": bool(moved["moved"]), "site": site,
+               "url": moved.get("url", ""), "title": moved.get("title", ""), "source": source, "target_id": tid}
+        out["next"] = (f"The code went into the page and it moved on. Carry on with the job by yourself on this same "
+                       f"tab (target {tid}); don't ask the person anything else about this step." if moved["moved"] else
+                       f"The code went in but {site} still asks for one. Tell the person plainly and stop.")
+        return out
+
+    def try_code(code: str) -> dict:
+        tried.add(code)
+        type_code(ws, code)
+        return _after_code(ws)
+
+    # 1. A code already in an inbox One can read: nobody is asked.
+    if use_inbox:
+        for i in range(4):
+            c = inbox_code(site, since, frozenset(tried))
+            if c:
+                moved = try_code(c)
+                if moved["moved"]:
+                    return result(moved, "inbox")
+            if i < 3:
+                time.sleep(4)
+    # 2. Ask the person: One's card box, or their phone chat. The page never moves. A second call (still_waiting)
+    # keeps the same ask.
+    req = _open_request(tid) or _code_request(tab, site, port, why)
+    deadline = t0 + max(0.0, seconds)
+    last_inbox = time.time()
+    while time.time() < deadline:
+        f = handoff_dir() / f"{req['id']}.answer.json"
+        a = _read_json(f)
+        if a and a.get("answer"):
+            if a["answer"] == "away":
+                return {"success": False, "answer": "not_at_mac", "site": site, "phone_fallback": req["phone_fallback"],
+                        "next": ("The person isn't at the Mac and their phone chat isn't set up. Tell them in one short "
+                                 "line; the page stays open on this step. If they say they're back, call hand_off again.")}
+            code = clean_code(a.get("code", ""))
+            source = str(a.get("by") or "person")
+            if code:
+                # The code is used once and never kept: drop it from the answer file before typing it.
+                _write_json(f, {"answer": "code", "by": source, "at": a.get("at", time.time()), "length": len(code)})
+                moved = try_code(code)
+                if moved["moved"]:
+                    return result(moved, source, "code")
+                req = _code_request(tab, site, port, why, f"That code didn't work. Type the newest code {site} sent you, "
+                                                           "then tap Send.")
+                continue
+            moved = _after_code(ws, 2.0)  # Done with no code: did the page move on by itself?
+            if moved["moved"]:
+                return result(moved, source)
+            req = _code_request(tab, site, port, why)
+            continue
+        if use_inbox and time.time() - last_inbox > 8:
+            last_inbox = time.time()
+            c = inbox_code(site, since, frozenset(tried))
+            if c:
+                moved = try_code(c)
+                if moved["moved"]:
+                    done = {"answer": "done", "by": "inbox", "at": time.time()}
+                    _write_json(handoff_dir() / f"{req['id']}.answer.json", done)  # One closes the card
+                    return result(moved, "inbox")
+        st = page_step(ws)
+        if st.get("kind") not in ("code", "unknown"):  # it moved on by itself (a magic link, another device)
+            _write_json(handoff_dir() / f"{req['id']}.answer.json", {"answer": "done", "by": "page", "at": time.time()})
+            return result({"moved": True, "url": st.get("url", ""), "title": st.get("title", "")}, "page")
+        time.sleep(1.0)
+    return {"success": False, "error_type": "still_waiting", "site": site, "asking": ASKING["code"],
+            "next": ("One's card is still asking the person for the code (box at the Mac, or their phone chat). Call "
+                     "browser_vault action=hand_off again to keep waiting. Never ask for the code in chat.")}
 
 
 # ---------------------------------------------------------------------------
@@ -579,8 +894,10 @@ def install(ns: dict) -> None:
     schema["description"] += (
         " hand_off (kind optional): a step only the person can do (a code you can't enter, passkey, security key, "
         "approve on their device, CAPTCHA/Cloudflare check, OR SIMPLY A SIGN-IN WALL with no code/captcha — use "
-        "kind=sign_in there): One shows this same page in a window with Done / I'm not at the Mac and the call waits, "
-        "then reports moved_on or a phone_fallback. enter_code hands off by itself after 2 failed tries. Call hand_off "
+        "kind=sign_in there): One shows this same live tab (never reopened) with Done / I'm not at the Mac and the call waits, "
+        "then reports moved_on. kind=code shows no page at all: the code is read from an inbox One can read, or One's "
+        "card (or the person's phone chat) asks for it and it is typed into this same open tab; the call waits and "
+        "reports moved_on or a phone_fallback. enter_code hands off by itself after 2 failed tries. Call hand_off "
         "yourself for every other human-only step too, including a plain sign-in page you can't get past — asking the "
         "person in chat does NOT open any window by itself; this call is what writes the request and shows it. "
         "find_session (url required): before EVER asking a person to sign in, call this. It checks every other hidden "

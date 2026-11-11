@@ -5,10 +5,16 @@ import SwiftUI
 //
 // The engine's browser_vault (One's overlay, tools/overlay/tools/one_human_step.py) gives up on a step
 // after 2 automatic tries, or at once when nothing automatic can work, and writes
-// `<support>/handoff/<id>.request.json`. One then shows that SAME tab of the shared hidden browser in a
-// window in front (a live view: the hidden browser keeps running, with its saved sign-ins), puts one line
-// in the chat with Done / I'm not at the Mac, and writes `<id>.answer.json`. The engine waits for that
-// answer, then checks the page moved on. A code never passes through the chat.
+// `<support>/handoff/<id>.request.json`. One puts one line in the chat and writes `<id>.answer.json`; the engine
+// waits for that answer, then checks the page moved on. The page is never closed or reopened: many steps exist
+// only in the open tab (a form POST answer, like DocuSign's "enter the code we sent"), and reopening their
+// address lands on a log-in page (One 0.9.58 to 0.9.112 did that, Nov 11 2026). So, by the step's kind:
+// - a code: no browser at all. The card has a box ("Type the code <site> sent you"); away from the Mac the same
+//   ask goes to their phone chat and their reply is the code. The engine types it into the still-open tab.
+// - a step done in the page (sign in, approve): that SAME live tab in One's window (StepWindow), or on the phone.
+// - a robot check, a passkey or a security key: the plain Chrome window (HumanCheck.swift); those need a real
+//   browser window, and their pages come back on a reload.
+// A code never passes through the chat.
 
 struct HumanStepAsk: Identifiable, Equatable {
     let id: String
@@ -53,7 +59,24 @@ enum HumanStep {
 
     /// The line in the chat, word for word (the engine sends the same one).
     static func line(site: String, kind: String) -> String {
-        "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). Tap Show the window to do it there, then tap Done."
+        if kind == "code" { return "Type the code \(site) sent you, then tap Send. I'll put it into the page." }
+        return "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). Tap Show the window to do it there, then tap Done."
+    }
+
+    /// A code step: the card's box (and a phone reply) answer it; no browser is ever shown.
+    static func takesCode(_ kind: String) -> Bool { kind == "code" }
+
+    /// What the phone chat says when a code step waits and they're away: their reply is the code.
+    static func phoneAsk(site: String, title: String) -> String {
+        "\(site.capitalizedFirst) sent you a code for \(title). Reply here with just the code and I'll type it into the page."
+    }
+
+    /// Marks that a code step's ask went to the phone chat (the engine's phone plugin takes the reply as the code).
+    static func markPhoneAsk(_ id: String, chat: String) {
+        let j: [String: Any] = ["id": id, "chat": chat, "at": Date().timeIntervalSince1970]
+        guard let d = try? JSONSerialization.data(withJSONObject: j) else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? d.write(to: dir.appendingPathComponent("\(id).phone.json"), options: .atomic)
     }
 
     /// "done" or "away". The engine reads it and carries on.
@@ -96,15 +119,23 @@ extension Model {
     func answerHumanStep(_ id: String, _ answer: String) {
         // A robot check in a real window: One closes it and answers once the browser is hidden again.
         if HumanCheck.request(id, answer) { return }
+        // A code with "I'm not at the Mac": the ask goes to their phone chat and the card stays; their reply is the code.
+        if answer == "away", let a = humanSteps.first(where: { $0.id == id }), HumanStep.takesCode(a.kind), askCodeByPhone(a) { return }
         HumanStep.answer(id, answer)
         closeHumanStep(id)
         blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
     }
 
-    /// Their yes ("Yes, show it" on the card, in the chat, or "Show the window") is the yes to that window: the same
-    /// profile opens as a plain Chrome window on the blocked page (address bar, nothing attached, so the tick counts).
-    /// The live view is only the last resort, when that browser isn't One's own hidden browser.
+    /// Their yes ("Yes, show it" on the card, in the chat, or "Show the window") is the yes to that window. A robot
+    /// check, passkey or security key: the same profile opens as a plain Chrome window on the blocked page (address
+    /// bar, nothing attached, so the tick counts). A sign-in or approve: the SAME live tab in One's window, never
+    /// closed or reopened (a page reached by a form POST can't be reopened). A code: no window at all (the card's box).
     func showHumanStep(_ a: HumanStepAsk) {
+        if HumanStep.takesCode(a.kind) {
+            // Never a browser for a code: the page may exist only in the open tab. The card's box takes the code.
+            HumanCheck.log("\(a.site): a code step; the card's box takes it, no window")
+            return
+        }
         if HumanCheck.active != nil {
             HumanCheck.log("\(a.site): a check window is already open; not opening a second one")
             return
@@ -119,8 +150,29 @@ extension Model {
         {
             return
         }
-        HumanCheck.log("\(a.site): no hidden browser of One's on port \(a.port); showing the live view instead")
+        HumanCheck.log("\(a.site): showing the same live tab (\(a.kind)), never closed or reopened")
         HumanStep.windows[a.id]?.show()
+    }
+
+    /// The code from the card's box: to the engine, which types it into the still-open tab and submits.
+    func sendHumanCode(_ id: String, _ code: String) {
+        let c = code.filter { !$0.isWhitespace && $0 != "-" }
+        guard !c.isEmpty else { return }
+        HumanStep.answer(id, "code", extra: ["code": c, "by": "person"])
+        closeHumanStep(id)
+    }
+
+    /// Sends a code step's ask to their phone chat once. False when there's no phone chat (then it's a plain "away").
+    @discardableResult func askCodeByPhone(_ a: HumanStepAsk) -> Bool {
+        if phoneSent.contains(a.id) { return true }
+        guard !Env.selfTest, Messenger.configured, let chat = Messenger.envValue("TELEGRAM_HOME_CHANNEL") else { return false }
+        phoneSent.insert(a.id)
+        HumanStep.markPhoneAsk(a.id, chat: chat)
+        let title = helpers.first(where: { $0.state == "working" })?.title ?? "your job"
+        let text = HumanStep.phoneAsk(site: a.site, title: title)
+        Task.detached { Messenger.tell(text) }
+        HumanCheck.log("\(a.site): code step; the ask went to the phone chat")
+        return true
     }
 
     func closeHumanStep(_ id: String) {
@@ -134,10 +186,21 @@ struct HumanStepCard: View {
     let a: HumanStepAsk
     let answer: (String) -> Void
     @State private var shown = false
+    @State private var code = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(a.line).font(.headline).fixedSize(horizontal: false, vertical: true)
-            if a.ask && !shown {
+            if HumanStep.takesCode(a.kind) {
+                // No browser for a code: it goes from this box straight into the page the helper has open.
+                HStack {
+                    TextField("Code", text: $code).textFieldStyle(.roundedBorder).font(.title3.monospacedDigit()).frame(maxWidth: 180)
+                        .onSubmit { Model.shared.sendHumanCode(a.id, code) }
+                    Button("Send") { Model.shared.sendHumanCode(a.id, code) }.buttonStyle(.borderedProminent)
+                        .disabled(code.trimmingCharacters(in: .whitespaces).count < 4)
+                    Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
+                    Spacer()
+                }
+            } else if a.ask && !shown {
                 // One's own ask: the window shows only after their yes.
                 HStack {
                     Button("Yes, show it") {

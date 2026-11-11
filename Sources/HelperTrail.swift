@@ -71,8 +71,10 @@ enum HelperTrail {
     /// Returns true if it was working (so its conversation should be cancelled too).
     @discardableResult
     static func stopByYou(_ h: inout Helper) -> Bool {
-        guard h.state == "working" || h.state == "needsYes" || h.resumeQueued == true else { return false }
+        // Waiting at the account's limit counts too: Stop always wins over the wait (Nov 10, Stop did nothing there).
+        guard h.state == "working" || h.state == "needsYes" || h.resumeQueued == true || h.pausedForLimit == true else { return false }
         let wasWorking = h.state == "working"
+        Limit.clear(&h)
         h.state = "stopped"
         h.resumeQueued = false
         h.stoppedByYou = true

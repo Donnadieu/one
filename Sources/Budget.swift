@@ -102,9 +102,19 @@ extension Model {
             if let r = reading { week = WeekMeter(used: r.week, reset: r.reset.map { Date(timeIntervalSince1970: $0) }) }
             if let mt = meter { Limit.lastMeter = (Date(), mt) }
             for (id, used) in shares { applyUsage(id, used: used) }
-            // A window at 100%: every working helper pauses at the account's limit (and asks), even with no budget.
-            if let full = Limit.full(meter) { for (id, _) in pairs { pauseForLimit(id, reset: full) } }
+            meterRead(meter)
         }
+    }
+
+    /// The plan's meter alone never pauses anyone (Nov 11 2026: it read the week's 1% as 100% and paused every
+    /// working helper while the AI kept answering). Only the AI service's own limit error pauses a helper
+    /// (`pausedTurnEnded`, LimitPause.swift); a full meter is logged once per window and shown on the week line.
+    func meterRead(_ meter: Usage.Meter?) {
+        guard let full = Limit.full(meter) else { return }
+        guard Limit.meterFullLogged != full else { return }
+        Limit.meterFullLogged = full
+        JobTree.log(
+            "the plan's meter reads full (resets \(ISO8601DateFormatter().string(from: full))): nobody paused; only the AI's own limit error pauses")
     }
 
     /// One reading for one helper: its share, then the warning and the pause.
@@ -277,14 +287,21 @@ struct BudgetRow: View {
                     }
                 }
             }
-            if h.pausedForLimit == true, h.stoppedByYou != true, h.limitChoice == nil, let reset = h.limitReset {
-                Text(Limit.question(job: h.title, account: h.limitAccount ?? "your account", other: h.switchTo, reset: reset))
-                    .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+            if h.pausedForLimit == true, h.stoppedByYou != true, let reset = h.limitReset {
+                if h.limitChoice == nil {
+                    Text(Limit.question(job: h.title, account: h.limitAccount ?? "your account", other: h.switchTo, reset: reset))
+                        .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 8) {
-                    if let to = h.switchTo {
+                    if h.limitChoice == nil, let to = h.switchTo {
                         Button("Switch to \(to)") { Task { await m.answerLimit(h.id, switchAccount: true) } }.buttonStyle(.bordered)
                     }
-                    Button("Wait for the reset") { Task { await m.answerLimit(h.id, switchAccount: false) } }.buttonStyle(.bordered)
+                    if h.limitChoice == nil {
+                        Button("Wait for the reset") { Task { await m.answerLimit(h.id, switchAccount: false) } }.buttonStyle(.bordered)
+                    }
+                    // A pause that wasn't a real limit is undone at once; if it was, the AI says so again and it pauses again.
+                    Button("Keep going") { Task { await m.keepGoingAfterLimit(h.id) } }.buttonStyle(.bordered)
+                        .help("Carry on now, without waiting for the reset")
                 }
             }
             if h.pausedForBudget == true, let b = Budget.of(h) {

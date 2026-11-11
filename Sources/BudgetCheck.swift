@@ -317,6 +317,42 @@ enum BudgetCheck {
         check("another job is asked again (an answer counts for its own job only)", phone.count == 1 && m.helpers[1].limitChoice == nil)
         await m.answerLimit(other.id, switchAccount: true)
         check("Switch, tapped: that account made the default, and it carries on", switched == "ab12cd" && m.helpers[1].pausedForLimit == nil)
+
+        // Nov 11: the meter read the week's 1% as 100% and paused every working helper while the AI kept answering.
+        // The meter alone never pauses anyone now: only the AI service's own limit error does.
+        let busy = Helper(title: "Meter", task: "Build it", sid: "local-meter", state: "working", line: "")
+        m.helpers = [busy]
+        phone = []
+        let weekReset = Date().addingTimeInterval(7 * 86400)
+        m.meterRead(.init(week: 100, reset: weekReset, session: nil, sessionReset: nil))
+        m.meterRead(.init(week: 40, reset: weekReset, session: 100, sessionReset: Date().addingTimeInterval(3600)))
+        try? await Task.sleep(for: .milliseconds(300))
+        let b0 = m.helpers[0]
+        check(
+            "the plan's meter at 100% (the week or the 5 hours) never pauses a working helper; nothing on the phone",
+            b0.state == "working" && b0.pausedForLimit == nil && phone.isEmpty && !StopMark.isMarked("local-meter")
+                && Limit.meterFullLogged != nil)
+        // A false pause is undone in one tap: "Keep going", even after they first said "wait".
+        m.pauseForLimit(busy.id, reset: weekReset)
+        try? await Task.sleep(for: .milliseconds(300))
+        await m.answerLimit(busy.id, switchAccount: false)
+        resent = []
+        await m.keepGoingAfterLimit(busy.id)
+        check(
+            "Keep going (after \"wait\"): carries on at once, the wait cleared, told why",
+            m.helpers[0].pausedForLimit == nil && m.helpers[0].limitReset == nil && !StopMark.isMarked("local-meter")
+                && resent.count == 1 && resent[0].1.contains("Keep going"))
+        m.update(busy.id) { $0.state = "working" }
+        m.pauseForLimit(busy.id, reset: weekReset)
+        try? await Task.sleep(for: .milliseconds(300))
+        resent = []
+        let keepOK = Limit.cli(["One", "--limit-answer", "keep", "meter"]) == 0
+        m.tendLimits()
+        try? await Task.sleep(for: .milliseconds(300))
+        check(
+            "\"keep going\" from the phone chat (One --limit-answer keep): carries on at once",
+            keepOK && m.helpers[0].pausedForLimit == nil && resent.count == 1)
+        check("the phone question says \"keep going\" is an answer", Limit.phoneHint("Forge").contains("keep going"))
         check("the week line", WeekMeter(used: 62, reset: nil).words == "This week: 62% used")
 
         print(fails == 0 ? "budgets ok" : "budgets: \(fails) failed")

@@ -28,7 +28,8 @@ enum Limit {
         Otherwise, and for every Goal: helper or "don't stop until it's done", write no budget: it never pauses to ask for more. \
         When a helper's AI account hits its limit, One asks them "Switch to <other account>, or wait for the reset?". If they \
         answer in a phone chat ("switch", "wait", "switch Quebec trip"), run `One --limit-answer switch <job title>` or \
-        `One --limit-answer wait <job title>` and tell them in one line. Never switch accounts any other way.
+        `One --limit-answer wait <job title>` and tell them in one line; "keep going" (the limit wasn't real) is \
+        `One --limit-answer keep <job title>`. Never switch accounts any other way.
         """
     /// Paused by One, not stopped by them: the turn that ends now is never picked back up as a cut-off.
     static func pausedOnPurpose(_ h: Helper) -> Bool { h.stoppedByYou != true && (h.pausedForBudget == true || h.pausedForLimit == true) }
@@ -79,6 +80,8 @@ enum Limit {
     /// The plan's meter, last read (every 5 minutes while helpers work): a limit notice that names no time gets the
     /// full window's reset from here.
     @MainActor static var lastMeter: (at: Date, meter: Usage.Meter)?
+    /// The reset of the last full reading already logged (Budget.swift `meterRead`): one log line per full window.
+    @MainActor static var meterFullLogged: Date?
     @MainActor static func meterReset(now: Date = Date()) -> Date? {
         guard let l = lastMeter, now.timeIntervalSince(l.at) <= 900 else { return nil }
         return full(l.meter)
@@ -111,16 +114,18 @@ enum Limit {
     }
     /// What they can text back from the phone chat (the assistant there runs `One --limit-answer`).
     static func phoneHint(_ other: String?) -> String {
-        other == nil ? "Nothing to do: it carries on by itself." : "Reply \"switch\" or \"wait\" here, or do nothing and it waits."
+        other == nil
+            ? "Nothing to do: it carries on by itself (reply \"keep going\" if it wasn't a real limit)."
+            : "Reply \"switch\", \"wait\" or \"keep going\" here, or do nothing and it waits."
     }
 
-    /// `One --limit-answer switch|wait [<job>]`: their answer from a phone chat, picked up by the app within seconds.
+    /// `One --limit-answer switch|wait|keep [<job>]`: their answer from a phone chat, picked up by the app within seconds.
     static var answers: URL { Env.support.appendingPathComponent("helpers/limit-answers", isDirectory: true) }
     static func cli(_ args: [String]) -> Int32? {
         guard let i = args.firstIndex(of: "--limit-answer") else { return nil }
         let rest = Array(args.dropFirst(i + 1))
-        guard let pick = rest.first?.lowercased(), pick == "switch" || pick == "wait" else {
-            print("usage: One --limit-answer switch|wait [<job name>]")
+        guard let pick = rest.first?.lowercased(), ["switch", "wait", "keep"].contains(pick) else {
+            print("usage: One --limit-answer switch|wait|keep [<job name>]")
             return 2
         }
         try? FileManager.default.createDirectory(at: answers, withIntermediateDirectories: true)
@@ -128,7 +133,9 @@ enum Limit {
         guard let d = try? JSONSerialization.data(withJSONObject: j),
             (try? d.write(to: answers.appendingPathComponent(UUID().uuidString + ".json"))) != nil
         else { return 1 }
-        print("Got it: \(pick == "switch" ? "switching it to your other account" : "it waits for the reset and carries on by itself").")
+        let said =
+            ["switch": "switching it to your other account", "keep": "it carries on now"][pick] ?? "it waits for the reset and carries on by itself"
+        print("Got it: \(said).")
         return 0
     }
     /// Seams for checks (no engine, no accounts, no phone in a check).
@@ -251,7 +258,12 @@ extension Model {
             let job = (j["job"] as? String ?? "").lowercased()
             let paused = helpers.filter { $0.pausedForLimit == true }
             let pick = paused.first { !job.isEmpty && $0.title.lowercased().contains(job) } ?? (paused.count == 1 ? paused.first : nil)
-            if let id = pick?.id { Task { await answerLimit(id, switchAccount: j["pick"] as? String == "switch") } }
+            guard let id = pick?.id else { continue }
+            if j["pick"] as? String == "keep" {
+                Task { await keepGoingAfterLimit(id) }
+            } else {
+                Task { await answerLimit(id, switchAccount: j["pick"] as? String == "switch") }
+            }
         }
         for h in helpers where h.pausedForLimit == true {
             guard h.stoppedByYou != true, let r = h.limitReset else {
@@ -279,6 +291,13 @@ extension Model {
         }
         saveTrail(id)
         JobTree.log("\(id.uuidString.prefix(8)): dropped a limit pause with no reset time")
+    }
+
+    /// "Keep going" (orb, or "keep going" from the phone): a pause that wasn't a real limit is undone at once. If the
+    /// limit is real, the AI service says so again and it pauses again with the reset time.
+    func keepGoingAfterLimit(_ id: UUID) async {
+        JobTree.log("\(id.uuidString.prefix(8)): Keep going tapped on a limit pause")
+        await carryOnAfterLimit(id, why: "they said Keep going, so it carries on now without waiting for the reset")
     }
 
     func carryOnAfterLimit(_ id: UUID, why: String) async {

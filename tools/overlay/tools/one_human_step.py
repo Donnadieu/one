@@ -351,10 +351,19 @@ _APPS = {"amazon.": "the Amazon app", "google.": "the Google app or Gmail", "app
          "chase.": "the Chase app", "americanexpress.": "the Amex app", "bankofamerica.": "the Bank of America app"}
 
 
+def site_name(host: str) -> str:
+    """The name people know a site by: "account-d.docusign.com" -> "docusign.com" (an IP address stays as it is)."""
+    p = [x for x in host.lower().split(".") if x]
+    if len(p) <= 2 or all(x.isdigit() for x in p):
+        return host
+    two = ".".join(p[-2:])
+    return ".".join(p[-3:]) if two in ("co.uk", "com.au", "co.jp", "com.br", "co.nz", "com.mx", "co.in") else two
+
+
 def line_for(site: str, kind: str) -> str:
     if kind == "code":
         # A code step never shows a browser: the page may exist only in the open tab (see "Codes" below).
-        return f"Type the code {site} sent you, then tap Send. I'll put it into the page."
+        return f"Type the code {site_name(site)} sent you, then tap Send. I'll put it into the page."
     if kind == "sign_in":
         return f"I need you for one step: sign in to {site}. Tap Show the window to do it there, then tap Done."
     return (f"I need you for one step: {site} is asking for {ASKING.get(kind, 'a quick check')}. "

@@ -59,7 +59,7 @@ enum HumanStep {
 
     /// The line in the chat, word for word (the engine sends the same one).
     static func line(site: String, kind: String) -> String {
-        if kind == "code" { return "Type the code \(site) sent you, then tap Send. I'll put it into the page." }
+        if kind == "code" { return "Type the code \(PhoneHandoff.site(site)) sent you, then tap Send. I'll put it into the page." }
         return "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). Tap Show the window to do it there, then tap Done."
     }
 
@@ -68,7 +68,7 @@ enum HumanStep {
 
     /// What the phone chat says when a code step waits and they're away: their reply is the code.
     static func phoneAsk(site: String, title: String) -> String {
-        "\(site.capitalizedFirst) sent you a code for \(title). Reply here with just the code and I'll type it into the page."
+        "\(PhoneHandoff.site(site).capitalizedFirst) sent you a code for \(title). Reply here with just the code and I'll type it into the page."
     }
 
     /// Marks that a code step's ask went to the phone chat (the engine's phone plugin takes the reply as the code).

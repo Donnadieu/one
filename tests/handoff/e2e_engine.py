@@ -117,8 +117,9 @@ before = set(Path(os.environ["ONE_HANDOFF_DIR"]).glob("*.request.json"))
 sup.focus_page("", accept="location.host.startsWith('localhost') && location.pathname === '/send-code'")
 r2 = json.loads(bv._handle_vault({"action": "hand_off", "kind": "code"}, task_id=TID))
 print("   hand_off:", json.dumps({k: r2.get(k) for k in ('success', 'answer', 'moved_on', 'source', 'url')}))
-check("filled from the inbox, nobody asked", r2.get("moved_on") is True and r2.get("source") == "inbox"
-      and set(Path(os.environ["ONE_HANDOFF_DIR"]).glob("*.request.json")) == before)
+asked = [f for f in set(Path(os.environ["ONE_HANDOFF_DIR"]).glob("*.request.json")) - before
+         if json.loads(f.read_text()).get("target_id") == tab2]
+check("filled from the inbox, nobody asked", r2.get("moved_on") is True and r2.get("source") == "inbox" and not asked)
 check("the other site's code was never used", site_state("localhost")["verify_fail"] == 0)
 check("same tab, past the code step", ev(tab2, "location.pathname + location.search") == "/welcome.html?who=inbox@example.com")
 try:

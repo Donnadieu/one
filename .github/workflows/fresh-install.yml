@@ -56,6 +56,9 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
       - name: Standing goals through the real engine (stand-in model)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/goal-engine-check.sh
+      - name: "Hand-offs on pages that exist only in their tab (make handoff): a code from One's card lands in that same tab, a step done in the page is shown live, nothing reopened"
+        timeout-minutes: 8
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/handoff-check.sh --no-build
       - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
       - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)

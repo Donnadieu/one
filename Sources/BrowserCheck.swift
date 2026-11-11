@@ -146,6 +146,30 @@ enum BrowserCheck {
         }
         let h = HumanCheck.headedArguments(profile: "/tmp/p", url: "https://claude.ai/design", app: "/Applications/Google Chrome.app")
         expect(h.contains("--user-data-dir=/tmp/p") && h.last == "https://claude.ai/design", "the check window opens the same profile on the page")
+        expect(HumanCheck.windowPort(kind: "check", hiddenPort: 9224) == nil, "a robot check's window gets no DevTools port")
+        let wp = HumanCheck.windowPort(kind: "code", hiddenPort: 9224)
+        let hc = HumanCheck.headedArguments(
+            profile: "/tmp/p", url: "https://account-d.docusign.com/x", app: "/Applications/Google Chrome.app", port: wp)
+        expect(
+            wp == 29224 && hc.contains("--remote-debugging-port=29224") && hc.contains("--remote-debugging-address=127.0.0.1")
+                && hc.last == "https://account-d.docusign.com/x" && !hc.contains { $0.hasPrefix("--headless") || $0.contains("Automation") },
+            "a code's window gets its own local DevTools port (never the hidden browser's), so its short-lived sign-ins can be kept")
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let kept = HumanCheck.lasting(
+            [
+                [
+                    "name": "flow", "value": "step2", "domain": "account-d.docusign.com", "path": "/v2", "secure": true, "httpOnly": true,
+                    "session": true,
+                ],
+                ["name": "wide", "value": "1", "domain": ".docusign.com", "path": "/", "secure": true, "session": true],
+                ["name": "stays", "value": "1", "domain": "docusign.com", "path": "/", "session": false, "expires": 2_000_000.0],
+            ], now: now)
+        expect(kept.count == 2, "only short-lived sign-ins are re-set (a lasting one is left alone)")
+        expect(
+            kept.first?["url"] as? String == "https://account-d.docusign.com/v2" && kept.first?["domain"] == nil
+                && kept.first?["expires"] as? Double == 1_000_000 + HumanCheck.keepFor && kept.first?["httpOnly"] as? Bool == true,
+            "a host-only sign-in is kept by its URL, with an expiry, its flags unchanged")
+        expect(kept.last?["domain"] as? String == ".docusign.com" && kept.last?["url"] == nil, "a domain sign-in keeps its domain")
         expect(
             !h.contains {
                 $0.hasPrefix("--remote-debugging") || $0.hasPrefix("--headless") || $0.contains("Automation") || $0.hasPrefix("--user-agent")

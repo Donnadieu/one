@@ -50,27 +50,36 @@ enum HumanCheckLive {
         try? await Task.sleep(for: .seconds(3))
         let page = StepPage(port: port, target: target)
         page.connectQuiet()
-        _ = await page.call("Runtime.evaluate", ["expression": "document.cookie='oneflush=1; max-age=86400; path=/'"])
+        _ = await page.call(
+            "Runtime.evaluate", ["expression": "document.cookie='oneflush=1; max-age=86400; path=/'; document.cookie='onestep=2; path=/'"])
         page.disconnect()
         try? await Task.sleep(for: .milliseconds(500))
+        // A short-lived sign-in (no expiry, like a sign-up's progress) must survive the close too (HumanCheck.keepSessionCookies).
+        let keptSession = await HumanCheck.keepSessionCookies(port: port)
         let t = Date()
         await HumanCheck.quit(pid)
         let took = Date().timeIntervalSince(t)
         var db: OpaquePointer?
         var found = false
+        var foundSession = false
         if sqlite3_open_v2("file:\(profile)/Default/Cookies?immutable=1", &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK {
-            var st: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cookies WHERE name = 'oneflush'", -1, &st, nil) == SQLITE_OK,
-                sqlite3_step(st) == SQLITE_ROW
-            {
-                found = sqlite3_column_int(st, 0) > 0
+            for (name, hit) in [("oneflush", true), ("onestep", false)] {
+                var st: OpaquePointer?
+                if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cookies WHERE name = '\(name)'", -1, &st, nil) == SQLITE_OK,
+                    sqlite3_step(st) == SQLITE_ROW
+                {
+                    if hit { found = sqlite3_column_int(st, 0) > 0 } else { foundSession = sqlite3_column_int(st, 0) > 0 }
+                }
+                sqlite3_finalize(st)
             }
-            sqlite3_finalize(st)
         }
         sqlite3_close(db)
-        print("cookie flush: quit took \(String(format: "%.1f", took)) s, cookie saved: \(found)")
-        print(found ? "human window ok" : "human window FAILED: cookie lost")
-        return found ? 0 : 1
+        print(
+            "cookie flush: quit took \(String(format: "%.1f", took)) s, cookie saved: \(found), short-lived sign-in kept: \(foundSession) (\(keptSession) re-set)"
+        )
+        let ok = found && foundSession
+        print(ok ? "human window ok" : "human window FAILED: \(found ? "short-lived sign-in" : "cookie") lost")
+        return ok ? 0 : 1
     }
 
     /// A real screenshot of a hidden tab over its DevTools socket, saved into ONE_CHECK_SHOTS (when set).

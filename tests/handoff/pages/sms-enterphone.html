@@ -1,0 +1,39 @@
+<!doctype html><title>Docusign</title>
+<body style="font:16px -apple-system;margin:40px">
+<!-- Like DocuSign's "Secure Your Account" SMS step (Nov 11 2026): ONE page at one address. First it asks for the phone
+     number (no code box), and only after "Send Code" does the SAME page, at the SAME address, show the code box.
+     A code hand-off before "Send Code" asks for a code nobody was ever sent. Served by post_server.py at
+     /v2/usertoaccountinvite/smsverification-enterphone; /sms/send and /sms/verify record what the site saw. -->
+<div id="app">
+  <h1>Secure Your Account</h1>
+  <p>To enhance the security of your account, we need to verify that it's really you. Please enter your phone number
+     to confirm your identity by SMS and we will send you a one-time 6-digit code.</p>
+  <label for="b6f6b88ccf">Phone Number</label><br>
+  <button type="button" data-qa="phone-number-input-field-calling-codes-menu-trigger">+1</button>
+  <input id="b6f6b88ccf" placeholder="Phone Number" maxlength="20" autocomplete="tel" data-qa="phone-number-input-field" type="tel">
+  <p>Message and data rates may apply. We will only use your phone number provided here for identity verification
+     purposes. By choosing to Send Code, you agree to the Terms &amp; Conditions and Privacy Policy.</p>
+  <button type="submit" id="send" data-qa="sms-verification-next-button">Send Code</button>
+</div>
+<script>
+const post = (path, body) => fetch(path, {method: "POST", body, headers: {"Content-Type": "application/x-www-form-urlencoded"}});
+document.getElementById("send").onclick = async () => {
+  const phone = document.getElementById("b6f6b88ccf").value;
+  if (!phone) return;
+  await post("/sms/send", "phone=" + encodeURIComponent(phone));
+  document.getElementById("app").innerHTML = `<h1>Enter your code</h1>
+    <p>We sent a one-time 6-digit code by SMS. Enter it below.</p>
+    <label for="c1">Enter code</label><br>
+    <input id="c1" type="text" name="code" autocomplete="one-time-code" data-qa="enter-sms-code-textbox" maxlength="6">
+    <button type="button" data-qa="resend-code">Send my code again</button>
+    <p id="bad"></p>
+    <button type="submit" id="verify" data-qa="sms-verification-next-button">Verify</button>`;
+  document.getElementById("verify").onclick = async () => {
+    const r = await post("/sms/verify", "code=" + encodeURIComponent(document.getElementById("c1").value));
+    const j = await r.json();
+    if (j.ok) location.href = "/welcome.html?who=sms";
+    else document.getElementById("bad").textContent = "That code didn't work. Try again.";
+  };
+};
+</script>
+</body>

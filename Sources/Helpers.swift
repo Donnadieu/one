@@ -58,7 +58,7 @@ struct Helper: Identifiable, Codable {
     var viewState: HelperState {
         if stopping == true { return leftovers == nil ? .stopped : .needsYes }  // closing its tree (JobTree.swift)
         if pausedForBudget == true { return .needsYes }  // used its share of the week: it needs your choice (Budget.swift)
-        if pausedForLimit == true { return limitChoice == nil && seen == false ? .needsYes : .working }  // waits for the reset
+        if pausedForLimit == true, stoppedByYou != true { return limitChoice == nil && seen == false ? .needsYes : .working }  // waits for the reset
         return switch state {
         case "working": .working
         case "needsYes": .needsYes

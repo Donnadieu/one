@@ -170,17 +170,110 @@ enum BudgetCheck {
             m.helpers.last?.pausedForBudget == nil
                 && m.helpers.last?.state == "working" && !StopMark.isMarked("local-named"))
 
-        // The account's limit: pause and ask (never switch by itself), wait for the reset if no answer.
+        // The account's limit: pause and ask (never switch by itself), wait for the reset if no answer. Only a real
+        // provider limit counts: an error stop or the engine's own failure notice naming one, never a helper's prose.
+        let engineNotice =
+            "Anthropic rate-limited every one of 3 attempts \u{2014} its usage limit resets in ~2h. Send /retry after that, or switch "
+            + "models with /model.\n\nProvider said: HTTP 429: rate_limit_error"
         check(
             "a limit error is a limit, not a failure",
             Limit.hit(stop: "error: 429 rate limit reached for this account", reply: "")
-                && Limit.hit(stop: "end_turn", reply: "API Error: You've hit your usage limit · resets 3pm")
+                && Limit.hit(stop: "end_turn", reply: "API Error: You've hit your usage limit \u{00b7} resets 3pm")
+                && Limit.hit(stop: "end_turn", reply: "Checking the post.\n\n" + engineNotice)
                 && !Limit.hit(stop: "end_turn", reply: "done"))
+        // Nov 10, \"NotArc LinkedIn post\": its finished reply held a post link with \"429\" in its id, then its own
+        // explanation said \"usage limit\": paused at a false limit 6 times, every 30 minutes.
+        let nov10 =
+            "Nothing is left to pick up: the job was finished before the pause. Your NotArc post is live on LinkedIn with the "
+            + "video: https://www.linkedin.com/feed/update/urn:li:activity:7526029415026429952/"
         check(
-            "a window at 100% is the limit",
+            "a helper's own words are never a limit: a link with 429 in it, \"my account hit its usage limit\", \"no rate limits\"",
+            !Limit.hit(stop: "end_turn", reply: nov10)
+                && !Limit.hit(stop: "end_turn", reply: "That explains it. My AI account hit its usage limit, so One paused me for a while.")
+                && !Limit.hit(stop: "end_turn", reply: "The post went up the first time; LinkedIn showed no warnings or rate limits.")
+                && !Limit.has429("activity:7526029415026429952") && Limit.has429("HTTP 429: too many requests"))
+        let t0 = Date()
+        let r3pm = Limit.reset(in: "resets 3pm", now: t0)
+        check(
+            "the reset time from the provider's words (~2h, ~45 min, \"at 15:56 (in 2h 03m)\", 3pm), none from \"temporarily unavailable\"",
+            Limit.reset(in: engineNotice, now: t0) == t0.addingTimeInterval(7200)
+                && Limit.reset(in: "its usage limit resets in ~45 min.", now: t0) == t0.addingTimeInterval(2700)
+                && Limit.reset(in: "Limit resets at 15:56 (in 2h 03m).", now: t0) == t0.addingTimeInterval(7380)
+                && r3pm.map { Calendar.current.component(.hour, from: $0) == 15 && $0 > t0 } == true
+                && Limit.reset(in: "rate-limited every one of 3 attempts \u{2014} it looks temporarily unavailable.", now: t0) == nil
+                && Limit.reset(in: "it resets 3 times a day", now: t0) == nil)
+        check(
+            "a window at 100% with its reset time is the limit; without a reset time it isn't",
             Limit.full(.init(week: 40, reset: nil, session: 100, sessionReset: Date(timeIntervalSince1970: 9)))
-                == .some(Date(timeIntervalSince1970: 9))
-                && Limit.full(.init(week: 99, reset: nil, session: 20, sessionReset: nil)) == nil)
+                == Date(timeIntervalSince1970: 9)
+                && Limit.full(.init(week: 99, reset: nil, session: 20, sessionReset: nil)) == nil
+                && Limit.full(.init(week: 40, reset: nil, session: 100, sessionReset: nil)) == nil)
+        check(
+            "the question always names a time, never \"the next reset\"",
+            !Limit.question(job: "J", account: "A", other: nil, reset: t0.addingTimeInterval(600)).contains("next reset"))
+        phone = []
+        var nf = Helper(title: "NotArc LinkedIn post", task: "Post it", sid: "local-nf", state: "working", line: "")
+        nf.reply = nov10
+        m.helpers = [nf]
+        check(
+            "the Nov 10 reply ends its turn normally: not paused, nothing on the phone",
+            !m.pausedTurnEnded(nf.id, stop: "end_turn") && m.helpers[0].pausedForLimit == nil && phone.isEmpty)
+        Limit.lastMeter = nil
+        m.update(nf.id) { $0.reply = "Rate-limited.\n\nProvider said: HTTP 429 too many requests" }
+        check(
+            "a limit notice with no reset time anywhere: a failed turn, not a pause that waits forever",
+            m.pausedTurnEnded(nf.id, stop: "end_turn") && m.helpers[0].pausedForLimit == nil
+                && m.helpers[0].line == HelperTrail.failedLine && m.helpers[0].state == "stopped")
+        let meterReset = Date().addingTimeInterval(5400)
+        Limit.lastMeter = (Date(), .init(week: 100, reset: meterReset, session: 30, sessionReset: nil))
+        m.update(nf.id) {
+            $0.state = "working"
+            $0.reply = "Provider said: HTTP 429 weekly limit"
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        check(
+            "no time in the notice, but the plan's meter is full: paused until the meter's reset",
+            m.pausedTurnEnded(nf.id, stop: "end_turn") && m.helpers[0].pausedForLimit == true && m.helpers[0].limitReset == meterReset)
+        Limit.lastMeter = nil
+        try? await Task.sleep(for: .milliseconds(300))
+
+        // Stop always wins over a limit wait (Nov 10: Stop pressed four times, the wait stayed, and 30 minutes later
+        // it was woken again and said "I'm staying stopped, as you asked").
+        m.update(nf.id) { $0.state = "working" }  // they wrote "stop" to it: a turn ran while it was paused
+        check(
+            "a paused helper whose turn ended never shows \"working\"",
+            m.pausedTurnEnded(nf.id, stop: "end_turn") && m.helpers[0].state == "stopped" && m.helpers[0].viewState != .working
+                && HelperStop.word(m.helpers[0]) == "paused")
+        m.stopHelper(nf.id)
+        resent = []
+        m.tendLimits(now: meterReset.addingTimeInterval(120))
+        try? await Task.sleep(for: .milliseconds(1500))  // its stop sweep needs a second pass to call it closed
+        var st = m.helpers[0]
+        check(
+            "Stop on a helper waiting for a limit: stopped by you, the wait cleared, never woken at the reset",
+            st.stoppedByYou == true && st.pausedForLimit == nil && st.limitReset == nil && st.viewState == .done
+                && HelperStop.word(st) == "stopped" && resent.isEmpty && StopMark.isMarked("local-nf") && !HelperClose.busy(st))
+        // Their reply to a helper waiting for a limit is the go-ahead (it pauses again if the limit is still real).
+        let w = Helper(title: "Writer", task: "Write it", sid: "local-w", state: "working", line: "")
+        m.helpers.append(w)
+        m.pauseForLimit(w.id, reset: Date().addingTimeInterval(3600))
+        try? await Task.sleep(for: .milliseconds(300))
+        m.carryOnWhenWrittenTo(w.id)
+        check("written to while waiting for a limit: the wait ends", m.helpers[1].pausedForLimit == nil && !StopMark.isMarked("local-w"))
+        // A pause saved by 0.9.109 with no reset time was never a limit: dropped, nothing resent, its result kept.
+        var old = Helper(title: "Old", task: "Post it", sid: "local-old", state: "stopped", line: "")
+        old.pausedForLimit = true
+        old.limitAt = Date().addingTimeInterval(-4000)
+        old.reply = "Your post is live."
+        m.helpers.append(old)
+        resent = []
+        m.tendLimits()
+        try? await Task.sleep(for: .milliseconds(300))
+        st = m.helpers[2]
+        check(
+            "a 0.9.109 pause with no reset time: dropped, never resent, shown done",
+            st.pausedForLimit == nil && resent.isEmpty && st.state == "done" && !HelperClose.busy(st))
+
         let reset = Date().addingTimeInterval(3600)
         let job = Helper(title: "Quebec trip", task: "Goal: plan it", sid: "local-trip", state: "working", line: "")
         m.helpers = [job]
@@ -219,7 +312,7 @@ enum BudgetCheck {
         check("next limit for the same job: it waits quietly (their answer), no question", phone.isEmpty && m.helpers[0].pausedForLimit == true)
         let other = Helper(title: "Lamp", task: "Find a lamp", sid: "local-lamp", state: "working", line: "")
         m.helpers.append(other)
-        m.pauseForLimit(other.id, reset: nil)
+        m.pauseForLimit(other.id, reset: reset)
         try? await Task.sleep(for: .milliseconds(300))
         check("another job is asked again (an answer counts for its own job only)", phone.count == 1 && m.helpers[1].limitChoice == nil)
         await m.answerLimit(other.id, switchAccount: true)

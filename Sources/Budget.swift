@@ -100,6 +100,7 @@ extension Model {
                 return (out, r, mt)
             }.value
             if let r = reading { week = WeekMeter(used: r.week, reset: r.reset.map { Date(timeIntervalSince1970: $0) }) }
+            if let mt = meter { Limit.lastMeter = (Date(), mt) }
             for (id, used) in shares { applyUsage(id, used: used) }
             // A window at 100%: every working helper pauses at the account's limit (and asks), even with no budget.
             if let full = Limit.full(meter) { for (id, _) in pairs { pauseForLimit(id, reset: full) } }
@@ -175,6 +176,7 @@ extension Model {
     /// They wrote to a helper paused at its budget ("Direction A", "Write the rest"): that's the go-ahead. It carries
     /// on with no limit, instead of being paused again 30 s later at the same share (Omar, Nov 10).
     func carryOnWhenWrittenTo(_ id: UUID) {
+        carryOnAfterLimitWrittenTo(id)  // the same for a pause at the account's limit (LimitPause.swift)
         guard let h = helpers.first(where: { $0.id == id }), h.pausedForBudget == true else { return }
         if let sid = h.sid { StopMark.lift(sid) }
         update(id) {
@@ -275,8 +277,8 @@ struct BudgetRow: View {
                     }
                 }
             }
-            if h.pausedForLimit == true, h.limitChoice == nil {
-                Text(Limit.question(job: h.title, account: h.limitAccount ?? "your account", other: h.switchTo, reset: h.limitReset))
+            if h.pausedForLimit == true, h.stoppedByYou != true, h.limitChoice == nil, let reset = h.limitReset {
+                Text(Limit.question(job: h.title, account: h.limitAccount ?? "your account", other: h.switchTo, reset: reset))
                     .font(.system(size: 12.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     if let to = h.switchTo {

@@ -1,0 +1,13 @@
+name: spike
+# Throwaway: can a normal (headful) Chrome stay off screen and out of the Dock, then show its same tab on screen?
+on:
+  push:
+    branches: ['spike-*']
+jobs:
+  spike:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xattr -dr com.apple.quarantine "/Applications/Google Chrome.app" || true
+      - run: bash tools/spike-headful.sh

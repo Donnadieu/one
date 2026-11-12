@@ -130,6 +130,7 @@
 | PopupRender.swift | dev only | `popup-*` renders: each pop-up on the glass over the home scene (`ONE_DESK=<png>` for the desktop under home) |
 | HomeRender.swift | dev only | `--render-world` frames `home-4/8/10/15/22/33` (run from a test copy: it fills the model with made-up helpers) |
 | Routines.swift | service | Routines panel data, read only: the engine's scheduled jobs (`hermes/cron/jobs.json` + last result), skills (engine + each room's `skills/learned`), jobs a Hermes outside One runs; cron schedules in plain words |
+| RoutineRevive.swift | service | a routine the engine switched off by itself after a cut-off run it couldn't check ("Cron execution unverified" / "Canonical cron unknown") with no admission journal left to lift it is turned back on (`hermes cron resume`, so a missed slot is made up once) and said out loud; `Routines.report` reads a finished run's answer, or its error when it left only one, for the chat |
 | RoutineRuns.swift | service | what a routine's last run really did, from its report ("Partly done:") and step log (`hermes/cron/steps/<id>.jsonl`): done, caught up later, partly done, or not done |
 | QuitHold.swift | service | a quit (⌘Q, Dock) while a routine is mid-run tucks into the orb and quits once it's done; logout/shutdown, a second quit and an update's own quit go straight through |
 | RoutinesDial.swift | UI | the 24-hour day dial (Claude Design "Routines View Options", B): marks, bands, labels pushed apart, skills as stars; `One --render-routines <png>` |

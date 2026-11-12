@@ -291,6 +291,8 @@ final class Model: ObservableObject {
     var learnSaving: UUID?  // "Yes, remember it" in the main chat: the job being saved
 
     var heldText = ""
+    var mainTurn = MainTurn()  // what the main chat's turn has done so far (MainFree.swift)
+    var unsentJobs: [UnsentJob] = []  // job files a turn cut off by Stop wrote and never sent
     var pendingReveal: (idx: Int, text: String, token: Int)?
     var revealCount = 0
 

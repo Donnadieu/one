@@ -149,6 +149,58 @@ def prompt(rid, sid, text):
         log(ev="main-end", sid=sid, kind="long")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    m = re.search(r"Do the job in (/\S+?\.md)", text)
+    if m and "STRESSJOB" not in text:  # a helper sent with a job file reads it first, like the real one
+        try:
+            with open(m.group(1)) as f:
+                text = f.read() + "\n" + text
+        except OSError:
+            pass
+        j = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)", text)
+        if j:
+            log(ev="start", job=j.group(1), sid=sid, resumed=False)
+            time.sleep(float(j.group(2)))
+            chunk(sid, "DONE %s" % j.group(1))
+            log(ev="end", job=j.group(1), sid=sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+            return
+    m = re.search(r"STRESSWORK tools=(\d+) gap=(\d+(?:\.\d+)?) (\S+)", text)
+    if m:  # Nov 11: a main-chat turn that reads and checks things itself, step after step, and only then sends a helper
+        n, gap, token = int(m.group(1)), float(m.group(2)), m.group(3)
+        log(ev="main-start", sid=sid, kind="work", title=token)
+        chunk(sid, "Let me look into that first.\n")
+        for i in range(n):
+            call = tool(sid, "terminal: sed -n 1,200p notes-%d.txt" % (i + 1))
+            end = time.time() + gap
+            while time.time() < end:
+                if is_cancelled(sid):
+                    log(ev="main-cancelled", sid=sid, kind="work", title=token, steps=i + 1)
+                    chunk(sid, "Operation interrupted: waiting for model response (0.4s elapsed).")
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.1)
+            tool_done(sid, call)
+        chunk(sid, "Sending a helper.\n[helper: Late helper %s | STRESSJOB LATE%s secs=1]\n" % (token, token))
+        log(ev="main-end", sid=sid, kind="work", title=token)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESSCUT dir=(\S+) jobs=(\S+) wait=(\d+(?:\.\d+)?) (\S+)", text)
+    if m:  # Nov 11, 9:30 PM: two job files written, then the turn is cut off before its helper lines went out
+        d, slugs, wait, token = m.group(1), m.group(2).split(","), float(m.group(3)), m.group(4)
+        log(ev="main-start", sid=sid, kind="cut", title=token)
+        call = tool(sid, "execute_code: write the two jobs")
+        os.makedirs(d, exist_ok=True)
+        for s in slugs:
+            with open(os.path.join(d, s + ".md"), "w") as f:
+                f.write("# %s\n\nThe whole job for %s.\n\nSTRESSJOB %s secs=1\n" % (s.replace("-", " ").capitalize(), token, s))
+        tool_done(sid, call)
+        end = time.time() + wait
+        while time.time() < end and not is_cancelled(sid):
+            time.sleep(0.1)
+        log(ev="main-cancelled", sid=sid, kind="cut", title=token)
+        chunk(sid, "Operation interrupted: waiting for model response (1.5s elapsed).")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
     m = re.search(r'\(One app note, not from the user: "([^"]+)" (is done|needs \S+ yes)', text)
     if m:  # a "by the way" notice: the one line the assistant says for it
         title, done = m.group(1), m.group(2) == "is done"

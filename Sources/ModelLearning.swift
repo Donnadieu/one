@@ -263,6 +263,7 @@ extension Model {
 
     /// A tap on a choice: Undo / Yes, remember it / No thanks are One's own; anything else goes to the assistant.
     func choose(_ c: String) async {
+        if mainFreePick(c) { return }  // Send them now / Leave them, after Stop cut off unsent jobs (MainFree.swift)
         if await learnPick(c) { return }
         await send(c)
     }

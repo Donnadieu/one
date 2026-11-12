@@ -20,7 +20,8 @@ release lists). A message sent meanwhile waited Next up behind the whole turn.
    step starts after 20 s, when a step has run quietly past 20 s, or when a minute has passed with nothing to show.
    One stops the turn (`session/cancel`), starts a helper with their whole ask (pictures saved as files, the steps
    already taken listed), and says in one line that a helper took it. Words still coming with no step (a long reply)
-   are never cut; nor is a turn whose helper line is on the way, a standing goal, or One's own hidden notes.
+   are never cut; nor is a turn whose helper line is on the way, one they asked to be done right here ("own it, don't
+   send a helper"), a standing goal, or One's own hidden notes.
 3. A message they send while the main chat is working (a step under way) hands that work over at once, so their
    message is answered next; a message while it's only talking waits Next up, as before.
 4. A turn that ends cut off (cancelled, failed, "Operation interrupted") after it wrote job files never drops them:

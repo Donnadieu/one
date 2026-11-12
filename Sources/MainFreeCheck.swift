@@ -48,6 +48,10 @@ extension HelperStress {
         )
         check("never once its helper line is on the way", !h(90, 9, 30, true, .step) && !h(90, 9, 30, true, .tick) && !h(90, 9, 30, true, .message))
         check(
+            "\"own it, don't send a helper\" is done right here, never handed over",
+            MainFree.ownIt("Own it, don't send a helper") && MainFree.ownIt("Do this yourself, right here, never with a helper")
+                && !MainFree.ownIt("Fix these Forge bugs"))
+        check(
             "a short plain title from their words",
             MainFree.title("So can you fix these Forge bugs please") == "Fix these Forge bugs" && MainFree.title("?!") == "Your ask")
 

@@ -13,6 +13,8 @@ import Foundation
 //     already taken, and the chat says so in one line;
 //   - a message they send while the main chat is working (any step under way, no helper line yet) hands that work
 //     to a helper at once, so their message is answered next instead of waiting behind it;
+//   - never when they said to do it here ("own it, don't send a helper"), during a standing goal, or for One's own
+//     hidden notes;
 //   - job files a cut-off turn wrote (work/helper-jobs) are never dropped: they go out as helpers, or, after Stop,
 //     the chat says so plainly with Send them now / Leave them.
 
@@ -22,6 +24,8 @@ struct MainTurn {
     var started = Date()
     var live = false
     var hidden = false
+    /// They said to do it here ("own it, don't send a helper"): never handed over.
+    var own = false
     var idx = 0
     var asked: Composed?
     var steps: [String] = []
@@ -55,6 +59,15 @@ enum MainFree {
             // A long step, or quiet work after one; or nothing at all to show for a minute (thinking, squeezing).
             return (n >= 1 && elapsed >= secs && quiet >= 5) || (elapsed >= 60 && quiet >= 10)
         }
+    }
+
+    /// They asked for this one to be done right here, not by a helper.
+    static func ownIt(_ typed: String) -> Bool {
+        let t = typed.lowercased().replacingOccurrences(of: "’", with: "'")
+        return [
+            "own it", "don't send a helper", "do not send a helper", "no helper", "without a helper", "never with a helper",
+            "do it yourself", "do this yourself", "not a helper", "don't use a helper",
+        ].contains { t.contains($0) }
     }
 
     /// A short title for a helper from what they asked (2 to 4 words).
@@ -130,7 +143,7 @@ enum MainFree {
 extension Model {
     /// A main-chat turn begins (runTurn): One watches it until it ends.
     func mainFreeBegin(_ c: Composed, hidden: Bool, idx: Int) {
-        mainTurn = MainTurn(live: true, hidden: hidden, idx: idx, asked: c)
+        mainTurn = MainTurn(live: true, hidden: hidden, own: MainFree.ownIt(c.typed), idx: idx, asked: c)
         guard !hidden else { return }  // One's own notes (a good-morning report, carry on): never handed off
         let id = mainTurn.id
         Task { @MainActor in
@@ -150,7 +163,7 @@ extension Model {
 
     /// Hands the running turn to a helper when it's been working here too long, or they just wrote.
     @discardableResult func mainFreeLook(_ at: MainFree.Moment) -> Bool {
-        guard mainTurn.live, !mainTurn.hidden, mainTurn.handedTo == nil, !paused, goals["main"]?.active != true else { return false }
+        guard mainTurn.live, !mainTurn.hidden, !mainTurn.own, mainTurn.handedTo == nil, !paused, goals["main"]?.active != true else { return false }
         let words = heldText.isEmpty ? (mainTurn.idx < bubbles.count ? bubbles[mainTurn.idx].text : "") : heldText
         if words.count != mainTurn.words {
             mainTurn.words = words.count

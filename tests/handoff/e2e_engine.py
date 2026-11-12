@@ -126,5 +126,6 @@ try:
     SUPERVISOR_REGISTRY.stop(TID)
 except Exception:
     pass
+(Path(os.environ["ONE_HANDOFF_DIR"]) / "engine-done").write_text("1")  # One's half may close this browser now
 print("E2E", "PASS" if fails == 0 else f"FAIL ({fails})")
 os._exit(0 if fails == 0 else 1)

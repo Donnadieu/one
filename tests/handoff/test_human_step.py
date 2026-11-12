@@ -43,7 +43,7 @@ check(kinds.get("passkey.html") in ("passkey", "security_key"), "passkey page: p
 check(kinds.get("decoy.html") == "none", "phone/country-code page: nothing to hand off")
 tab = hs.pick_step_tab(host, port, kinds=("code",))
 check(bool(tab) and tab["url"].endswith(("code.html", "boxes.html")), f"tab picker skips the decoy (picked {tab and tab['url']})")
-check(hs.line_for("amazon.com", "code") == "Type the code amazon.com sent you, then tap Send. I'll put it into the page.", "the chat line, word for word")
+check(hs.line_for("amazon.com", "code") == "I need the code amazon.com sent you. Type it here and I'll take care of it.", "the chat line, word for word")
 check("Amazon app" in hs.phone_fallback("amazon.com", "code"), "phone fallback names the Amazon app")
 
 print("unit:", "ok" if not fails else f"{len(fails)} failed")

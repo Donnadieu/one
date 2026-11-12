@@ -3,6 +3,37 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## The real window comes back for every step, on the helper's very page (0.9.115, Nov 12 2026)
+
+**Problem.** 0.9.113 replaced the real Chrome window for sign-in and approve steps with One's own picture of the
+hidden tab (StepWindow). Omar: the window must be the real browser, as before, with One's card beside it ("the live
+view from previous versions stays forever"), and One decides what to show. On 0.9.114 the DocuSign helper called its
+SMS code page "approve", so he got that picture instead of a code box, and it took no input. The older window
+(0.9.58 to 0.9.112) had its own bug: it opened the page's address again, and DocuSign's code steps exist only as the
+answer to a form, so a fresh load showed the sign-up form (reproduced live Nov 12: the window showed "Create Your Free
+Account" at the code step's address).
+
+**Picked.**
+1. Every step can be shown in the real window (`HumanCheck.wanted` is every kind again); StepWindow is never shown.
+2. A code is asked in the card's box first ("I need the code <site> sent you. Type it here and I'll take care of it."),
+   with Show the window on the same card. After two codes that didn't work, the card says so and offers the window.
+3. The window opens on the helper's very page (`StepPageCopy`): a page reached by sending a form (navigation
+   `form_submit`, or Chrome has no copy to give) is kept as a still copy (fields as typed, the page's style sheets
+   including rules scripts wrote, scripts left out) and shown at its real address through the window's DevTools
+   socket (`Fetch.fulfillRequest`, once). What the person submits goes to the site itself. Pages the site sends in the
+   window are kept as sent (`StepPageWatch`) so the helper's tab comes back on the person's last page with its scripts
+   working. A page its address brings back opens by its address, as before.
+4. The engine decides the kind from the page: a code box means a code step, whatever the helper asked.
+
+**Rejected.** Replaying the page with its own scripts: DocuSign's React app drew the step twice. Reloading or
+re-sending the form: a reload lands on the sign-up form, and re-sending would send another text.
+
+**Proof.** Live DocuSign developer sign-up, throwaway accounts and browser, a test copy of One (`--qa-handoff`): email
+code through the card (inbox) and through the window; Omar's texted code through the card's box (accepted, "Set your
+password"), and his texted code typed in the real window (accepted, window closed, helper's tab on "Set your
+password"). Guard in CI: `make handoff` part 3 (window on a POST-only step, never a GET of it) and the code loop's
+part 2 (window offer) and part 8 (a code page called "approve" gets the code box).
+
 ## A code ask always ends, and never before a code was sent (0.9.114, Nov 11 2026)
 
 **Problem.** On 0.9.113 a helper on DocuSign's SMS step pressed Send Code (the code box did appear, at the same address

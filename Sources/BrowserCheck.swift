@@ -180,8 +180,12 @@ enum BrowserCheck {
         let code = HumanStepAsk(id: "y", site: "claude.ai", kind: "code", line: "", port: 9223, target: "t", url: "https://claude.ai/")
         let signIn = HumanStepAsk(id: "z", site: "claude.ai", kind: "sign_in", line: "", port: 9223, target: "t", url: "https://claude.ai/")
         expect(
-            HumanCheck.wanted(ask) && !HumanCheck.wanted(code) && !HumanCheck.wanted(signIn),
-            "only a robot check, passkey or security key closes the hidden browser for a window; a code or a sign-in keeps the tab")
+            HumanCheck.wanted(ask) && HumanCheck.wanted(code) && HumanCheck.wanted(signIn),
+            "every step can be shown in the real window (a code when they ask for it or the box didn't work)")
+        expect(
+            StepPageCopy.keeps("code") && StepPageCopy.keeps("approve") && StepPageCopy.keeps("sign_in") && !StepPageCopy.keeps("check")
+                && !StepPageCopy.keeps("passkey"),
+            "a code, approve or sign-in window opens on the helper's very page; a robot check or passkey reloads its address")
         expect(HumanCheck.watchesCookie("check") && !HumanCheck.watchesCookie("code"), "only a robot check ends by itself on its cookie")
         expect(
             HumanCheckCard.siteName(site: "claude.ai", url: "https://claude.ai/design/p/1") == "Claude Design"

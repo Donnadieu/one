@@ -178,11 +178,16 @@ check("after the first wrong code, one more ask: \"That code didn't work\"", boo
 check("a code that came from the phone keeps the retry on the phone", bool(q2) and q2.get("phone") is True)
 if q2:
     answer(q2["id"], {"answer": "code", "code": "222222"})
+q3 = open_request(tab, 3, 30)
+check("after the second wrong code, no more boxes: the card says it couldn't and offers the window",
+      bool(q3) and q3.get("box") is False and "couldn't get the code to work" in q3.get("line", ""))
+if q3:
+    answer(q3["id"], {"answer": "cancelled"})  # "Not now"
 r = finish(box, 35)
 print("   hand_off:", brief(r))
-check("after the second wrong code it stops: answer code_failed", r.get("answer") == "code_failed" and r.get("success") is False)
+check("Not now on that card ends it: answer code_failed", r.get("answer") == "code_failed" and r.get("success") is False)
 time.sleep(3)
-check("never a third ask", len(requests(tab)) == 2)
+check("never another ask", len(requests(tab)) == 3)
 check("the site saw exactly two tries", state()["sms_verify_fail"] - fails_before == 2)
 
 print("3. one wrong code, then the right one: it still goes through")
@@ -262,6 +267,18 @@ if q:
 r = finish(box, 12)
 print("   approve + message:", brief(r))
 check("the wait ends with answer message and their words", r.get("answer") == "message" and r.get("message") == "Skip this one")
+
+print("8. One decides from the page: a helper calls a code page \"approve\" (DocuSign, Nov 11 2026)")
+CURRENT["url"] = ""
+tab, ok = code_tab()
+box = start("approve", wait=30)
+q = open_request(tab, 1)
+check("the ask is a code box, not a tap to approve", bool(q) and q.get("kind") == "code" and q.get("box") is True
+      and q.get("line", "").startswith("I need the code"))
+if q:
+    answer(q["id"], {"answer": "cancelled"})
+r = finish(box, 12)
+check("and it ends like any code ask", r.get("answer") == "cancelled")
 
 print("CODE LOOP", "PASS" if fails == 0 else f"FAIL ({fails})")
 os._exit(0 if fails == 0 else 1)

@@ -362,8 +362,8 @@ def site_name(host: str) -> str:
 
 def line_for(site: str, kind: str) -> str:
     if kind == "code":
-        # A code step never shows a browser: the page may exist only in the open tab (see "Codes" below).
-        return f"Type the code {site_name(site)} sent you, then tap Send. I'll put it into the page."
+        # The card's box first; the window (on this same page) is one tap away (see "Codes" below).
+        return f"I need the code {site_name(site)} sent you. Type it here and I'll take care of it."
     if kind == "sign_in":
         return f"I need you for one step: sign in to {site}. Tap Show the window to do it there, then tap Done."
     return (f"I need you for one step: {site} is asking for {ASKING.get(kind, 'a quick check')}. "
@@ -728,6 +728,14 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                              "<url>) and carry on the job on that tab. Never mix work between two different hidden "
                              "browsers mid-job; finish this task on the one that's signed in.")}
     tab = pick_step_tab(host, p, prefer_url=current)
+    # One decides the kind from the page, not from the helper's guess: a page with a code box is a code step (the card's
+    # box), whatever was asked. Nov 11 2026: the DocuSign helper called its SMS code page "approve", so Omar got a
+    # "tap to approve on your phone" ask and a window instead of the code box. A robot check stays a robot check.
+    if kind != "check" and not (tab and tab.get("kind") == "check"):
+        seen = pick_step_tab(host, p, kinds=("code",), prefer_url=current)
+        if seen is not None and seen.get("ws") and (not current or seen.get("url") == current or tab is None
+                                                    or tab.get("target_id") == seen.get("target_id")):
+            kind = "code"
     if kind == "code":
         # Never ask for a code the site hasn't sent: the page must show a code box. Nov 11 2026: DocuSign's SMS step
         # asks for a phone number first, at the same address the code box later appears on.
@@ -761,9 +769,9 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                "line": line_for(site, k), "phone_fallback": phone_fallback(site, k), "why": why[:200], "session": tid}
         _write_json(handoff_dir() / f"{req['id']}.request.json", req)
     start_url = tab["url"]
-    # A robot check, passkey or security key is done in a real window: One closes the hidden browser for it and reopens
-    # the page in a new tab, so "the tab is gone" means nothing there.
-    watch_tab = p if k not in ("check", "passkey", "security_key") else 0
+    # Every step is done in the real window: One closes the hidden browser for it and brings the page back in a new
+    # tab, so "the tab is gone" means nothing here.
+    watch_tab = 0  # every step is shown in the real window now (0.9.115): the hidden tab closes while it's up
     answer = _wait(req, tab.get("ws") or "", start_url, WAIT_SECONDS if wait is None else wait, port=watch_tab)
     _failures.pop(_key(tid, site), None)
     if answer is None:
@@ -874,6 +882,19 @@ def _after_code(ws: str, seconds: float = 12.0) -> dict:
     return {"moved": False, "url": last.get("url", ""), "title": last.get("title", "")}
 
 
+TEXTED_RE = re.compile(r"\b(sms|text message|texted|by text|your phone|phone number|mobile)\b|\+\d[\d\s().-]{6,}", re.I)
+EMAILED_RE = re.compile(r"\b(e-?mail(ed)?|inbox)\b", re.I)
+
+
+def _texted(ws: str) -> bool:
+    """The page says the code went to a phone (and not to an email)."""
+    try:
+        text = str(_page_eval(ws, "(document.body && document.body.innerText || '').slice(0, 4000)") or "")
+    except Exception:
+        return False
+    return bool(TEXTED_RE.search(text)) and not EMAILED_RE.search(text)
+
+
 MAX_CODE_TRIES = 2  # codes the person sends for one hand-off; after the second wrong one it stops (never a third ask)
 _code_tries: dict[str, int] = {}  # tab -> codes the person sent so far, across still_waiting calls
 
@@ -887,11 +908,11 @@ def _code_format(ws: str) -> dict:
 
 
 def _code_request(tab: dict, site: str, port: int, why: str, line: str = "", session: str = "", fmt: Optional[dict] = None,
-                  phone: bool = False, attempt: int = 1) -> dict:
+                  phone: bool = False, attempt: int = 1, box: bool = True) -> dict:
     req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": "code", "port": port,
            "target_id": tab["target_id"], "url": tab["url"], "title": tab.get("title", ""),
            "line": line or line_for(site, "code"), "phone_fallback": phone_fallback(site, "code"), "why": why[:200],
-           "box": True, "session": session, "format": fmt or {}, "try": attempt, "of": MAX_CODE_TRIES}
+           "box": box, "session": session, "format": fmt or {}, "try": attempt, "of": MAX_CODE_TRIES}
     if phone:
         req["phone"] = True  # the last code came from their phone chat: One asks there again, not on the Mac
     _write_json(handoff_dir() / f"{req['id']}.request.json", req)
@@ -910,6 +931,10 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float, session
     since = t0 - 600
     tried: set[str] = set()
     use_inbox = os.environ.get("ONE_INBOX_CODES") != "0" and (_inbox_stand_in() is not None or bool(_google_tokens()))
+    # A code sent by text never comes from an inbox: an email code from the same site (DocuSign's sign-up sends one
+    # minutes before its SMS step) must never be typed into the SMS box.
+    if use_inbox and _texted(ws):
+        use_inbox = False
     fmt = _code_format(ws)
 
     def result(moved: dict, source: str, answer: str = "done") -> dict:
@@ -931,6 +956,58 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float, session
         tried.add(code)
         type_code(ws, code)
         return _after_code(ws)
+
+    def window_open(r: dict) -> bool:
+        return (handoff_dir() / f"{r['id']}.window.json").exists()
+
+    def after_window(a: dict, r: dict) -> dict:
+        """The person did the step in the real window (same page); One brought the page back in a new tab."""
+        _code_tries.pop(tid, None)
+        if str(a.get("answer")) in ("away", "not_at_mac"):
+            return {"success": False, "answer": "not_at_mac", "site": site, "phone_fallback": r["phone_fallback"],
+                    "next": "The person isn't at the Mac. Tell them in one short line; the page stays on this step."}
+        new = next((x for x in _pages("127.0.0.1", port) if x.get("id") == a.get("target_id")), None)
+        if new is None or not new.get("webSocketDebuggerUrl"):
+            return {"success": False, "answer": "done", "moved_on": False, "site": site, "relaunched": True,
+                    "next": (f"One showed the page in a window and hid the browser again, but the page didn't come back. "
+                             f"Open {a.get('url') or tab.get('url')} in a new tab and look where it is; if it still asks "
+                             "for a code, tell the person plainly and stop.")}
+        time.sleep(2)
+        st = page_step(new["webSocketDebuggerUrl"])
+        # Moved on = no code box AND another address: the same address with no code box is the site starting over
+        # (Nov 12 2026: a fresh load of DocuSign's code step showed its sign-up form at the same address).
+        same_page = (st.get("url") or "").split("#")[0] == (tab.get("url") or "").split("#")[0]
+        moved = {"moved": st.get("kind") not in ("code", "unknown") and not same_page, "url": st.get("url", ""),
+                 "title": st.get("title", "")}
+        out = result(moved, "window")
+        out["target_id"] = new.get("id")
+        out["relaunched"] = True
+        out["next"] = (f"The person did the code step in the window and the page moved on. Carry on with the job by "
+                       f"yourself on the new tab (target {new.get('id')}); the old tab is gone." if moved["moved"] else
+                       f"The page (new tab {new.get('id')}) still asks for a code. Don't ask again by yourself; tell "
+                       "the person plainly in one line and stop.")
+        return out
+
+    def offer_window(r: dict) -> dict:
+        """The box didn't work: the card says so and offers the real window on this same page (Omar: "Hey I
+        couldn't. It's not working. Would you like to try in here?"). Not now ends it as code_failed."""
+        r = _code_request(tab, site, port, why, (f"I couldn't get the code to work on {site_name(site)}. Want to try it "
+                                                   "yourself in the window? It opens on this same page."),
+                          session=session, fmt=fmt, attempt=_code_tries.get(tid, MAX_CODE_TRIES), box=False)
+        end = time.time() + max(60.0, seconds)
+        while time.time() < end:
+            if _stopped():
+                return ended("stopped", r)
+            a = _read_json(handoff_dir() / f"{r['id']}.answer.json")
+            if a and a.get("answer"):
+                if a.get("relaunched"):
+                    return after_window(a, r)
+                if str(a["answer"]) == "message":
+                    return ended("message", message=str(a.get("text") or ""))
+                return ended("code_failed", tries=_code_tries.get(tid, MAX_CODE_TRIES))
+            time.sleep(1.0)
+        _close_ask(r, "time")
+        return ended("code_failed", tries=_code_tries.get(tid, MAX_CODE_TRIES))
 
     # 1. A code already in an inbox One can read: nobody is asked.
     if use_inbox:
@@ -954,6 +1031,15 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float, session
     while time.time() < deadline:
         if _stopped():
             return ended("stopped", req)
+        if window_open(req):
+            # The person opened the real window on this page: the hidden browser is closed meanwhile. Wait for One's
+            # answer (Done, the page moved on in the window, or I'm not at the Mac) and look at the page it brought back.
+            a = _read_json(handoff_dir() / f"{req['id']}.answer.json")
+            if a and a.get("relaunched"):
+                return after_window(a, req)
+            deadline = max(deadline, time.time() + 30)
+            time.sleep(1.0)
+            continue
         if time.time() - last_tab > 2:
             last_tab = time.time()
             if _tab_gone(port, tid) and not (handoff_dir() / f"{req['id']}.answer.json").exists():
@@ -984,9 +1070,10 @@ def code_step(tab: dict, site: str, port: int, why: str, seconds: float, session
                 if moved["moved"]:
                     return result(moved, source, "code")
                 if n >= MAX_CODE_TRIES:
-                    return ended("code_failed", tries=n)
+                    return offer_window(req)
                 req = _code_request(tab, site, port, why, f"That code didn't work. Type the newest code {site_name(site)} "
-                                                          "sent you, then tap Send.", session=session, fmt=fmt,
+                                                          "sent you, or tap Show the window to try it there.",
+                                    session=session, fmt=fmt,
                                     phone=source == "phone", attempt=n + 1)
                 continue
             if got in ("cancelled", "no_code"):
@@ -1087,12 +1174,14 @@ def install(ns: dict) -> None:
     schema["description"] += (
         " hand_off (kind optional): a step only the person can do (a code you can't enter, passkey, security key, "
         "approve on their device, CAPTCHA/Cloudflare check, OR SIMPLY A SIGN-IN WALL with no code/captcha — use "
-        "kind=sign_in there): One shows this same live tab (never reopened) with Done / I'm not at the Mac and the call waits, "
-        "then reports moved_on. kind=code shows no page at all: the code is read from an inbox One can read, or One's "
-        "card (or the person's phone chat) asks for it and it is typed into this same open tab; the call waits and "
-        "reports moved_on or a phone_fallback. kind=code only works on a page that shows a code box: on a page that "
+        "kind=sign_in there): One opens the person's real Chrome window on this very page with Done / I'm not at the Mac "
+        "and the call waits, then reports moved_on (the page comes back in a NEW tab: carry on on the target_id it gives). "
+        "One decides the kind from the page: a page with a code box is a code step whatever kind you pass. kind=code: "
+        "the code is read from an inbox One can read, or One's card (or the person's phone chat) asks for it and it is "
+        "typed into this same open tab; the card also offers the real window on this page, and does after two codes that "
+        "didn't work. The call waits and reports moved_on or a phone_fallback. kind=code only works on a page that shows a code box: on a page that "
         "asks for a phone number or email first, fill it in, press its Send Code button, check the code box appeared, "
-        "and only then call hand_off (otherwise it refuses with not_a_code_step). The person gets at most 2 tries; every "
+        "and only then call hand_off (otherwise it refuses with not_a_code_step). The person gets at most 2 tries in the box; every "
         "answer ends the wait: code_failed, no_code, cancelled, not_at_mac, message (their words, in 'message': act on "
         "them), stopped, tab_closed. Never call hand_off again by yourself after one of those; tell the person plainly "
         "and ask. enter_code hands off by itself after 2 failed tries. Call hand_off "

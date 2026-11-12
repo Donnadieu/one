@@ -5,10 +5,11 @@ import AppKit
 /// such a page's address again (a reload, a new tab, a window reopened on the same profile) lands on a log-in page, so
 /// the only thing that works is the very tab the helper was on (One 0.9.58 to 0.9.112 closed the hidden browser and
 /// reopened the address in a window: Omar saw DocuSign's log-in page twice, Nov 11 2026).
-/// 1. A code: no browser shown at all. The card asks for the code; the person types it in the card's box; it lands in
+/// 1. A code: the card asks first, nothing pops up; the person types it in the card's box; it lands in
 ///    the helper's still-open tab (the engine half, tests/handoff/e2e_engine.py, checks the site took it).
-/// 2. A step done in the page (approve): One shows that SAME live tab, never closed or reloaded; what the person does
-///    there lands on the real page; after Done the helper's tab is past the step.
+/// 2. A step done in the page (approve): the real Chrome window opens on the helper's very page (StepPageCopy), never
+///    a fresh load of its address; what the person does there lands on the real site; after Done the hidden browser is
+///    back and the helper's tab is past the step.
 /// The test Chrome plays One's own hidden browser (as in real use). Never the shared hidden browser: the port comes
 /// from ONE_HANDOFF_CDP (a throwaway Chrome on its own port and profile).
 enum HumanStepCheck {
@@ -78,16 +79,14 @@ enum HumanStepCheck {
             return 1
         }
         print("   line: \(a.line)")
-        check("the card says exactly what to do", a.line == "Type the code 127.0.0.1 sent you, then tap Send. I'll put it into the page.")
-        check("nothing pops up on its own", HumanStep.windows[a.id]?.window?.isVisible != true && HumanCheck.active == nil)
-        m.showHumanStep(a)  // the person says yes to whatever One offers
-        try? await Task.sleep(for: .seconds(4))
+        check("the card says exactly what to do", a.line == "I need the code 127.0.0.1 sent you. Type it here and I'll take care of it.")
+        check("nothing pops up on its own", HumanCheck.active == nil)
+        try? await Task.sleep(for: .seconds(2))
         check(
-            "no browser window for a code (the hidden browser was never closed)",
+            "the card asks first: no browser window, the hidden browser still up",
             HumanCheck.active == nil && HumanCheck.mainChrome(profile: profile) == chrome)
         check("the helper's tab is still on the code step, never reloaded", await untouched(a.target, "/send-code"))
         print("2. the person types the code in the card's box and taps Send")
-        if HumanCheck.active != nil { m.answerHumanStep(a.id, "done") }  // (0.9.112: end the window it opened)
         HumanStep.answer(a.id, "code", extra: ["code": "424242"])  // what the card's box sends (and a phone reply)
         let moved = Date().addingTimeInterval(25)
         var path = ""
@@ -100,7 +99,12 @@ enum HumanStepCheck {
         m.tendHumanSteps()
         check("the card left the chat", !m.humanSteps.contains { $0.id == a.id })
 
-        print("3. a step done in the page (approve): One shows that same live tab")
+        print("3. a step done in the page (approve): the real window, on the helper's very page")
+        // The real window closes this test Chrome for a while: wait until the engine half is done with it.
+        let free = Date().addingTimeInterval(120)
+        while Date() < free, !FileManager.default.fileExists(atPath: HumanStep.dir.appendingPathComponent("engine-done").path) {
+            try? await Task.sleep(for: .milliseconds(500))
+        }
         guard let nu = URL(string: "http://127.0.0.1:\(port)/json/new?http://127.0.0.1:\(web)/approve-start") else { return 1 }
         var nreq = URLRequest(url: nu)
         nreq.httpMethod = "PUT"
@@ -109,8 +113,8 @@ enum HumanStepCheck {
         try? await Task.sleep(for: .seconds(1))
         _ = await tab(target, "document.getElementById('start').click()")
         try? await Task.sleep(for: .seconds(1.5))
-        _ = await tab(target, "window.__oneMark = 'same-tab'")
-        check("the tab is on a step that exists only in it", await untouched(target, "/approve"))
+        let invite = await tab(target, "document.querySelector('input[name=invite]').value") as? String ?? ""
+        check("the tab is on a step that exists only in it (a form answer)", !invite.isEmpty)
         let id2 = "approve\(Int(Date().timeIntervalSince1970))"
         let req: [String: Any] = [
             "id": id2, "created": Date().timeIntervalSince1970, "site": "127.0.0.1", "kind": "approve", "port": port, "target_id": target,
@@ -122,57 +126,46 @@ enum HumanStepCheck {
             check("One shows the ask", false)
             return 1
         }
-        let chrome2 = HumanCheck.mainChrome(profile: profile)
         m.showHumanStep(b)  // their yes
-        try? await Task.sleep(for: .seconds(4))
-        check("the hidden browser was never closed", HumanCheck.mainChrome(profile: profile) == chrome2 && chrome2 != nil)
-        check("the helper's tab is still on the step, never reloaded", await untouched(target, "/approve"))
-        let w = HumanStep.windows[b.id]
-        let fe = Date().addingTimeInterval(15)
-        while Date() < fe, (w?.page.frames ?? 0) == 0 { try? await Task.sleep(for: .milliseconds(200)) }
-        check(
-            "what One shows is that same tab, live",
-            w?.window?.isVisible == true && w?.page.target == target && (w?.page.frames ?? 0) > 0)
-        if let w, w.window != nil {
-            func rect(_ id: String) async -> CGRect? {
-                let r = await w.page.call(
-                    "Runtime.evaluate",
-                    [
-                        "expression":
-                            "(() => { const r = document.getElementById('\(id)').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()",
-                        "returnByValue": true,
-                    ])
-                guard let v = (r["result"] as? [String: Any])?["value"] as? [Double], v.count == 4 else { return nil }
-                return CGRect(x: v[0], y: v[1], width: v[2], height: v[3])
-            }
-            func click(_ p: CGPoint) {
-                let c = w.page.canvas
-                let s = w.page.pageSize
-                let r = c.shown
-                let at = c.convert(CGPoint(x: p.x * r.width / s.width + r.minX, y: p.y * r.height / s.height + r.minY), to: nil)
-                for t in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                    guard
-                        let e = NSEvent.mouseEvent(
-                            with: t, location: at, modifierFlags: [], timestamp: 0, windowNumber: w.window?.windowNumber ?? 0, context: nil,
-                            eventNumber: 0, clickCount: 1, pressure: 1)
-                    else { continue }
-                    if t == .leftMouseDown { c.mouseDown(with: e) } else { c.mouseUp(with: e) }
-                }
-            }
-            print("   the person ticks the box and taps Continue in what One shows")
-            if let ok = await rect("ok") { click(CGPoint(x: ok.midX, y: ok.midY)) }
-            try? await Task.sleep(for: .milliseconds(400))
-            if let go = await rect("cont") { click(CGPoint(x: go.midX, y: go.midY)) }
-            try? await Task.sleep(for: .seconds(1.5))
+        var wpid: pid_t?
+        for _ in 0..<40 where wpid == nil {
+            try? await Task.sleep(for: .milliseconds(500))
+            wpid = HumanCheck.active?.pid
         }
-        m.answerHumanStep(b.id, "done")
+        check("a real Chrome window opened on the same profile", wpid != nil)
+        check("One never shows its own picture of the hidden tab", HumanStep.windows[b.id]?.window == nil)
+        let wport = port + 20000
+        func win(_ expr: String) async -> Any? {
+            guard let t = StepPageCopy.firstPage(port: wport) else { return nil }
+            let p = StepPage(port: wport, target: t)
+            p.connectQuiet()
+            defer { p.disconnect() }
+            let r = await p.call("Runtime.evaluate", ["expression": expr, "returnByValue": true])
+            return (r["result"] as? [String: Any])?["value"]
+        }
+        var shown = ""
+        for _ in 0..<30 where shown != "/approve" {
+            try? await Task.sleep(for: .milliseconds(500))
+            shown = await win("location.pathname + (document.getElementById('ok') ? '' : ' (no step)')") as? String ?? ""
+        }
+        check("the window shows the helper's very step, not a log-in page (\(shown))", shown == "/approve")
+        check("with the step's own one-time state", await win("document.querySelector('input[name=invite]').value") as? String == invite)
+        print("   the person ticks the box and taps Continue in the window")
+        _ = await win("document.getElementById('ok').click(); document.getElementById('cont').click()")
         try? await Task.sleep(for: .seconds(2))
-        let after = alive(target) ? (await tab(target, "location.pathname + location.search") as? String ?? "") : "gone"
-        check("after Done the helper's same tab is past the step (\(after))", after == "/welcome.html?who=approved")
-        check("the site never saw its POST-only pages reopened", (siteState()["gets_bounced"] as? Int) == 0)
-        let ans = (try? Data(contentsOf: HumanStep.dir.appendingPathComponent("\(b.id).answer.json")))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        check("Done reached the engine", ans?["answer"] as? String == "done")
+        m.answerHumanStep(b.id, "done")  // the card's Done
+        var ans: [String: Any] = [:]
+        for _ in 0..<60 where ans["relaunched"] == nil {
+            try? await Task.sleep(for: .seconds(1))
+            ans =
+                (try? Data(contentsOf: HumanStep.dir.appendingPathComponent("\(b.id).answer.json")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        }
+        let back = ans["target_id"] as? String ?? ""
+        let after = alive(back) ? (await tab(back, "location.pathname + location.search") as? String ?? "") : "gone"
+        check("the hidden browser is back and the helper's tab is past the step (\(after))", after == "/welcome.html?who=approved")
+        check("the site never saw its form-only pages opened again", (siteState()["gets_bounced"] as? Int) == 0)
+        check("Done reached the engine", ans["answer"] as? String == "done")
 
         print("4. I'm not at the Mac")
         let fake = "check\(Int(Date().timeIntervalSince1970))"

@@ -3,6 +3,39 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## The main chat is always free to talk: One hands a long turn to a helper itself (0.9.116, Nov 12 2026)
+
+**Problem.** Omar: "We should always default to a helper. My main assistant should always be ready to talk." On Nov 11
+at about 9:30 PM he sent Forge bug screenshots and a long note. The main chat read the note (16 s), wrote two long job
+files with one tool call (another 42 s), then the engine squeezed the long conversation (102 s) before its reply; he
+pressed Stop at 2 min 42 s, before the helper lines went out. The reply on screen was "Operation interrupted: waiting
+for model response", the two job files sat in `work/helper-jobs`, and nothing was sent (state.db rows 98019-98024,
+gateway.log 22:29:11-22:31:53). Earlier that day the main chat also ran checks itself (hand-off files, process lists,
+release lists). A message sent meanwhile waited Next up behind the whole turn.
+
+**Picked: One finishes the turn and sends the work as a helper (MainFree.swift).**
+1. The rule, in SOUL and the note on every prompt: the helper line goes in the first reply with the whole job on that
+   line; never a job file first, never reading, commands or checks here beyond one quick look.
+2. The safety net: a visible main-chat turn with no helper line yet is handed over when a 4th step starts, when any
+   step starts after 20 s, when a step has run quietly past 20 s, or when a minute has passed with nothing to show.
+   One stops the turn (`session/cancel`), starts a helper with their whole ask (pictures saved as files, the steps
+   already taken listed), and says in one line that a helper took it. Words still coming with no step (a long reply)
+   are never cut; nor is a turn whose helper line is on the way, a standing goal, or One's own hidden notes.
+3. A message they send while the main chat is working (a step under way) hands that work over at once, so their
+   message is answered next; a message while it's only talking waits Next up, as before.
+4. A turn that ends cut off (cancelled, failed, "Operation interrupted") after it wrote job files never drops them:
+   they go out as helpers ("I'd written 2 jobs but got cut off…"). After Stop nothing starts by itself: the chat
+   names them with Send them now / Leave them.
+
+**Rejected: warn and let the next message through.** The warning still leaves the work stuck in the main chat and
+asks Omar to act; it doesn't make the assistant free, and a stuck turn still holds the conversation (one turn at a
+time per conversation). **Rejected: an engine plugin that blocks tools after 20 s.** The model would still have to
+write the helper line itself (the slow part on Nov 11 was writing and squeezing, not tools), and a stuck model call
+or squeeze would never be caught.
+
+**Proof.** `tools/main-free-check.sh` (preflight, every pull request) replays the evening on the stand-in engine.
+Red on 0.9.115 (CI run linked in PR #126), green on 0.9.116.
+
 ## The real window comes back for every step, on the helper's very page (0.9.115, Nov 12 2026)
 
 **Problem.** 0.9.113 replaced the real Chrome window for sign-in and approve steps with One's own picture of the

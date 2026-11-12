@@ -36,6 +36,21 @@ extension HelperStress {
             check("\(name): One hands a long turn to a helper itself", text.contains("about 20 seconds"))
         }
 
+        print("   when One hands a turn over (MainFree.handOff)")
+        let h = MainFree.handOff
+        check("a 4th step: handed over", h(8, 4, 0, false, .step) && !h(8, 3, 0, false, .step))
+        check("any step after 20 s: handed over", h(21, 2, 0, false, .step) && !h(15, 2, 0, false, .step))
+        check("a long single step, quiet past 20 s: handed over", h(21, 1, 6, false, .tick) && !h(21, 1, 2, false, .tick))
+        check("words still coming and no step: never (a long reply)", !h(45, 0, 1, false, .tick))
+        check("nothing at all for a minute: handed over", h(61, 0, 12, false, .tick))
+        check(
+            "a message while a step is under way: handed over; while only talking: never", h(3, 1, 0, false, .message) && !h(3, 0, 0, false, .message)
+        )
+        check("never once its helper line is on the way", !h(90, 9, 30, true, .step) && !h(90, 9, 30, true, .tick) && !h(90, 9, 30, true, .message))
+        check(
+            "a short plain title from their words",
+            MainFree.title("So can you fix these Forge bugs please") == "Fix these Forge bugs" && MainFree.title("?!") == "Your ask")
+
         print("2. Nov 11 replayed: a turn that reads and checks things itself (8 steps, 32 s) before it sends anything")
         let sent = Date()
         Task { await m.send("Fix these Forge bugs STRESSWORK tools=8 gap=4 TOKA") }
@@ -50,7 +65,7 @@ extension HelperStress {
         let said2 = lastSaid()
         check(
             "the chat says plainly a helper took it (\(said2.prefix(70)))",
-            said2.contains("helper") && !said2.contains("Operation interrupted") && !said2.contains("[helper"))
+            said2.contains("sent a helper") && !said2.contains("Operation interrupted") && !said2.contains("[helper"))
         check("its own late helper line never went out on top", !m.helpers.contains { $0.title == "Late helper TOKA" })
 
         print("3. a message sent while such a turn works is answered right away")

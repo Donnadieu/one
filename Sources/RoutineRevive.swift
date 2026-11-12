@@ -110,7 +110,7 @@ extension Routines {
         if title.hasSuffix(" (FAILED)") { title = String(title.dropLast(" (FAILED)".count)) }
         if let r = text.range(of: "## Response") {
             var body = String(text[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let cut = body.range(of: "\n⚠️") { body = String(body[..<cut.lowerBound]) }
+            if let cut = body.range(of: "\n⚠️") { body = String(body[..<cut.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines) }
             if body.isEmpty || body.hasPrefix("[SILENT]") { return nil }
             return (title, body)
         }

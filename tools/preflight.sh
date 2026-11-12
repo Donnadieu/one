@@ -266,7 +266,7 @@ grep "✗" "$T/pg/out.txt" 2>/dev/null | sed 's/^/    /'
 echo "The main chat is always free to talk (stand-in engine, no cost; Nov 11 replayed)"
 LIMIT=360 check "long tool work cut short and handed to a helper, a message meanwhile answered at once, a cut-off turn's job files sent (asked after Stop), a quick look and a long reply never cut" \
   bash -c "tools/main-free-check.sh --no-build > '$T/mf.txt' 2>&1"
-grep "✗" "$T/mf.txt" 2>/dev/null | sed 's/^/    /'
+grep -e "✗" -e "^   \[" "$T/mf.txt" 2>/dev/null | sed 's/^/    /'  # how fast the main chat was free, each time
 grep -q "main-free-check ok" "$T/mf.txt" 2>/dev/null || grep -q "✗" "$T/mf.txt" 2>/dev/null || tail -12 "$T/mf.txt" 2>/dev/null | sed 's/^/    /'
 
 if [ $QUICK = 0 ]; then

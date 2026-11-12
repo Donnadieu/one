@@ -5,8 +5,8 @@ import AppKit
 // Rule (Omar): when a helper or the assistant hits a step only the person can do (a Cloudflare or
 // "verify you are human" check, a sign-in, a 2FA code, a passkey, a button), it stops at once, shows as
 // "needs your yes" and asks in plain words: what's blocked, the one thing they must do, and "Can I show you
-// the window?". After the yes One shows that one window (the live view of the hidden browser's tab,
-// `StepWindow`, never a visible browser), then the job carries on exactly as asked: never skipped, never
+// the window?". After the yes One shows that one window (the real Chrome window on the helper's very page, with
+// One's card beside it: HumanCheck + StepPageCopy), then the job carries on exactly as asked: never skipped, never
 // swapped for another method (a helper once drew pictures by hand when Claude Design showed a Cloudflare check).
 //
 // Three layers: SOUL (`Persona.soul`), the note on every prompt (`Helpers.note` for the main assistant,

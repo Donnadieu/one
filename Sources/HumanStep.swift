@@ -9,12 +9,13 @@ import SwiftUI
 // waits for that answer, then checks the page moved on. The page is never closed or reopened: many steps exist
 // only in the open tab (a form POST answer, like DocuSign's "enter the code we sent"), and reopening their
 // address lands on a log-in page (One 0.9.58 to 0.9.112 did that, Nov 11 2026). So, by the step's kind:
-// - a code: no browser at all. The card has a box ("Type the code <site> sent you"); away from the Mac the same
-//   ask goes to their phone chat and their reply is the code. The engine types it into the still-open tab.
-// - a step done in the page (sign in, approve): that SAME live tab in One's window (StepWindow), or on the phone.
-// - a robot check, a passkey or a security key: the plain Chrome window (HumanCheck.swift); those need a real
-//   browser window, and their pages come back on a reload.
-// A code never passes through the chat.
+// - a code: the card asks first, with a box ("I need the code <site> sent you…"); away from the Mac the same ask goes to
+//   their phone chat and their reply is the code. The engine types it into the still-open tab. If that doesn't work,
+//   the card says so and offers the window; "Show the window" is on every code card too.
+// - everything else (a sign-in, approve, a robot check, a passkey): the real window, as before 0.9.113.
+// The real window is the same saved profile in a plain Chrome (HumanCheck.swift), on the helper's very page
+// (StepPageCopy: the page as the site sent it, never a fresh load of its address). One's own picture of the hidden
+// tab (StepWindow, 0.9.113) is never shown (Omar, Nov 11 2026). A code never passes through the chat.
 
 struct HumanStepAsk: Identifiable, Equatable {
     let id: String
@@ -28,6 +29,7 @@ struct HumanStepAsk: Identifiable, Equatable {
     var session = ""  // the helper's conversation that's waiting on it (a message to that helper ends the wait)
     var phone = false  // a retry whose last code came from their phone chat: asked there again, not on the Mac
     var retry = false  // the code before didn't work
+    var box = true  // a code card with a box; false = the box didn't work, the card offers the window
 }
 
 enum HumanStep {
@@ -51,7 +53,7 @@ enum HumanStep {
                 HumanStepAsk(
                     id: id, site: site, kind: kind, line: j["line"] as? String ?? line(site: site, kind: kind), port: port, target: target,
                     url: j["url"] as? String ?? "", ask: j["ask"] as? Bool ?? false, session: j["session"] as? String ?? "",
-                    phone: j["phone"] as? Bool ?? false, retry: (j["try"] as? Int ?? 1) > 1))
+                    phone: j["phone"] as? Bool ?? false, retry: (j["try"] as? Int ?? 1) > 1, box: j["box"] as? Bool ?? true))
         }
         return out
     }
@@ -63,7 +65,7 @@ enum HumanStep {
 
     /// The line in the chat, word for word (the engine sends the same one).
     static func line(site: String, kind: String) -> String {
-        if kind == "code" { return "Type the code \(PhoneHandoff.site(site)) sent you, then tap Send. I'll put it into the page." }
+        if kind == "code" { return "I need the code \(PhoneHandoff.site(site)) sent you. Type it here and I'll take care of it." }
         return "I need you for one step: \(site) is asking for \(asking[kind] ?? "a quick check"). Tap Show the window to do it there, then tap Done."
     }
 
@@ -86,6 +88,12 @@ enum HumanStep {
         guard let d = try? JSONSerialization.data(withJSONObject: j) else { return }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? d.write(to: dir.appendingPathComponent("\(id).phone.json"), options: .atomic)
+    }
+
+    /// The person opened the window for a code step: the engine waits for the window instead of the box.
+    static func markWindow(_ id: String) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data(#"{"window":true}"#.utf8).write(to: dir.appendingPathComponent("\(id).window.json"), options: .atomic)
     }
 
     /// "done" or "away". The engine reads it and carries on.
@@ -122,8 +130,6 @@ extension Model {
                 continue
             }
             humanSteps.append(a)
-            let w = StepWindow(a) { [weak self] answer in self?.answerHumanStep(a.id, answer) }
-            HumanStep.windows[a.id] = w
             // Never put a window in front on its own: their tap on "Show the window" is the yes (BrowserGuard rule).
             if !Voice.shared.muted { enqueue(.line(bubble: nil, spoken: a.line)) }  // after whatever is being said, never into it
         }
@@ -149,20 +155,15 @@ extension Model {
         blockedAnswered(id, answer)  // a helper One stopped at a robot check carries on with the job as asked
     }
 
-    /// Their yes ("Yes, show it" on the card, in the chat, or "Show the window") is the yes to that window. A robot
-    /// check, passkey or security key: the same profile opens as a plain Chrome window on the blocked page (address
-    /// bar, nothing attached, so the tick counts). A sign-in or approve: the SAME live tab in One's window, never
-    /// closed or reopened (a page reached by a form POST can't be reopened). A code: no window at all (the card's box).
+    /// Their yes ("Yes, show it" on the card, in the chat, or "Show the window") is the yes to that window: the same
+    /// profile opens as a plain Chrome window (address bar, nothing attached while they work) on the helper's very
+    /// page, with One's card beside it. For a code too, when they ask for it or the box didn't work.
     func showHumanStep(_ a: HumanStepAsk) {
-        if HumanStep.takesCode(a.kind) {
-            // Never a browser for a code: the page may exist only in the open tab. The card's box takes the code.
-            HumanCheck.log("\(a.site): a code step; the card's box takes it, no window")
-            return
-        }
         if HumanCheck.active != nil {
             HumanCheck.log("\(a.site): a check window is already open; not opening a second one")
             return
         }
+        if HumanStep.takesCode(a.kind) { HumanStep.markWindow(a.id) }  // the engine stops typing into the tab meanwhile
         if HumanCheck.wanted(a),
             HumanCheck.begin(
                 a,
@@ -173,8 +174,8 @@ extension Model {
         {
             return
         }
-        HumanCheck.log("\(a.site): showing the same live tab (\(a.kind)), never closed or reopened")
-        HumanStep.windows[a.id]?.show()
+        // Never One's own picture of the hidden tab instead (0.9.113): the card stays, and so does the phone.
+        HumanCheck.log("\(a.site): the window couldn't open for this browser (port \(a.port)); the card stays")
     }
 
     /// The code from the card's box: to the engine, which types it into the still-open tab and submits.
@@ -226,8 +227,15 @@ struct HumanStepCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(a.line).font(.headline).fixedSize(horizontal: false, vertical: true)
-            if HumanStep.takesCode(a.kind) {
-                // No browser for a code: it goes from this box straight into the page the helper has open.
+            if HumanStep.takesCode(a.kind) && !a.box {
+                // The box didn't work: the person tries it themselves, in the real window on the same page.
+                HStack {
+                    Button("Show the window") { Model.shared.showHumanStep(a) }.buttonStyle(.borderedProminent)
+                    Button("Not now") { answer("cancelled") }.buttonStyle(.bordered)
+                    Spacer()
+                }
+            } else if HumanStep.takesCode(a.kind) {
+                // A code goes from this box straight into the page the helper has open; the window is one tap away.
                 HStack {
                     TextField("Code", text: $code).textFieldStyle(.roundedBorder).font(.title3.monospacedDigit()).frame(maxWidth: 180)
                         .onSubmit { Model.shared.sendHumanCode(a.id, code) }
@@ -241,6 +249,7 @@ struct HumanStepCard: View {
                     Button("Cancel") { answer("cancelled") }.buttonStyle(.bordered)
                     Button("I'm not at the Mac") { answer("away") }.buttonStyle(.bordered)
                     Spacer()
+                    Button("Show the window") { Model.shared.showHumanStep(a) }.buttonStyle(.bordered)
                 }
             } else if a.ask && !shown {
                 // One's own ask: the window shows only after their yes.

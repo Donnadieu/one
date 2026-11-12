@@ -64,7 +64,7 @@ final class OneDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in exit(await HumanStepCheck.run()) }
             return
         }
-        if HumanCheckLive.launch() || HelperStress.launch() || WindowGuardCheck.launch() { return }  // -window/-stress/-guard checks
+        if HumanCheckLive.launch() || HandoffQA.launch() || HelperStress.launch() || WindowGuardCheck.launch() { return }  // test modes
         if MessageHistoryCheck.launch() || MessageHistoryClickCheck.launch() || MessageTypingPerfCheck.launch() { return }  // --test-message-* checks
         if ResetCheck.launch() { return }  // --test-reset (tools/reset-check.sh)
         if CommandLine.arguments.contains("--test-helpers") {

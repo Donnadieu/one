@@ -21,10 +21,11 @@ enum HumanCheck {
     struct Session {
         let id: String
         let site: String
-        let url: String
+        var url: String
         let profile: String
         let port: Int
         let kind: String
+        let target: String
         let started: Date
         var pid: pid_t?
     }
@@ -34,13 +35,11 @@ enum HumanCheck {
     nonisolated(unsafe) static var requested: String?
     static let waitLimit: TimeInterval = 600
 
-    /// Only the steps that need a real browser window get it: a robot check (a click through DevTools is refused) and
-    /// a passkey or security key (a hidden browser can't show the Mac's passkey sheet). Their pages come back after a
-    /// reopen. Everything else keeps the page where it is, because closing and reopening loses any page reached by a
-    /// form POST (DocuSign's code page went to its log-in page, 0.9.58 to 0.9.112, Nov 11 2026): a code goes in from
-    /// the card's box (HumanStep.swift), a sign-in or approve is shown live, the same tab (StepWindow.swift).
-    static let windowKinds: Set<String> = ["check", "passkey", "security_key"]
-    static func wanted(_ a: HumanStepAsk) -> Bool { windowKinds.contains(a.kind) }
+    /// Every step only a person can do (robot check, sign-in, code, passkey, approve) is shown in the real window, the
+    /// same saved profile in a plain Chrome (Omar, Nov 11 2026: "the live view from previous versions stays forever").
+    /// One's own picture of the hidden tab (0.9.113, StepWindow) is never shown. A code is asked in the card's box
+    /// first; the window is always one tap away and opens on the helper's very page (StepPageCopy).
+    static func wanted(_ a: HumanStepAsk) -> Bool { !a.kind.isEmpty }
 
     /// Robot checks end by themselves when the check's cookie lands; other steps end on Done or Chrome closing.
     static func watchesCookie(_ kind: String) -> Bool { kind == "check" }
@@ -65,7 +64,8 @@ enum HumanCheck {
         if active?.id == a.id { return true }
         guard active == nil, let p = BrowserKeeper.plan, p.port == a.port, let app = BrowserKeeper.chromeApp else { return false }
         let url = a.url.hasPrefix("http") ? a.url : "https://\(a.site)/"
-        active = Session(id: a.id, site: a.site, url: url, profile: p.profile, port: p.port, kind: a.kind, started: Date(), pid: nil)
+        active = Session(
+            id: a.id, site: a.site, url: url, profile: p.profile, port: p.port, kind: a.kind, target: a.target, started: Date(), pid: nil)
         requested = nil
         Task.detached {
             let answer = await run(app: app)
@@ -84,10 +84,14 @@ enum HumanCheck {
     static func run(app: String) async -> String {
         guard var s = active else { return "done" }
         defer { active = nil }
-        log("\(s.site): closing the hidden browser and opening a plain Chrome window on the same profile")
+        // The helper's very page, as the site sent it: the window shows that, not a fresh load of its address.
+        let kept = StepPageCopy.keeps(s.kind) ? await StepPageCopy.keep(port: s.port, target: s.target) : nil
+        if let kept { s.url = kept.url }
+        log("\(s.site): closing the hidden browser and opening a plain Chrome window on the same profile\(kept == nil ? "" : ", on the same page")")
         await closeHidden(port: s.port, profile: s.profile)
         let wport = windowPort(kind: s.kind, hiddenPort: s.port)
-        if let e = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: s.url, app: app, port: wport)) {
+        let first = kept == nil || wport == nil ? s.url : "about:blank"
+        if let e = BrowserKeeper.openApp(headedArguments(profile: s.profile, url: first, app: app, port: wport)) {
             log("couldn't open the window: \(e)")
         }
         for _ in 0..<20 where s.pid == nil {
@@ -102,6 +106,22 @@ enum HumanCheck {
                 s.pid = mainChrome(profile: s.profile)
             }
         }
+        var wtarget = ""
+        let watch = StepPageWatch()
+        defer { watch.stop() }
+        if let kept, let wport, s.pid != nil {
+            for _ in 0..<30 where wtarget.isEmpty {
+                try? await Task.sleep(for: .milliseconds(300))
+                wtarget = StepPageCopy.firstPage(port: wport) ?? ""
+            }
+            watch.start(port: wport, target: wtarget)  // the site's own next pages, kept as sent (for the way back)
+            let ok = await StepPageCopy.show(kept, port: wport, target: wtarget)
+            log("\(s.site): \(ok ? "the window shows the helper's same page" : "couldn't show the same page; the window has its address")")
+            if !ok, let st = StepPageCopy.socket(port: wport, target: wtarget) {
+                _ = await cdpCall(st, id: 1, "Page.navigate", ["url": kept.url])
+                st.cancel(with: .normalClosure, reason: nil)
+            }
+        }
         active = s
         let shown = s
         await MainActor.run { HumanCheckCard.show(id: shown.id, site: shown.site, url: shown.url, kind: shown.kind, pid: shown.pid) }
@@ -109,6 +129,7 @@ enum HumanCheck {
         var why = s.pid == nil ? "the window didn't open" : "time limit"
         if s.pid == nil { answer = "away" }
         let cookies = s.profile + "/Default/Cookies"
+        var movedSince: Date?
         while s.pid != nil, Date().timeIntervalSince(s.started) < waitLimit {
             try? await Task.sleep(for: .seconds(2))
             let pid = s.pid
@@ -126,13 +147,35 @@ enum HumanCheck {
                 why = "they closed Chrome"
                 break
             }
+            // The step is done in the window (the code went in and the site moved on): close it, as the card says.
+            if let kept, HumanStep.takesCode(s.kind), let wport, let now = await StepPageCopy.address(port: wport, target: wtarget),
+                now.hasPrefix("http"), !StepPageCopy.same(now, kept.url)
+            {
+                movedSince = movedSince ?? Date()
+                if Date().timeIntervalSince(movedSince ?? Date()) > 3 {
+                    why = "the page moved on in the window"
+                    break
+                }
+            } else {
+                movedSince = nil
+            }
         }
         log("\(s.site): \(why); closing the window and hiding the browser again")
         await MainActor.run { HumanCheckCard.close() }
         // What they did in the window (a code typed, a sign-in) often lives in short-lived sign-ins only: keep them
         // through the quit, or the hidden browser comes back on the step before.
+        // Where the person ended up: the helper carries on there. Still on the kept page: that same page comes back.
+        var lastURL = s.url
+        var lastPage: StepPageCopy.Page?
         if let wport, BrowserKeeper.alive(wport) {
             log("\(s.site): kept \(await keepSessionCookies(port: wport)) short-lived sign-ins from the window")
+            if let now = await StepPageCopy.address(port: wport, target: wtarget), now.hasPrefix("http") { lastURL = now }
+            if kept != nil, let sent = watch.page(lastURL), !StepPageCopy.same(lastURL, s.url) {
+                // A page the site sent in the window (the step after the code): back as sent, its scripts working.
+                if await StepPageCopy.keep(port: wport, target: wtarget) != nil { lastPage = sent }
+            } else if kept != nil, StepPageCopy.same(lastURL, s.url) {
+                lastPage = await StepPageCopy.keep(port: wport, target: wtarget) ?? kept  // still on the step: as it is
+            }
         }
         if let pid = s.pid ?? mainChrome(profile: s.profile) { await quit(pid) }
         // The keeper starts the hidden browser again (same profile, normal user agent) as soon as nothing holds the profile.
@@ -144,10 +187,14 @@ enum HumanCheck {
         var target = ""
         for _ in 0..<30 where target.isEmpty {
             try? await Task.sleep(for: .seconds(1))
-            if BrowserKeeper.alive(s.port) { target = await openTab(port: s.port, url: s.url) ?? "" }
+            if BrowserKeeper.alive(s.port) { target = await openTab(port: s.port, url: lastPage == nil ? lastURL : "about:blank") ?? "" }
+        }
+        if let lastPage, !target.isEmpty {
+            let ok = await StepPageCopy.show(lastPage, port: s.port, target: target)
+            log("\(s.site): \(ok ? "the helper's tab is back on the same page" : "couldn't bring the same page back")")
         }
         log("\(s.site): hidden again\(target.isEmpty ? " (the page didn't reopen)" : ", page reopened in tab \(target)")")
-        HumanStep.answer(s.id, answer, extra: ["relaunched": true, "target_id": target, "url": s.url, "why": why])
+        HumanStep.answer(s.id, answer, extra: ["relaunched": true, "target_id": target, "url": lastURL, "why": why])
         return answer
     }
 

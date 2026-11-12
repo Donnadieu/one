@@ -263,6 +263,12 @@ mkdir -p "$T/pg"
 check "real step words, its time past 30 s, a slow command, no progress after 6 quiet min (never stopped), plan line, a build waiting its turn" bash -c "ONE_SUPPORT_DIR=$T/pg $TBIN --test-progress | tee $T/pg/out.txt | grep -q '^progress ok'"
 grep "✗" "$T/pg/out.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "The main chat is always free to talk (stand-in engine, no cost; Nov 11 replayed)"
+LIMIT=360 check "long tool work cut short and handed to a helper, a message meanwhile answered at once, a cut-off turn's job files sent (asked after Stop), a quick look and a long reply never cut" \
+  bash -c "tools/main-free-check.sh --no-build > '$T/mf.txt' 2>&1"
+grep "✗" "$T/mf.txt" 2>/dev/null | sed 's/^/    /'
+grep -q "main-free-check ok" "$T/mf.txt" 2>/dev/null || grep -q "✗" "$T/mf.txt" 2>/dev/null || tail -12 "$T/mf.txt" 2>/dev/null | sed 's/^/    /'
+
 if [ $QUICK = 0 ]; then
   echo "Lots of helpers survive restarts (stand-in engine, no cost)"
   LIMIT=480 check "100 at once; engine killed, One killed and an update mid-run: every one listed, none doubled or falsely done, all finish" \

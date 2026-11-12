@@ -71,7 +71,7 @@ enum HelperStress {
     }
 
     @MainActor
-    static func setUp() async -> Model? {
+    static func setUp(watching: Bool = true) async -> Model? {
         guard Env.selfTest, Bundle.main.bundleIdentifier != TestWorld.productionID, Env.testEngine != nil,
             ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil
         else {
@@ -89,7 +89,7 @@ enum HelperStress {
             return nil
         }
         try? await Task.sleep(for: .milliseconds(300))  // the engine's news (getting ready / ready) reaches the model
-        watch(m)
+        if watching { watch(m) }  // the main-chat check sends jobs that are not STRESSJOBs
         return m
     }
 
@@ -228,11 +228,13 @@ enum HelperStress {
 
     @MainActor
     static func run(_ phase: String) async -> Int32 {
-        guard let m = await setUp() else { return 2 }
+        guard let m = await setUp(watching: phase != "mainfree") else { return 2 }
         let t0 = Date()
         func at() -> String { String(format: "%5.1fs", Date().timeIntervalSince(t0)) }
         let fm = FileManager.default
         switch phase {
+        case "mainfree":
+            return await mainFreeCheck(m)  // MainFreeCheck.swift: the main chat is always free to talk
         case "queue":
             return await queueCheck(m)  // QueueCheck.swift: one line for everything the assistant says
         case "start":

@@ -22,8 +22,9 @@ enum StepPageCopy {
     static func keeps(_ kind: String) -> Bool { !HumanCheck.watchesCookie(kind) && kind != "passkey" && kind != "security_key" }
 
     /// The page in that tab, when it can't be opened again by its address: a page reached by sending a form (its
-    /// navigation says `form_submit`, or Chrome has no copy of it to give, as for any form answer), kept as it is on
-    /// screen. Nil for a page its address brings back (the window just opens the address, as before).
+    /// navigation says `form_submit`; DocuSign's sign-up and text-code steps do), kept as it is on screen. Nil for a
+    /// page its address brings back (the window just opens the address, as before). Chrome keeps no copy of either
+    /// kind of page to ask for (`Page.getResourceContent` answers "not cached"), so the copy is made from the page.
     static func keep(port: Int, target: String) async -> Page? {
         guard let s = socket(port: port, target: target) else { return nil }
         defer { s.cancel(with: .normalClosure, reason: nil) }
@@ -34,15 +35,12 @@ enum StepPageCopy {
         defer { watchdog.cancel() }
         _ = await HumanCheck.cdpCall(s, id: 1, "Page.enable")
         guard let tree = await HumanCheck.cdpCall(s, id: 2, "Page.getFrameTree"),
-            let f = (tree["frameTree"] as? [String: Any])?["frame"] as? [String: Any], let fid = f["id"] as? String,
-            let url = f["url"] as? String, url.hasPrefix("http")
+            let f = (tree["frameTree"] as? [String: Any])?["frame"] as? [String: Any], let url = f["url"] as? String, url.hasPrefix("http")
         else { return nil }
         let h = await HumanCheck.cdpCall(s, id: 3, "Page.getNavigationHistory")
         let entries = h?["entries"] as? [[String: Any]] ?? []
         let at = h?["currentIndex"] as? Int ?? -1
-        let sent = entries.indices.contains(at) && entries[at]["transitionType"] as? String == "form_submit"
-        let cached = await HumanCheck.cdpCall(s, id: 4, "Page.getResourceContent", ["frameId": fid, "url": url]) != nil
-        guard sent || !cached else { return nil }
+        guard entries.indices.contains(at), entries[at]["transitionType"] as? String == "form_submit" else { return nil }
         let r = await HumanCheck.cdpCall(s, id: 5, "Runtime.evaluate", ["expression": snapshotJS, "returnByValue": true])
         guard let html = (r?["result"] as? [String: Any])?["value"] as? String, html.count > 200 else { return nil }
         return Page(url: url, html: html)

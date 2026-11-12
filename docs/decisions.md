@@ -3,6 +3,32 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A routine the engine switched off for good comes back by itself, out loud (0.9.117, Nov 12 2026)
+
+**Problem.** Project Ledger PM (7:15 PM daily) didn't run Nov 9, 10 or 11, so the FanVue page got no daily post. On
+Nov 8 One quit at 9:18 PM while that run was two hours in. The engine marked the run interrupted, gave up on it
+(`CronExecutionUnknown`) and paused the job: `paused_reason` "Cron execution unverified; reconcile
+cron/admissions/fc775d….json". That pause is lifted only when the run's admission journal proves the run ended. But
+the give-up had already booked the run `failed`, and the engine's next recovery pass deletes a failed run's journal
+without lifting the pause (`cron/scheduler_authority.py` `reconcile_pending`). So the job stayed `enabled: false` with
+`next_run_at` stuck at Nov 9 7:15 PM, and nothing would ever turn it back on. Nobody was told: the run's report had
+only an `## Error` section, and One spoke only reports with a `## Response`; the Routines panel drew it as a calm
+"paused". The morning run noticed three days later.
+
+**Picked: One turns it back on and says so (RoutineRevive.swift).** Every 15 s (with the routine reports), a job
+paused with one of the engine's own uncertainty reasons ("Cron execution unverified", "Canonical cron unknown") and no
+journal left for it in `cron/admissions` is resumed with `hermes cron resume` (the card's Turn back on). A slot it
+missed while off stays due, so the engine makes it up once, right away (checked live on 0.9.116's engine: a held job
+resumed with a past slot fired once at the next tick and moved on to its next time). One says in the chat, aloud:
+"<routine> turned itself off on <day> after a run was cut off, and nothing told you. I turned it back on, and it's
+making up its missed run now." If the engine refuses, it says it couldn't, and tries again at most once an hour
+(`hermes/logs/one-routine-revive.log`). A run that left only an error is now said too ("<routine> didn't work.
+Stopped partway because One restarted …").
+
+**Rejected.** Patching the engine's `reconcile_pending` (One carries no engine patches for cron; a text patch breaks on
+the next pinned Hermes). Resuming while a journal is still there (the engine can still settle that run itself and
+lift its own pause; resuming early could run it twice). Touching a pause the person made, or one for another reason.
+
 ## The main chat is always free to talk: One hands a long turn to a helper itself (0.9.116, Nov 12 2026)
 
 **Problem.** Omar: "We should always default to a helper. My main assistant should always be ready to talk." On Nov 11

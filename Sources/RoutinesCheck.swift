@@ -164,6 +164,79 @@ enum RoutinesCheck {
         let L2 = Dial.layout(RoutinesSnapshot(routines: Routines.jobs(at: cron, now: now), skills: [], now: now))
         check("renewed: back on the dial, gone from Finished", L2.marks.contains { $0.rid == "new" } && !L2.finished.contains { $0.id == "argo" })
 
+        print("5. a routine the engine switched off for good comes back, out loud")
+        // Project Ledger PM, Nov 8-12 2026: One restarted mid-run, the engine paused the job ("Cron execution unverified;
+        // reconcile <journal>"), booked the run failed and tidied the journal away, so nothing could ever lift the pause.
+        // It stayed off three nights and nobody was told.
+        let adm = cron.appendingPathComponent("admissions")
+        try? fm.createDirectory(at: adm, withIntermediateDirectories: true)
+        let soon = iso.string(from: now.addingTimeInterval(20 * 3600))
+        let held: [[String: Any]] = [
+            job(
+                "ledger",
+                [
+                    "name": "Project Ledger PM", "enabled": false, "state": "paused", "paused_at": ago(73.7),
+                    "paused_reason": "Cron execution unverified; reconcile \(adm.path)/fc775d.json: ", "next_run_at": ago(51.75),
+                    "last_status": "error", "last_error": "RuntimeError: Cron job 'Project Ledger PM' lost its durable fire claim ownership",
+                    "failure_streak": 4,
+                ]),
+            job(
+                "unknown",
+                [
+                    "enabled": false, "state": "paused", "paused_reason": "Canonical cron unknown; no automatic re-execution",
+                    "next_run_at": soon,
+                ]),
+            job(
+                "pending",
+                [
+                    "enabled": false, "state": "paused", "paused_reason": "Cron execution unverified; reconcile \(adm.path)/ab12.json: ",
+                    "next_run_at": ago(2),
+                ]),
+            job("mine", ["enabled": false, "state": "paused", "next_run_at": ago(2)]),
+            job("other", ["enabled": false, "state": "paused", "paused_reason": "Paused after 3 failures in a row", "next_run_at": ago(2)]),
+        ]
+        try? JSONSerialization.data(withJSONObject: ["jobs": held]).write(to: cron.appendingPathComponent("jobs.json"))
+        // "pending": its run's journal is still there, so the engine can still find out how it ended and lift its own pause.
+        try? #"{"params": {"job_id": "pending", "request_id": "r1", "extra_prompt": null}, "receipt": null}"#.write(
+            to: adm.appendingPathComponent("ab12.json"), atomically: true, encoding: .utf8)
+        let stuck = RoutineRevive.find(at: cron, now: now)
+        check("the one the engine left off with nothing left to lift it is found", stuck.map(\.id).contains("ledger"))
+        check("so is one held as unknown with no run left to check", stuck.map(\.id).contains("unknown"))
+        check("one whose run the engine can still check is left to the engine", !stuck.contains { $0.id == "pending" })
+        check("one the person paused stays paused", !stuck.contains { $0.id == "mine" })
+        check("a pause for another reason stays", !stuck.contains { $0.id == "other" })
+        check("turned back on through the engine, which makes up a missed run once", RoutineRevive.steps("ledger") == ["cron", "resume", "ledger"])
+        let ledger = stuck.first { $0.id == "ledger" }
+        check("its missed run is noticed", ledger?.missed == true && stuck.first { $0.id == "unknown" }?.missed == false)
+        let day = DateFormatter()
+        day.dateFormat = "MMM d"
+        let said = ledger.map { RoutineRevive.line($0) } ?? ""
+        check(
+            "and it's said out loud, in plain words",
+            said == "Project Ledger PM turned itself off on \(day.string(from: now.addingTimeInterval(-73.7 * 3600))) after a run was cut off, "
+                + "and nothing told you. I turned it back on, and it's making up its missed run now.")
+        check(
+            "a failed try is said too",
+            RoutineRevive.failedLine(ledger ?? RoutineRevive.Stuck(id: "x", title: "X", since: nil, missed: false)).contains(
+                "couldn't turn it back on"))
+
+        print("6. a run that left only an error is said out loud too")
+        let crash =
+            "# Cron Job: Project Ledger PM (FAILED)\n\n**Job ID:** 33bcea822749\n\n## Prompt\n\nDo the evening run.\n\n## Your previous run's output\n\n```\n"
+            + "## Error\n\nold\n```\n\n## Error\n\n```\nTraceback (most recent call last):\n  File \"scheduler.py\", line 1984\n"
+            + "RuntimeError: Cron job 'Project Ledger PM' lost its durable fire claim ownership\n\n```\n"
+        let r = Routines.report(crash)
+        check("a crash with no answer still speaks, under its own name", r?.title == "Project Ledger PM")
+        check(
+            "saying plainly what happened",
+            r?.body
+                == "It didn't work. Stopped partway because One restarted (an update or a reinstall) while it was working. Ask me and I'll look into it."
+        )
+        check(
+            "a normal answer reads as before",
+            Routines.report("# Cron Job: Daily\n\n## Response\n\nAll done.\n\n⚠️ verifier")?.body == "All done."
+                && Routines.report("# Cron Job: D\n\n## Response\n\n[SILENT]\n") == nil)
+
         print(fails == 0 ? "routines ok" : "routines: \(fails) failed")
         return fails == 0 ? 0 : 1
     }

@@ -69,6 +69,8 @@ final class Model: ObservableObject {
     /// out loud, wherever the person is, unless the voice is muted. Silent runs say nothing.
     private var routineSeen: Set<String> = []
     private var routineStarted = false
+    private var routineReviving = false
+    private var routineRevived: [String: Date] = [:]
     func tendRoutines() {
         let root = Env.hermesHome.appendingPathComponent("cron/output")
         let fm = FileManager.default
@@ -83,13 +85,31 @@ final class Model: ObservableObject {
             return
         }  // don't replay old results at launch
         for f in fresh.sorted(by: { $0.path < $1.path }) {
-            guard let t = try? String(contentsOf: f, encoding: .utf8), let r = t.range(of: "## Response") else { continue }
-            var body = String(t[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let cut = body.range(of: "\n⚠️") { body = String(body[..<cut.lowerBound]) }
-            if body.isEmpty || body.hasPrefix("[SILENT]") { continue }
-            let title = t.split(separator: "\n").first.map { $0.replacingOccurrences(of: "# Cron Job: ", with: "") } ?? "A routine"
-            Floater.shared.note("\(title) is done.")
+            // A run that crashed has no answer, only its error: said too, so no routine fails without a word.
+            guard let t = try? String(contentsOf: f, encoding: .utf8), let (title, body) = Routines.report(t) else { continue }
+            Floater.shared.note(body.hasPrefix("It didn't work.") ? "\(title) didn't work." : "\(title) is done.")
             enqueue(.line(bubble: "**\(title)**\n\n\(body)", spoken: body))  // after whatever is being said, never into it
+        }
+        reviveRoutines()
+    }
+
+    /// A routine the engine switched off for good after a cut-off run (RoutineRevive): turn it back on, and say so.
+    /// Each one is tried once an hour at most, so a refusal isn't retried every 15 seconds.
+    func reviveRoutines() {
+        guard !Env.commandLine, !routineReviving else { return }
+        routineReviving = true
+        Task {
+            defer { routineReviving = false }
+            let now = Date()
+            let stuck = await Task.detached { RoutineRevive.find(at: Routines.cron, now: now) }.value
+            for s in stuck where now.timeIntervalSince(routineRevived[s.id] ?? .distantPast) > 3600 {
+                routineRevived[s.id] = now
+                let (code, out) = await hermesRun(RoutineRevive.steps(s.id), timeout: 60)
+                RoutineRevive.log("\(s.id) \(s.title): resume exit \(code) \(out.suffix(200))")
+                let line = code == 0 ? RoutineRevive.line(s) : RoutineRevive.failedLine(s)
+                Floater.shared.note(line)
+                enqueue(.line(bubble: "**\(s.title)**\n\n\(line)", spoken: line))
+            }
         }
     }
 

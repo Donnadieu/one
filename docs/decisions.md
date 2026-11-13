@@ -3,6 +3,19 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A hand-off's wait is time spent waiting on the person (0.9.118, Nov 12 2026)
+
+**Problem.** The engine stops any tool call after 420 s unless the time is inside its human-wait window
+(`tools/approval_human_wait.py`, the one approval prompts use). `browser_vault hand_off` waits up to 480 s, and longer
+while the real window is up, outside that window. In the live DocuSign test the engine stopped the call at 420 s while
+Omar was typing the texted code in the real window; the stop answered the ask "cancelled" and the sign-up page was lost.
+
+**Picked.** The hand-off's waits (the code step and the window wait) run inside `human_wait_window()`, so the engine
+leaves them out of the 420 s budget (it caps each window at approvals.timeout + 60 s). **Rejected:** raising the
+engine's tool limit (it guards every tool, not just this one) or shortening the hand-off's wait (people take longer
+than 7 minutes when they're away from the Mac). **Evidence:** `tests/handoff/human_wait.py` red before, green after,
+in `make handoff`; checked against the installed engine's real module.
+
 ## A routine the engine switched off for good comes back by itself, out loud (0.9.117, Nov 12 2026)
 
 **Problem.** Project Ledger PM (7:15 PM daily) didn't run Nov 9, 10 or 11, so the FanVue page got no daily post. On

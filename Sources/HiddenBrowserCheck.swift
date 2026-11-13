@@ -57,11 +57,16 @@ enum HiddenBrowserCheck {
         let app = "/Applications/Google Chrome.app"
         let a = HiddenBrowser.requestArguments(
             port: 9333, profile: approved + "/x", url: "https://x.com/home",
-            flags: ["--disable-renderer-backgrounding", "--remote-allow-origins=*", "--no-sandbox"], app: app)
+            flags: [
+                "--disable-renderer-backgrounding", "--remote-allow-origins=*", "--no-sandbox", "--mute-audio",
+                "--autoplay-policy=user-gesture-required",
+            ],
+            app: app)
         check(a.first == "--headless=new" && a.contains("--remote-debugging-port=9333"), "a requested browser is always hidden, on its port")
         check(
             a.contains("--disable-renderer-backgrounding") && !a.contains("--remote-allow-origins=*") && !a.contains("--no-sandbox"),
             "only the known switches pass")
+        check(a.contains("--mute-audio") && a.contains("--autoplay-policy=user-gesture-required"), "a requested browser can be started muted")
         check(a.last == "https://x.com/home", "it opens the page asked for")
         let f = HiddenBrowser.requestArguments(port: 9333, profile: approved + "/x", url: "file:///etc/hosts", flags: [], app: app)
         check(f.last == "about:blank", "only web pages, never a file")

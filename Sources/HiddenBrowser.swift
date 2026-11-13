@@ -19,9 +19,11 @@ import Foundation
 //    closed politely as soon as no helper, routine or person's step is using it; it starts again fresh, hidden.
 enum HiddenBrowser {
     static let chromeID = "com.google.Chrome"
-    /// Extra Chrome switches a start request may ask for (Project Ledger's browser keeps background tabs running).
+    /// Extra Chrome switches a start request may ask for (Project Ledger's browser keeps background tabs running, and
+    /// stays silent: X and Facebook videos autoplayed with sound from it on Nov 12 2026).
     static let allowedFlags: Set<String> = [
         "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
+        "--mute-audio", "--autoplay-policy=user-gesture-required",
     ]
     static var startDir: URL { Env.support.appendingPathComponent("browser/start", isDirectory: true) }
     static func log(_ s: String) { BrowserKeeper.log("hidden browser: " + s) }

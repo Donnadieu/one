@@ -20,6 +20,7 @@ Talks to One through files in ``<One support>/handoff/`` (``<id>.request.json`` 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -682,6 +683,18 @@ ENDED = {
 }
 
 
+def _person_wait():
+    """The time a hand-off spends waiting on the person, as the engine's own human-wait window: the engine leaves it
+    out of a tool call's 420 s budget (agent/tool_executor.py), as it does for an approval prompt. Nov 12 2026: the
+    DocuSign helper's hand_off was killed at 420 s while Omar was typing the texted code in the real window; the
+    engine's stop answered the ask "cancelled". A no-op where the engine has no such window."""
+    try:
+        from tools.approval_human_wait import human_wait_window
+        return human_wait_window()
+    except Exception:
+        return contextlib.nullcontext()
+
+
 def _ended(answer: str, site: str, **extra: Any) -> dict:
     out = {"success": False, "answer": answer, "moved_on": False, "site": site, **extra}
     out["next"] = ENDED.get(answer, ENDED["cancelled"])
@@ -759,7 +772,8 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
     k = kind if kind in ASKING else (tab["kind"] if tab["kind"] in ASKING else "check")
     site = _site(tab["url"]) or "the site"
     if k == "code" and tab.get("ws"):
-        out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait, session=tid)
+        with _person_wait():
+            out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait, session=tid)
         _failures.pop(_key(tid, site), None)
         return out
     req = _open_request(tab["target_id"])
@@ -772,7 +786,8 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
     # Every step is done in the real window: One closes the hidden browser for it and brings the page back in a new
     # tab, so "the tab is gone" means nothing here.
     watch_tab = 0  # every step is shown in the real window now (0.9.115): the hidden tab closes while it's up
-    answer = _wait(req, tab.get("ws") or "", start_url, WAIT_SECONDS if wait is None else wait, port=watch_tab)
+    with _person_wait():
+        answer = _wait(req, tab.get("ws") or "", start_url, WAIT_SECONDS if wait is None else wait, port=watch_tab)
     _failures.pop(_key(tid, site), None)
     if answer is None:
         return {"success": False, "error_type": "still_waiting", "site": site, "asking": ASKING[k],

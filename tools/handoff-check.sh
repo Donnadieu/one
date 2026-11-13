@@ -45,10 +45,13 @@ mkdir -p "$S/loop-handoff"
 lrc=$?
 python3 tests/handoff/phone_replies.py > "$S/phone.txt" 2>&1
 prc=$?
+python3 tests/handoff/human_wait.py > "$S/wait.txt" 2>&1
+wrc=$?
 echo "One's half:"; cat "$S/one.txt"
 echo "Engine half:"; grep -v '^hermes:\|Preparing\|Installing' "$S/engine.txt"
 echo "Code hand-off ways out:"; grep -v '^hermes:\|Preparing\|Installing' "$S/loop.txt"
 echo "Phone replies:"; cat "$S/phone.txt"
+echo "Waiting on the person:"; cat "$S/wait.txt"
 grep "human check:\|hidden browser:" "$S/support/selftest-hermes/logs/one-browser-keeper.log" 2>/dev/null | tail -8 | sed 's/^/  keeper: /'
 rm -f "$ENG/one_handoff_run.py"
 kill $CHR 2>/dev/null
@@ -56,6 +59,6 @@ kill $CHR 2>/dev/null
 for p in $(pgrep -f -- "--user-data-dir=$S/chrome" 2>/dev/null); do kill "$p" 2>/dev/null; done
 kill $WEB 2>/dev/null
 defaults delete ai.forjado.one.handoff-test >/dev/null 2>&1
-[ $rc = 0 ] && [ $erc = 0 ] && [ $lrc = 0 ] && [ $prc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" && grep -q "CODE LOOP PASS" "$S/loop.txt" \
+[ $rc = 0 ] && [ $erc = 0 ] && [ $lrc = 0 ] && [ $prc = 0 ] && [ $wrc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" && grep -q "CODE LOOP PASS" "$S/loop.txt" \
   && { echo "PASS handoff"; exit 0; }
 echo "FAIL handoff (one=$rc engine=$erc loop=$lrc phone=$prc)"; exit 1

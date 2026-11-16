@@ -75,6 +75,8 @@ mkdir -p "$APP/Contents/Resources/one-main-queue"
 cp tools/overlay/plugins/one-main-queue/__init__.py tools/overlay/plugins/one-main-queue/plugin.yaml "$APP/Contents/Resources/one-main-queue/"
 mkdir -p "$APP/Contents/Resources/one-missed-messages"
 cp tools/overlay/plugins/one-missed-messages/__init__.py tools/overlay/plugins/one-missed-messages/plugin.yaml "$APP/Contents/Resources/one-missed-messages/"
+mkdir -p "$APP/Contents/Resources/one-phone-tags"
+cp tools/overlay/plugins/one-phone-tags/__init__.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$APP/Contents/Resources/one-phone-tags/"
 # The keeper: macOS runs One --keeper every minute and it opens One again if it ended without being asked to
 # (Sources/Keeper.swift, registered with SMAppService at launch). Must live in Contents/Library/LaunchAgents.
 mkdir -p "$APP/Contents/Library/LaunchAgents"

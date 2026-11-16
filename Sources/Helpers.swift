@@ -53,6 +53,8 @@ struct Helper: Identifiable, Codable {
     var limitAt: Date?
     var limitAccount: String?
     var limitChoice: String?  // their answer for this job only: "switch" or "wait"
+    var phone: String?  // sent from a phone chat ("<platform>:<chat>"): its result goes back there (PhoneTags.swift)
+    var phoneTold: String?  // what the phone was last sent about it (one message per result)
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {

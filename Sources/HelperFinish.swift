@@ -108,8 +108,9 @@ extension Model {
         saveTrail(id)
         if queued {
             resumeWhenReady(after: end == .busy ? 20 : 3)
-        } else if let b = h.routine {
-            Task { await deliverRoutine(b) }
+        } else {
+            phoneDone(id)  // stopped for good: a phone chat that sent it is told (PhoneTags.swift)
+            if let b = h.routine { Task { await deliverRoutine(b) } }
         }
         return true
     }

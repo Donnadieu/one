@@ -55,6 +55,7 @@ struct Helper: Identifiable, Codable {
     var limitChoice: String?  // their answer for this job only: "switch" or "wait"
     var phone: String?  // sent from a phone chat ("<platform>:<chat>"): its result goes back there (PhoneTags.swift)
     var phoneTold: String?  // what the phone was last sent about it (one message per result)
+    var bot: BotInfo?  // kept as a bot: never on the constellation, never cleared by "all" (Bots.swift)
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
@@ -76,7 +77,7 @@ enum Helpers {
     /// Older conversations started before helpers existed, so the app reminds the assistant every turn (not shown to the user).
     static var note: String {
         "\n\n(One app note, not from the user: if this needs any work at all (looking something up, browsing, research, comparing, making a file, checking, watching), don't do it here: send helpers. Say in one short line what you're sending, then one line per job: [helper: Short title | the whole job with every detail]. If it has separate parts (e.g. movie times at two theaters, flights and hotels), send one helper per part so they run at the same time. Only answer here yourself when you already know the answer or it's just conversation. Send the helper line in your first reply, right away, with the whole job written out on that one line (their words, the paths of any files or pictures they shared): never write the job into a file first, and never read their files, notes or pictures, run commands or check things here beyond one quick look to tell what they're asking; reading, checking and writing up the details is the helper's job. If it's unclear, ask one short question. If you work here for more than about 20 seconds or 3 steps without a helper line, One stops you and hands the job to a helper itself (not when they asked you to do it yourself). Any file you make for them (PDF, document, spreadsheet, picture) goes in \(Shelf.folder.path); the app puts it in front of them under Ready for you, so just say it's there, without the folder path. When a helper finishes, its orb turns orange and holds the result, and they open it there. Never repeat a helper's result or ask its question here, and don't announce that a helper is done: One tells them itself, in one short line. Only for a good morning, good afternoon, good evening or a status report do you give the helpers' results yourself, all in one report once they're all back.)"
-            + HelperStop.note + HelperTell.note + BlockedAsk.note + KeepAwake.note + LookOnly.note
+            + HelperStop.note + HelperTell.note + BlockedAsk.note + KeepAwake.note + LookOnly.note + Bots.note
     }
     /// Pull "[helper: Title | job]" lines out of Nova's reply.
     /// Run this BEFORE reading any other tag: a helper line is opaque (HelperLines.swift), whatever its job text quotes.
@@ -110,7 +111,10 @@ enum Helpers {
     /// The one quiet line One shows itself when helpers finish: one line for any number of them, never their result.
     static func doneLine(_ hs: [Helper]) -> String {
         let yes = hs.contains { $0.state == "needsYes" }
-        if hs.count == 1, let h = hs.first { return "\(h.title) \(yes ? "needs your yes" : "is done"). Tap it to take a look." }
+        if hs.count == 1, let h = hs.first {
+            if h.bot != nil { return "\(h.title) \(yes ? "needs your yes" : "has something new"). It's on the left." }
+            return "\(h.title) \(yes ? "needs your yes" : "is done"). Tap it to take a look."
+        }
         return "\(hs.count) helpers \(yes ? "need you" : "are done"): \(list(hs.map(\.title))). Tap them to take a look."
     }
     static func list(_ v: [String]) -> String {

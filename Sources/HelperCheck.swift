@@ -260,6 +260,7 @@ enum HelperCheck {
         busy.state = "done"
         busy.started = Date(timeIntervalSinceNow: -600)
         check("but the same job asked for later is", Helpers.unique([("B", "job b")], among: [busy]).keep.count == 1)
+        BotsCheck.run(check)  // bots: a helper you keep (BotsCheck.swift)
         try? fm.removeItem(at: HelperTrail.folder)
         print(fails == 0 ? "helpers ok" : "helpers FAILED (\(fails))")
         return fails == 0 ? 0 : 1

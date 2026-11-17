@@ -19,6 +19,7 @@ struct RoutinesPanel: View {
     @State var finishedOpen = false  // the Finished list starts folded
     @State var renewAsk: String?  // a finished routine's id while "Run it again?" waits for a yes
     @State var renewHelp: String?  // Run again didn't take: offer to hand it to the assistant
+    @State var onlyBot: String?  // the filter by bot: nil = all, "main" = the assistant's own, else a bot's id (RoutinesBots.swift)
 
     var body: some View {
         let s = fixed ?? snap
@@ -54,8 +55,9 @@ struct RoutinesPanel: View {
 
     // MARK: The stage (design points)
 
-    @ViewBuilder func stage(_ s: RoutinesSnapshot) -> some View {
-        let L = Dial.layout(s)
+    @ViewBuilder func stage(_ all: RoutinesSnapshot) -> some View {
+        let s = only(all)  // filtered by bot (RoutinesBots.swift)
+        let L = Dial.layout(s, tints: tints(all))
         let starTop = max(200, 120 + CGFloat(L.later.count) * 44)
         let starC = CGPoint(x: 1025, y: starTop + 70)
         let stars = Dial.stars(s.skills, center: starC, radius: 62)
@@ -70,6 +72,7 @@ struct RoutinesPanel: View {
             nowTag(L)
             ForEach(L.labels) { l in dialLabel(l) }
             header(s)
+            botFilter.offset(x: 24, y: 68)  // All · the assistant · each bot (RoutinesBots.swift)
             outsideColumn(L.outside)
             laterColumn(L.later, now: s.now)
             Text("What I know how to do · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
@@ -157,7 +160,7 @@ struct RoutinesPanel: View {
     }
 
     func dialLabel(_ l: Dial.Label) -> some View {
-        let col = l.orange ? Color(hex: 0xF6B46E) : WorldLook.cream
+        let col = l.orange ? Color(hex: 0xF6B46E) : l.tint.map { Color(hex: $0) } ?? WorldLook.cream
         return Button {
             pick(l.rid)
         } label: {

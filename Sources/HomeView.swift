@@ -69,6 +69,7 @@ struct HomeView: View {
     }
     var body: some View {
         HStack(spacing: 0) {
+            BotsColumn(m: m).transition(.move(edge: .leading))  // the bots on the left (BotsColumn.swift)
             VStack(spacing: 0) {
                 // Pinned above the scrolling part, so the greeting can never slide up under the title row.
                 if historyShown && m.openHelper == nil {
@@ -91,7 +92,9 @@ struct HomeView: View {
                             Color.clear.frame(height: historyShown && m.openHelper == nil ? 4 : 64).id("page-top")
                                 .background(
                                     GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in pager.pageTop = y } })
-                            if !(historyShown && m.openHelper == nil) {
+                            if m.openedHelper?.bot != nil {
+                                IrisHome(m: m)  // a bot's chat is open: the assistant waits small and dim above it (BotsColumn.swift)
+                            } else if !(historyShown && m.openHelper == nil) {
                                 HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                                 WeekLine(m: m)  // the plan's week, under the orbs (Budget.swift)
                             }
@@ -275,9 +278,10 @@ struct HomeView: View {
                 }
             }
         }
+        .overlayPreferenceValue(BotAnchors.self) { a in GeometryReader { g in BotThreads(m: m, points: a.mapValues { g[$0] }) } }
         .modifier(HomeStars())
         .background(HomeBackdrop())
-        .frame(minWidth: m.shelf.isEmpty || shelfCollapsed ? 560 : 830)
+        .frame(minWidth: (m.shelf.isEmpty || shelfCollapsed ? 560 : 830) + (m.bots.isEmpty ? 0 : 160))
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: m.shelf.isEmpty)
         .overlay {
             if let id = m.openedShelf, let it = m.shelf.first(where: { $0.id == id }) {
@@ -448,7 +452,8 @@ struct HomeView: View {
                     ? GateWords.box
                     : m.about != nil
                         ? "What do you want to know? Or just press send."
-                        : m.openedHelper.map { "Talk to \($0.title)…" } ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
+                        : m.openedHelper.map { $0.bot == nil ? "Talk to \($0.title)…" : "Tell \($0.title)…" }
+                            ?? (lastAsk == nil ? "Tell \(m.name) what you need…" : "Or say it your way…")
                 if !m.isReady {
                     // Getting ready: nothing can be typed until One opens (what was typed before stays, dimmed).
                     Text(draft.isEmpty ? hint : draft).font(.system(size: 14)).foregroundStyle(WorldLook.cream.opacity(draft.isEmpty ? 0.4 : 0.5))

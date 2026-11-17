@@ -44,7 +44,7 @@ extension Model {
     func helperNews() -> String {
         guard !helpers.isEmpty else { return "" }
         var lines: [String] = []
-        for k in helpers.indices {
+        for k in helpers.indices where helpers[k].bot == nil {  // bots get their own lines (Bots.swift)
             let h = helpers[k]
             switch h.state {
             case "working":
@@ -78,7 +78,11 @@ extension Model {
                 }
             }
         }
-        return "\n\n(One app note, not from the user: status of your helpers right now. Trust this over anything said earlier.\n"
-            + lines.joined(separator: "\n") + ")"
+        let news =
+            lines.isEmpty
+            ? ""
+            : "\n\n(One app note, not from the user: status of your helpers right now. Trust this over anything said earlier.\n"
+                + lines.joined(separator: "\n") + ")"
+        return news + botNews()
     }
 }

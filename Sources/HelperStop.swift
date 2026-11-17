@@ -143,22 +143,21 @@ struct HelperStopAsk: View {
 struct HelperCard: View {
     @ObservedObject var m: Model
     let h: Helper
+    @State var keeping = HelperCard.stillKeeping  // "Keep as a bot" tapped: its small card shows (BotsColumn.swift)
+    nonisolated(unsafe) static var stillKeeping = false  // renders only
     var body: some View {
         let parts = Choices.split(Helpers.strip(h.reply))  // a stray [helper: …] line never shows
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Text(h.title).font(.headline)
-                Text("· " + (RepoQueue.word(h) ?? HelperStop.word(h))).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
-                Spacer()
-                Button {
-                    m.openHelper = nil
-                } label: {
-                    Label(m.name, systemImage: "chevron.left")
-                }
-                .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
+            if let b = h.bot {
+                BotHeader(m: m, h: h, b: b)  // its moon, room, what it uses and remembers, what it did
+                BotThread(h: h)  // its kept chat, oldest first
+            } else {
+                titleRow
             }
-            if let a = h.asked, !a.isEmpty { LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true) }
-            if h.state == "working" {
+            if h.bot == nil, let a = h.asked, !a.isEmpty { LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true) }
+            if h.bot != nil && h.state != "working" {
+                EmptyView()  // its newest answer is the end of its thread
+            } else if h.state == "working" {
                 HelperProgressView(m: m, h: h)  // the real step, its time, its plan line; Nudge when it's gone quiet
                 RepoQueueNote(h: h, indent: m.pulses[h.id] != nil)  // waiting its turn on main (RepoQueue.swift)
                 if let g = m.goals[h.id.uuidString], g.active { GoalLine(g: g, stop: nil) }  // its standing goal (Goals.swift)
@@ -186,6 +185,20 @@ struct HelperCard: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xF0A04B, h.state == "needsYes" ? 0.55 : 0), lineWidth: 1.2))
     }
 
+    var titleRow: some View {
+        HStack(spacing: 6) {
+            Text(h.title).font(.headline)
+            Text("· " + (RepoQueue.word(h) ?? HelperStop.word(h))).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary)
+            Spacer()
+            Button {
+                m.openHelper = nil
+            } label: {
+                Label(m.name, systemImage: "chevron.left")
+            }
+            .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
+        }
+    }
+
     @ViewBuilder var buttons: some View {
         // Still at work or waiting for their yes: it can only be stopped here. "Got it" comes once it's done or stopped.
         if h.stopping == true {
@@ -209,14 +222,14 @@ struct HelperCard: View {
                 Button {
                     m.stopHelper(h.id)
                 } label: {
-                    Label("Stop this helper", systemImage: "stop.circle")
+                    Label(h.bot == nil ? "Stop this helper" : "Stop", systemImage: "stop.circle")
                 }
                 .buttonStyle(.bordered).help("Stops this job. What it found so far stays here.")
             }
         } else {
             HStack(spacing: 8) {
                 Spacer()
-                if h.state == "stopped" && h.resumeQueued != true {
+                if h.state == "stopped" && h.resumeQueued != true && h.bot == nil {  // a bot keeps its chat: they just tell it
                     Button {
                         m.startAgain(h.id)
                     } label: {
@@ -224,15 +237,32 @@ struct HelperCard: View {
                     }
                     .buttonStyle(.bordered).help("Sends this job out again, from the start")
                 }
-                // One of the only two ways an orb leaves the screen (the other is asking): never on its own, never from the orb.
-                Button {
-                    m.closeHelper(h.id)
-                } label: {
-                    Label("Got it", systemImage: "checkmark")
+                if h.bot == nil && h.state == "done" && !keeping {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) { keeping = true }
+                    } label: {
+                        Label("Keep as a bot", systemImage: "circle.dashed")
+                    }
+                    .buttonStyle(.bordered).help("Keeps this helper for this one job, with its own chat on the left")
                 }
-                .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
-                .help("Takes this helper off your screen. Its file stays in Ready for you.")
+                // One of the only two ways an orb leaves the screen (the other is asking): never on its own, never from the orb.
+                if h.bot == nil { gotIt }
             }
+            if keeping && h.bot == nil {
+                KeepBotCard(m: m, h: h) { withAnimation(.easeOut(duration: 0.2)) { keeping = false } }
+            }
+        }
+    }
+
+    var gotIt: some View {
+        Group {
+            Button {
+                m.closeHelper(h.id)
+            } label: {
+                Label("Got it", systemImage: "checkmark")
+            }
+            .buttonStyle(.borderedProminent).tint(Color(hex: 0xF4EFE8)).foregroundStyle(Color(hex: 0x141416))
+            .help("Takes this helper off your screen. Its file stays in Ready for you.")
         }
     }
 }

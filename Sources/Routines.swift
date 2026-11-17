@@ -18,6 +18,7 @@ struct Routine: Identifiable, Equatable {
     let next: Date?
     let state: State
     let reason: String?  // why the last run didn't work, in plain words
+    var owner: String?  // the engine conversation that set it up (a bot's own: it belongs to that bot)
     var outside = false  // run by a Hermes outside One
     /// How a run that didn't work went: stopped (nothing says more), cut off by One restarting mid-run
     /// (what it did before that is done), or partly done (its own report says which part failed).
@@ -144,6 +145,7 @@ enum Routines {
             lastRun: last, next: st == .finished ? nil : next, state: st,
             reason: (st == .failed || (st == .running && broke)) ? plainError(err) : nil)
         r.miss = notes.hasWork && !notes.nothing ? .partly : miss(err)
+        r.owner = (j["origin"] as? [String: Any])?["chat_id"] as? String  // the conversation that made it: a bot's own (Bots.swift)
         r.notes = notes
         let rep = j["repeat"] as? [String: Any]
         r.runs = (rep?["completed"] as? Int) ?? 0

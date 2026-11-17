@@ -26,7 +26,7 @@ enum HelperClose {
     /// every one that's finished or stopped (a busy one is never taken, even by name, until it's stopped).
     static func match(_ name: String, in hs: [Helper]) -> [UUID] {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'“”‘’"))).lowercased()
-        if n == "all" { return hs.filter { !busy($0) }.map(\.id) }
+        if n == "all" { return hs.filter { !busy($0) && $0.bot == nil }.map(\.id) }  // bots stay unless named
         let same = hs.enumerated().filter { $0.element.title.lowercased() == n }
         let pick = same.max { a, b in (a.element.started ?? .distantPast, a.offset) < (b.element.started ?? .distantPast, b.offset) }
         return pick.map { [$0.element.id] } ?? []

@@ -111,6 +111,7 @@ extension RoutinesPanel {
             Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
             VStack(alignment: .leading, spacing: 8) {
                 fact("How often", r.often)
+                if let b = owner(r)?.bot { fact("Belongs to", b.name, color: Color(hex: Bots.hex(b.color))) }  // RoutinesBots.swift
                 fact(
                     "Last run", last, color: failed ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.85),
                     sub: partly && !r.notes.did.isEmpty ? nil : r.reason)

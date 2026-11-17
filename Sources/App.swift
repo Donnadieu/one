@@ -425,13 +425,13 @@ struct Entry {
                     ("long-panel", AnyView(EmptyView())),
                     ("message-history", MessageHistoryRender.scene(open: true)), ("message-history-closed", MessageHistoryRender.scene(open: false)),
                 ]
-                for (name, v) in views + HelperStopScene.renders + GoalRender.names.map { ($0, AnyView(EmptyView())) } {
+                for (name, v) in views + HelperStopScene.renders + (GoalRender.names + BotsRender.names).map { ($0, AnyView(EmptyView())) } {
                     if name.hasPrefix("rooms-") {
                         RoomsRender.png(v, "\(out)-\(name).png")
                         print("wrote \(out)-\(name).png")
                         continue
                     }
-                    if LongMessageRender.draw(name, out) || GoalRender.draw(name, out) { continue }
+                    if LongMessageRender.draw(name, out) || GoalRender.draw(name, out) || BotsRender.draw(name, out) { continue }
                     if name.hasPrefix("home-") {
                         let n = Int(name.dropFirst(5)) ?? 10
                         HomeRender.pointFirst = name == "home-pointed"

@@ -33,6 +33,7 @@ for _ in $(seq 1 40); do pgrep -f "$APP/Contents/MacOS/One --test" >/dev/null ||
 run 120 "$S/after.txt" restartwait-after
 cat "$S/after.txt"
 grep -q '^restart-wait ok' "$S/after.txt" || rc=1
+[ -n "${ONE_SHOT_DIR:-}" ] && cp "$S/out.txt" "$ONE_SHOT_DIR/restart-wait-run1.txt" 2>/dev/null && cp "$S/after.txt" "$ONE_SHOT_DIR/restart-wait-run2.txt" 2>/dev/null
 for p in $(pgrep -f "$S/"); do kill "$p" 2>/dev/null; done
 defaults delete "$ID" >/dev/null 2>&1
 if [ $rc = 0 ]; then echo "restart-wait-check ok"; [ -n "${KEEP:-}" ] || rm -rf "$S"; else echo "restart-wait-check FAILED (logs in $S)"; tail -20 "$S/err.txt"; fi

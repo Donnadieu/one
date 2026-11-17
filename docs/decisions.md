@@ -3,6 +3,20 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A phone reply that says a job is starting must carry its helper line (0.9.121, Nov 17 2026)
+
+**Problem.** On Nov 16-17 several Telegram replies said "It's starting now…:" or "I'm sending a helper…:" and ended at
+the colon; nothing started. The model never wrote the line (the plugin logged no hand-over, and those turns' output
+tokens leave no room for one). The engine saves and replays the cut reply, so every earlier success in the chat read
+as a promise ending at a colon, and the model copied that.
+
+**Picked.** The phone-tags plugin leaves a receipt ("↳ Helper sent: <title>") where lines were cut, flags a reply that
+says a job is starting with no line (loud log, a one-shot note to the next turn in that chat, and a visible "Nothing
+started" when the reply plainly hangs), and the phone rule says only the line starts a job. **Rejected:** saving the raw
+reply while sending the cut one (the engine stores exactly what the person sees, by design) and starting helpers from
+promise words (guessing a job from prose). **Evidence:** the exact Nov 16-17 replies as fixtures in
+`tools/phone-tags-check.py`, and the real engine's turn end in `tools/phone-choices-engine-check.py` (PR #135).
+
 ## Choices in a phone reply become tap buttons (0.9.120, Nov 17 2026)
 
 **Problem.** Replies that end with `[choices: A | B]` showed as buttons in One's own chat but reached Telegram as that

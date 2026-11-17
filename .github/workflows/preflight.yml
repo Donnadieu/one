@@ -58,4 +58,9 @@ jobs:
         env:
           ONE_FAST_BUILD: '1'
           ONE_MODULE_CACHE: ${{ runner.temp }}/swift-module-cache
+          ONE_SHOT_DIR: ${{ runner.temp }}/one-shots
         run: tools/preflight.sh --ci $QUICK
+      - name: Pictures the checks took (a helper's orb before and after a restart)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: check-pictures, path: '${{ runner.temp }}/one-shots', if-no-files-found: ignore }

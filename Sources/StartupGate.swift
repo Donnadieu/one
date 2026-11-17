@@ -46,7 +46,7 @@ extension Model {
 
     /// This helper is being picked back up and isn't back yet: dimmed, "starting again", can't be tapped or messaged.
     func asleep(_ h: Helper) -> Bool {
-        waking.contains(h.id) || (h.resumeQueued == true && h.stoppedByYou != true && !paused)
+        waking.contains(h.id) || (h.resumeQueued == true && h.stoppedByYou != true && !paused && !RestartWait.holding(h))
     }
 
     /// "picking up N helpers · k of N back": every helper of this get-ready, and how many are back.
@@ -85,7 +85,7 @@ extension Model {
     /// Opens when the engine is up with its conversation, and no helper is still being picked back up.
     func gateCheck() {
         guard gate != .ready, Engine.shared.running, waking.isEmpty else { return }
-        if !paused, helpers.contains(where: { $0.resumeQueued == true && $0.stoppedByYou != true }) { return }
+        if !paused, helpers.contains(where: { $0.resumeQueued == true && $0.stoppedByYou != true && !RestartWait.holding($0) }) { return }
         openGate()
     }
 

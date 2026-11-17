@@ -127,9 +127,9 @@ extension Model {
         return thinking
     }
     static func savedHelpers() -> [Helper] {
-        guard let d = UserDefaults.standard.data(forKey: "helpers") else { return [] }
-        // One unreadable entry never costs the rest.
-        return HelperTrail.restore(HelperClose.decode(d))  // the ones a restart cut off get picked back up once the engine is ready
+        let d = UserDefaults.standard.data(forKey: "helpers")
+        // One unreadable entry never costs the rest. The ones a restart cut off get picked back up once the engine is ready.
+        return RestartWait.recover(HelperTrail.restore(d.map(HelperClose.decode) ?? [])).0
     }
 
     func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
@@ -213,6 +213,7 @@ extension Model {
                     guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line
                     self.helperUnderway(id)
                     BlockedAsk.saw(s, by: id.uuidString)
+                    RestartWait.saw(s, by: id)  // asked One for a folder or a restart
                     self.learnHelperStep(id, s)
                     self.update(id) {
                         $0.line = Plain.step(s)
@@ -243,6 +244,7 @@ extension Model {
         if pausedTurnEnded(id, stop: stop) { return }  // a budget or the account's limit: never a cut-off (LimitPause.swift)
         // Cut off (a restart, a dropped connection), cancelled or failed: stopped and picked back up, never "done".
         if helperDidNotFinish(id, stop: stop) { return }
+        if holdForRestart(id, stop: stop) { return }  // waits for One to restart, never done (RestartWait.swift)
         update(id) { h in
             // Only the main assistant sends helpers: a helper's own [helper: …] line is dropped, logged, never started.
             let had = !h.reply.isEmpty

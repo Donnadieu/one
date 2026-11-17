@@ -57,9 +57,11 @@ extension Model {
                 }
             case "stopped":
                 lines.append(
-                    h.resumeQueued == true
-                        ? "- \(h.title): \(h.updatePaused == true ? "paused for \(h.pausedFor ?? "an update")" : "cut off by a restart"); One picks it back up by itself in a moment."
-                        : "- \(h.title): stopped, not finished (\(h.line)).")
+                    h.restartWait != nil
+                        ? "- \(h.title): waiting for One to restart (for \(h.restartWait ?? "a restart")); it carries on by itself after the restart."
+                        : h.resumeQueued == true
+                            ? "- \(h.title): \(h.updatePaused == true ? "paused for \(h.pausedFor ?? "an update")" : "cut off by a restart"); One picks it back up by itself in a moment."
+                            : "- \(h.title): stopped, not finished (\(h.line)).")
             default:
                 let what = h.state == "needsYes" ? "is waiting for \(userName)'s yes" : "is done"
                 if h.routine != nil {

@@ -118,6 +118,7 @@ final class Model: ObservableObject {
     /// Working helpers don't hold it up for long (FolderWatch.due): they're paused and pick back up.
     func tendFolders() {
         guard onboarded, !Env.commandLine else { return }
+        if helpers.contains(where: { $0.restartWait != nil }), RestartWait.pending() == nil, Engine.shared.running { resumeInterrupted() }
         FolderWatch.tend(
             talking: thinking, helpersWorking: helpers.contains { $0.state == "working" }, running: Engine.shared.running,
             routineBusy: { !Routines.inFlight().isEmpty }, sensitiveBusy: { !self.helpersInSensitiveStep().isEmpty },
@@ -128,6 +129,7 @@ final class Model: ObservableObject {
     func restartForFolders(resume: Bool, pauseHelpers: Bool) async {
         let line = FolderWatch.restartingLine(FolderWatch.added, helpers: pauseHelpers, gatewayOnly: GatewayGuard.leftForRoutine != nil)
         if pauseHelpers { pauseHelpersForFolder() }  // before the engine goes: their turns end as "paused", not "done"
+        recoverRestartWaiters()  // shown done or taken off the screen by an older One while waiting for this (RestartWait.swift)
         bubbles.removeAll { $0.text == FolderWatch.restartedLine || $0.text.hasPrefix("Restarting to ") }
         bubbles.append(Bubble(fromMe: false, text: line))
         saveBubbles()

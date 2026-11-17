@@ -84,6 +84,14 @@ A left column of bots balances Ready for you on the right.
 | Routines filter | Chips under the title | The bots' orbs as a row under the title |
 | First time | Hidden until the first bot | One faint "New bot" circle |
 
+**Recommendation: B**, with A's three quiet facts (uses, checks in, remembers N things) added to the bot's chat
+header. It keeps the left side Omar asked for in One's own world look, so it doesn't read as "what every other app
+has", and a working bot's thread to Iris shows at a glance who is busy. A is the fallback if B gets crowded past
+about eight bots. Omar decides.
+
+Gaps the design tool filled with made-up content (not real data): business details (Oak Park, Riverside), sample
+helpers and routines, and a "Business" room for the contractor's bots.
+
 ## Routines (stay their own page)
 
 - The Routines page keeps the 24-hour dial. A routine can belong to a bot.

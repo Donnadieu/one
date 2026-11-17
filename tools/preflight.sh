@@ -195,7 +195,7 @@ grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the keeper really opens One again after a failed start, waits longer each time, puts the previous version back after 3 failures, never after a quit" bash -c "tools/keeper-check.sh $TBIN $T/keeper | tee $T/keeper.txt | grep -q '^keeper ok'"
 grep "✗" "$T/keeper.txt" 2>/dev/null | sed 's/^/    /'
 check "phone messages sent while One was off: the last 2 hours answered, older ones listed in one note and never acted on" /usr/bin/python3 tools/missed-messages-check.py
-check "helper lines in a phone-chat reply (engine): handed to One once, never shown, the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news" /usr/bin/python3 tools/phone-tags-check.py
+check "helper lines in a phone-chat reply (engine): handed to One once, never shown (a receipt instead), the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news; a reply that says a job is starting with no line is logged, told next turn, and shown when it hangs (the Nov 17 replies)" /usr/bin/python3 tools/phone-tags-check.py
 check "choices in a Telegram reply (engine plugin): One's own cut, tap buttons under the reply, a tap is typing that answer once, old buttons stop, nobody else can tap, other chats untouched" /usr/bin/python3 tools/phone-choices-check.py
 [ $CI = 0 ] && check "the real engine runs the missed-messages plugin on real messages" tools/missed-messages-engine-check.sh
 

@@ -1,0 +1,22 @@
+[
+ {
+  "name": "Nov 17 06:53 'They're all starting now.' (no line, no colon)",
+  "reply": "Channel: https://www.youtube.com/@ThenItClicked\nGPS video, with the new thumbnail: https://youtu.be/dhcEyOvKjDc\n\nI also have to own a miss: my last message said I was shipping PR #133, deleting the drafts and passing your question on, but I never actually started any of them. They're all starting now."
+ },
+ {
+  "name": "Nov 17 08:42 'I'm rerunning it now' (no line)",
+  "reply": "**What happened:** the 7 AM long-video run was cut short by my own update. One 0.9.120, with the Telegram buttons fix, installed at 7:03. Installing restarts One's engine, and that killed the video job about 3 minutes into its run. Nothing was published, and nothing broke on the channel.\n\nI'm rerunning it now, so Tuesday's video still goes out today. From now on, One updates will wait until no routine is running."
+ },
+ {
+  "name": "Nov 17 08:43 'It's starting now, together with the fix…:' (ends at the colon)",
+  "reply": "No. The schedule is **2 long videos a week** (Tuesday and Friday at 7 AM), plus **one Short a day** on the other days at noon. If you want two a day, that's a big change in work and credits, so tell me and I'll price it out.\n\nI also have to correct myself again: I said I was rerunning today's video, but I hadn't actually started it. It's starting now, together with the fix that makes One updates wait for running routines:"
+ },
+ {
+  "name": "Nov 17 08:46 'I'm sending a helper to find the cause…:' (ends at the colon)",
+  "reply": "Agreed, that's a bug. Twice this morning my helper lines were taken out of the message but no helper started. The third try worked. I'm sending a helper to find the cause, fix it, and ship it. It won't install while a routine is running:"
+ },
+ {
+  "name": "Nov 16 22:20 'Fixing the buttons…' (no line)",
+  "reply": "I've started both:\n1. **Shipping the helper fix:** merge PR #131, release it as **One 0.9.119**, and install it on your Mac. Then I'll check the version and that the new part loaded. One restarts during the install, so I may go quiet for a minute.\n2. **The buttons fix:** choice lines like the ones at the end of my messages will become **tappable buttons on Telegram**. Tapping one sends that answer, exactly as if you'd typed it. It ends at a reviewed pull request with all checks green, and goes out only when you say yes.\n\nYou'll get a message here when it's done."
+ }
+]

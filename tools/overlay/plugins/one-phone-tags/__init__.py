@@ -18,6 +18,18 @@ This plugin sits on that road. For a reply in a phone chat (Telegram, WhatsApp, 
 - ``pre_llm_call``: every phone-chat turn tells the assistant that those lines work there and how its helpers are
   doing (``one-phone/news.md``, kept by One), so it can answer "is it still running?" and pass on an answer.
 
+Nov 17 2026: four replies that morning said "It's starting now…:" or "I'm sending a helper…:" and ended at the colon;
+nothing started. The model never wrote the line (no hand-over logged, and each turn's output tokens leave no room for
+one). The saved reply is the cut one, so every earlier success in the replayed chat read as a promise ending at "now:"
+with nothing after it, and the model copied that shape. So now:
+
+- the cut lines leave a receipt at the end of the reply ("↳ Helper sent: <title>", "↳ Passed on to …"): the person
+  sees what went to One, and the saved reply shows that a line was there;
+- a reply with no helper line that says a job is starting (``missing_line``) is logged loudly, the next turn in that
+  chat is told nothing started (``one-phone/missing.json``, survives a restart), and when the reply plainly hangs (says
+  it's sending a helper, ends at the colon, or writes a receipt itself) the person is told too;
+- the phone rule says saved replies are cut and that only the line itself starts a job.
+
 Nov 9 2026: a reply ending in a choices line ([choices: Yes, go ahead | Not now]), which One's own chat turns into
 buttons, reached Telegram as that raw line. So in the Telegram chat only:
 
@@ -43,7 +55,9 @@ import dataclasses
 import datetime as _dt
 import hashlib
 import json
+import logging
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -62,8 +76,33 @@ RULE = (
     "write [helper: …], [tell-helper: …], [stop-helper: …] and [done-helper: …] lines as usual. One takes them out of "
     "this chat, starts or tells the helper on the Mac (it shows there too) and sends the result to this chat by itself "
     "when it's done. So send helpers as usual, never paste a helper line for them to read, never say they must be at "
-    "the Mac for it, and don't do the job here yourself.)"
+    "the Mac for it, and don't do the job here yourself. Your earlier replies in this chat are saved without their "
+    "helper lines: a \"↳ …\" line in them is One's receipt for a line you wrote, and a reply that ends at "
+    "\"now:\" had its lines cut after it. Don't copy that shape: a job starts only when THIS reply holds its own "
+    "[helper: Title | job] line; saying \"starting now\" or writing a receipt yourself starts nothing.)"
 )
+RECEIPT = "↳"
+# A reply that says a job is starting but holds no helper line (Nov 16-17 2026: "It's starting now, together with the
+# fix that makes One updates wait for running routines:" and nothing after it; One got nothing, Omar saw a dangling
+# colon). Matched per sentence; questions and "if …" sentences don't count.
+PROMISE = re.compile(
+    r"\b(sending|starting|kicking off|spinning up|launching|firing off)\b[^.!?\n]{0,60}\bhelpers?\b"
+    r"|\b(starting|sending|going|rerunning|kicking (it|them) off)\b[^.!?\n]{0,30}\bnow\b"
+    r"|\bnow,? for real\b"
+    r"|\bi(?:'ve|’ve| have) (just |now )?(started|kicked off) (it|them|both|all|the|a|an|two|three)\b",
+    re.IGNORECASE,
+)
+SAYS_HELPER = re.compile(r"\b(sending|starting|kicking off|spinning up|launching|firing off)\b[^.!?\n]{0,60}\bhelpers?\b",
+                         re.IGNORECASE)
+NOT_A_CLAIM = re.compile(r"^\W*(if|when|once|after|should|shall|want|do you|would you|could|can i|or)\b", re.IGNORECASE)
+MISSING_SHOWN = ("(Nothing started: this message was missing the line that starts the helper. "
+                 "Say \"go\" and I'll send it.)")
+MISSING_NOTE = (
+    "(One app note: your last reply in this chat said a job was starting (\"{said}\") but held no [helper: …] line, "
+    "so One started NOTHING from it{shown}. If that job is still wanted, write its [helper: Title | job] line in this "
+    "reply. If it was already running or you did it another way, ignore this note.)"
+)
+MISSING_FOR = 24 * 3600
 
 
 def _home() -> Path:
@@ -256,11 +295,19 @@ def reply_id(session_id: str, text: str) -> str:
     return hashlib.sha256(f"{session_id}\n{text}".encode()).hexdigest()[:24]
 
 
+def _loud(line: str) -> None:
+    """A miss Omar would otherwise only find on his phone: in this plugin's log and the engine's warnings too."""
+    _log(line)
+    with contextlib.suppress(Exception):
+        logging.getLogger("one-phone-tags").warning(line)
+
+
 def _hand_over(text: str, platform: str, session_id: str, turn_id: str) -> None:
     rid = reply_id(session_id, text)
     inbox = _dir() / "inbox"
     f = inbox / f"{rid}.json"
     if f.exists():
+        _log(f"{platform} {session_id}: the same reply again, already waiting for One ({rid})")
         return  # the same reply again (a re-run turn): One acts on it once
     inbox.mkdir(parents=True, exist_ok=True)
     rec = {
@@ -273,25 +320,150 @@ def _hand_over(text: str, platform: str, session_id: str, turn_id: str) -> None:
     _log(f"{platform} {session_id}: reply with helper lines handed to One ({rid})")
 
 
+def receipts(text: str) -> list[str]:
+    """One short line per acted tag, added at the end of the reply: the person sees what went to One, and the saved
+    reply (replayed next turn) no longer reads as a promise that ends at a colon."""
+    out = []
+    for h in hits(text, ACTED):
+        name = _title(h["body"])
+        if not name:
+            continue
+        if h["tag"] == "helper":
+            line = f"{RECEIPT} Helper sent: {name}" if "|" in h["body"] else ""
+        elif h["tag"] == "tell-helper":
+            line = f"{RECEIPT} Passed on to {name}"
+        elif h["tag"] == "stop-helper":
+            line = f"{RECEIPT} Stopping {name}"
+        else:
+            line = f"{RECEIPT} Clearing {name}"
+        if line and line not in out:
+            out.append(line)
+    return out
+
+
+def _before_choices(body: str, extra: list[str]) -> str:
+    """Adds lines at the end of a reply, above a last [choices: …] line (that one must stay last)."""
+    if not extra:
+        return body
+    lines = body.split("\n")
+    while lines and not lines[-1].strip(" \t"):
+        lines.pop()
+    tail = []
+    if lines and lines[-1].strip(" \t").lower().startswith("[choice"):
+        tail = ["", lines.pop()]
+        while lines and not lines[-1].strip(" \t"):
+            lines.pop()
+    head = "\n".join(lines)
+    choice = tail[1] if tail else ""
+    return (head + "\n\n" if head else "") + "\n".join(extra) + ("\n\n" + choice if choice else "")
+
+
+def _claims(text: str) -> list[str]:
+    """The sentences of a reply (not its choices line, quotes or questions) that say a job is starting."""
+    body, _ = split_choices(text)
+    out = []
+    for line in body.split("\n"):
+        if line.lstrip().startswith(">"):
+            continue
+        for s in re.split(r"(?<=[.!?:])\s+", line.strip()):
+            s = s.strip(" \t*_")
+            if s and not s.endswith("?") and not NOT_A_CLAIM.search(s) and PROMISE.search(s):
+                out.append(s)
+    return out
+
+
+def missing_line(text: str) -> Optional[dict]:
+    """A reply with no helper line that says a job is starting. ``loud``: it plainly hangs (says it is sending a helper,
+    ends at a colon after such words, or carries a receipt it wrote itself), so the person is told nothing started."""
+    if hits(text, ACTED):
+        return None
+    claims = _claims(text)
+    fake = any(ln.strip().startswith(RECEIPT) for ln in text.split("\n"))
+    if not (claims or fake):
+        return None
+    body, _ = split_choices(text)
+    hangs = body.rstrip(" \t\n*_").endswith(":")
+    loud = fake or hangs or any(SAYS_HELPER.search(s) for s in claims)
+    said = " ".join((claims[-1] if claims else next(
+        ln for ln in text.split("\n") if ln.strip().startswith(RECEIPT))).split())
+    return {"said": said if len(said) <= 160 else said[:159] + "…", "loud": loud}
+
+
+def _missing_file() -> Path:
+    return _dir() / "missing.json"
+
+
+def _missing_all() -> dict:
+    try:
+        d = json.loads(_missing_file().read_text())
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _missing_save(d: dict) -> None:
+    f = _missing_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_name(".missing.tmp")
+    tmp.write_text(json.dumps(d))
+    os.replace(tmp, f)
+
+
+def _note_missing(ck: str, miss: Optional[dict]) -> None:
+    """Remembers (on disk: a gateway restart in between must not lose it) that this chat's last reply promised a job
+    with no line, for the next turn there; a reply that does hand lines over clears it."""
+    d = {k: v for k, v in _missing_all().items() if time.time() - float(v.get("at", 0)) < MISSING_FOR}
+    if miss:
+        d[ck] = dict(miss, at=time.time())
+    elif ck not in d:
+        return
+    else:
+        d.pop(ck, None)
+    _missing_save(d)
+
+
+def take_missing(ck: str) -> Optional[dict]:
+    d = _missing_all()
+    m = d.pop(ck, None)
+    if m is None:
+        return None
+    with contextlib.suppress(OSError):
+        _missing_save(d)
+    return m if time.time() - float(m.get("at", 0)) < MISSING_FOR else None
+
+
 def transform_llm_output(response_text: Any = None, session_id: str = "", platform: Any = None, turn_id: Any = None,
                          **_: Any) -> Optional[str]:
     try:
         p = _platform(platform)
         text = response_text if isinstance(response_text, str) else ""
-        if p not in PHONE or "[" not in text:
+        if p not in PHONE or not text.strip():
             return None
+        ck = _chat_key(_session("HERMES_SESSION_CHAT_ID"), _session("HERMES_SESSION_THREAD_ID"))
         out = text
-        if hits(text, HIDDEN):
+        if "[" in text and hits(text, HIDDEN):
             if hits(text, ACTED):
                 _hand_over(text, p, str(session_id or ""), str(turn_id or ""))
+                _note_missing(ck, None)
             out = shown(text).strip()
             if not out:
                 out = plain_line(text)
+            else:
+                out = _before_choices(out, receipts(text))
+        miss = missing_line(text)
+        if miss:
+            _note_missing(ck, miss)
+            _loud(f"{p} {session_id}: MISSING HELPER LINE: the reply says a job is starting (\"{miss['said']}\") but "
+                  f"holds no [helper: …] line, so nothing went to One; the assistant is told next turn"
+                  + (" and the person now" if miss["loud"] else ""))
+            if miss["loud"]:
+                kept = "\n".join(ln for ln in out.split("\n") if not ln.strip().startswith(RECEIPT))
+                out = _before_choices(kept.strip(), [MISSING_SHOWN])
         if p == "telegram":
             out = with_buttons(out)
         return out if out != text else None
     except Exception as e:  # never break the reply over this
-        _log(f"couldn't read a phone reply: {e}")
+        _loud(f"couldn't read a phone reply: {e}")
         return None
 
 
@@ -316,6 +488,10 @@ def pre_llm_call(platform: Any = None, **_: Any) -> Optional[dict]:
         offered = _offered.pop(ck, None) if p == "telegram" else None
         if offered:
             n = (n + "\n" if n else "") + OFFERED.format(" | ".join(offered))
+        miss = take_missing(ck)
+        if miss:
+            told = " (they were told nothing started)" if miss.get("loud") else ""
+            n = (n + "\n" if n else "") + MISSING_NOTE.format(said=miss.get("said", ""), shown=told)
         return {"context": RULE + ("\n" + n if n else "")}
     except Exception as e:
         _log(f"couldn't add the phone note: {e}")

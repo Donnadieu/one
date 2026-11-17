@@ -11,9 +11,12 @@ cd "$(dirname "$0")/.."
 SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 E="$SUP/engine"
 [ -d "$E/hermes_cli" ] || { echo "no engine in $SUP; skipped"; exit 0; }
+# A fresh install has no Telegram library until Telegram is set up; add it the engine's own way (its install hint).
+HERMES_HOME="$SUP/hermes" perl -e 'alarm 600; exec @ARGV' "$E/.hermes/bin/hermes" pm install --extra telegram > "${TMPDIR:-/tmp}/pm-telegram.txt" 2>&1 \
+  || { tail -20 "${TMPDIR:-/tmp}/pm-telegram.txt"; echo "couldn't add the engine's Telegram library"; exit 1; }
 PY=""
 for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-  (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import hermes_cli.plugins, plugins.platforms.telegram.adapter" >/dev/null 2>&1) && { PY="$p"; break; }
+  (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import hermes_cli.plugins, plugins.platforms.telegram.adapter, telegram.ext" >/dev/null 2>&1) && { PY="$p"; break; }
 done
 [ -n "$PY" ] || { echo "engine python not found"; exit 1; }
 W="$SUP/hermes/cache/scratch/choices-check-$$"

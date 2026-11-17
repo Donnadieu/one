@@ -8,6 +8,7 @@ CallbackQueryHandler and inline keyboard. Only the network is a stand-in (a bot 
 """
 
 import asyncio
+import logging
 import os
 import sys
 import types
@@ -50,6 +51,9 @@ except ImportError:
     sys.modules["telegram"], sys.modules["telegram.ext"] = _tg, _ext
 
 fails = 0
+# The engine's default logger lives in agent.conversation_loop, whose import starts a whole agent runtime (in a
+# throwaway home: a dependency sync and a relaunch); the transform takes any logger.
+LOG = logging.getLogger("one.phone-choices-check")
 
 
 def check(name, ok):
@@ -146,7 +150,7 @@ def turn(text, turn_id):
     tokens = set_session_vars(platform="telegram", chat_id="42", chat_type="dm", user_id="42", user_name="Omar",
                               session_key=KEY, session_id="tg-sess")
     try:
-        return apply_llm_output_transform(Agent(), text, turn_id=turn_id)[0]
+        return apply_llm_output_transform(Agent(), text, turn_id=turn_id, logger=LOG)[0]
     finally:
         clear_session_vars(tokens)
 
@@ -230,14 +234,14 @@ async def main():
     print("5. no live turn to tie the buttons to (a routine's message, One's own chat)")
     tokens = set_session_vars(platform="telegram", chat_id="42", session_key="agent:main:telegram:dm:other")
     try:
-        same = apply_llm_output_transform(Agent(), "Done.\n[choices: OK | Undo]", turn_id="t9")[0]
+        same = apply_llm_output_transform(Agent(), "Done.\n[choices: OK | Undo]", turn_id="t9", logger=LOG)[0]
     finally:
         clear_session_vars(tokens)
     check("the reply is left exactly as it was", same == "Done.\n[choices: OK | Undo]")
     tokens = set_session_vars(platform="acp", session_key="acp-1")
     try:
         acp = apply_llm_output_transform(types.SimpleNamespace(session_id="a", model="m", platform="acp"),
-                                         "Sure?\n[choices: Yes | No]", turn_id="t10")[0]
+                                         "Sure?\n[choices: Yes | No]", turn_id="t10", logger=LOG)[0]
     finally:
         clear_session_vars(tokens)
     check("One's own chat keeps its line (its own buttons)", acp == "Sure?\n[choices: Yes | No]")

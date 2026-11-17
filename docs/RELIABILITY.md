@@ -114,6 +114,8 @@ person's own Mac, not about a server One's team operates.
   "still running" forever, silently blocking that routine from ever firing
   again; `Routines.inFlight` (0.9.80) now matches the engine's own claim
   TTL instead of treating a missing `at` as live.
+- 0.9.123: the Routines dial reads which conversation set each routine up (`origin.chat_id` in jobs.json, read only)
+  to show and filter a bot's routines in its colour; nothing about running, pausing or failing routines changed.
 - Nov 9 2026: "Argo P009 check" ran its 15 allowed runs with no errors and the Routines dial still drew it orange
   with an X ("didn't run"), and a time missed while the lid was closed got the same alarm. The alarm now has one
   source of truth, the engine's own failure record (`Routines.failedRecord`: an error status, a failure streak, an

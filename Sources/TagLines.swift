@@ -17,7 +17,7 @@ enum TagLines {
     /// Every tag One hides from a reply and acts on (Helpers.read). Learning reads job-kind and learned afterwards.
     static let acted = ["helper", "tell-helper", "stop-helper", "done-helper", "close-helper"]
     /// Every tag that's never shown or spoken.
-    static let hidden = acted + ["job-kind", "learned", "bot"]
+    static let hidden = acted + ["job-kind", "learned", "bot"] + BotTags.tags
 
     /// One tag found: which, where it starts and ends (end exclusive) and what's after "name:". nil body = still
     /// streaming in. `open` = it never closed: everything from it to the end of the reply is hidden.

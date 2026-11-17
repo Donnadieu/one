@@ -490,7 +490,7 @@ extension Model {
         // quotes is never read (Oct 28: two helpers split in two by a quoted [close-helper: …], never started).
         let tags = Helpers.read(full)
         let all = tags.jobs
-        full = makeBots(from: tags.said)  // [bot: …] lines make bots (Bots.swift)
+        full = botLines(tags.said, typed: c.typed)  // [bot: …] makes a bot; edit/archive/restore/delete (BotsManage.swift)
         // Stops, clears, tells, then new helpers, in that order (HelperLines.swift); a phone-chat reply goes the same way.
         for miss in actOn(tags, typed: c.typed) { full += (full.isEmpty ? "" : "\n\n") + miss }
         full = learnFinish(mainFreeEnd(full, stop: stop, sent: all), stop: stop, idx: idx) + goalEnd(nil)  // handed over or cut off; [learned:]

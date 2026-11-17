@@ -67,6 +67,8 @@ struct BotsColumn: View {
     @ObservedObject var m: Model
     @AppStorage("botsCollapsed") var collapsed = false
     @State var shown: Set<String> = []  // private rooms tapped open
+    @State var hovered: UUID?  // the row showing its ⋯ (BotSheet.swift)
+    nonisolated(unsafe) static var stillHover: UUID?  // renders only
     var body: some View {
         let bots = m.bots
         TimelineView(.animation(minimumInterval: 1.0 / 20, paused: HomeView.still || bots.isEmpty)) { tl in
@@ -77,8 +79,9 @@ struct BotsColumn: View {
 
     /// Before the first bot: one faint circle at the bottom left, nothing else.
     var first: some View {
-        VStack {
+        VStack(spacing: 10) {
             Spacer()
+            if !m.archivedBots.isEmpty { archiveBox }
             newBot(faint: true)
         }
         .frame(width: 52).padding(.bottom, 22).padding(.leading, 6)
@@ -103,7 +106,18 @@ struct BotsColumn: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) { list }
             }
-            newBot(faint: false)
+            if collapsed {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !m.archivedBots.isEmpty { archiveBox }
+                    newBot(faint: false)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    newBot(faint: false)
+                    Spacer(minLength: 8)
+                    if !m.archivedBots.isEmpty { archiveBox.padding(.trailing, 8) }
+                }
+            }
         }
         .frame(width: collapsed ? 58 : 214, alignment: .leading)
         .padding(.top, 14).padding(.bottom, 22).padding(.leading, 12)
@@ -166,6 +180,7 @@ struct BotsColumn: View {
         let b = h.bot!
         let open = m.openHelper == h.id
         let yes = h.viewState == .needsYes && h.state == "needsYes"
+        let lit = (HomeView.still ? BotsColumn.stillHover == h.id : hovered == h.id) || m.botMenu == h.id
         return Button {
             withAnimation(.easeOut(duration: 0.3)) { m.focusHelper(h.id) }
         } label: {
@@ -182,13 +197,26 @@ struct BotsColumn: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.horizontal, 4).padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 10).fill(WorldLook.cream.opacity(open ? 0.08 : 0)))
+            .padding(.horizontal, 4).padding(.vertical, 3).padding(.trailing, lit && !collapsed ? 30 : 0)
+            .background(RoundedRectangle(cornerRadius: 10).fill(WorldLook.cream.opacity(open || lit ? 0.08 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if lit && !collapsed {
+                Button {
+                    m.botMenu = m.botMenu == h.id ? nil : h.id
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 11, weight: .bold)).foregroundStyle(WorldLook.cream.opacity(0.85))
+                        .frame(width: 26, height: 22).background(RoundedRectangle(cornerRadius: 7).fill(WorldLook.cream.opacity(0.12)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).padding(.trailing, 5).help("About, edit, archive or delete \(b.name)")
+            }
+        }
+        .onHover { hovered = $0 ? h.id : (hovered == h.id ? nil : hovered) }
         .help(collapsed ? "\(b.name): \(BotsColumn.line(h))" : "Open \(b.name)'s chat")
-        .contextMenu { if h.state == "working" { Button("Stop") { m.stopHelper(h.id) } } }
+        .contextMenu { BotMenuItems(m: m, h: h) }
         .starCalm(pad: 6, feather: 14, floor: 0.12)
     }
 
@@ -203,6 +231,23 @@ struct BotsColumn: View {
         case "incoming": return "Watching for new things"
         default: return "Resting · ready when you are"
         }
+    }
+
+    /// The archived bots: a small box with how many, next to New bot (BotSheet.swift `ArchivedBots`).
+    var archiveBox: some View {
+        Button {
+            m.botsArchive.toggle()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "archivebox").font(.system(size: 10.5))
+                if !collapsed { Text("\(m.archivedBots.count)").font(.system(size: 11.5, weight: .medium)) }
+            }
+            .foregroundStyle(WorldLook.cream.opacity(m.botsArchive ? 0.85 : 0.5)).padding(.horizontal, 8).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 7).fill(WorldLook.cream.opacity(m.botsArchive ? 0.1 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help("Archived bots: kept, off the left")
+        .padding(.leading, collapsed ? 4 : 0)
     }
 
     func newBot(faint: Bool) -> some View {
@@ -293,6 +338,12 @@ struct BotHeader: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 4)
+                Menu {
+                    BotMenuItems(m: m, h: h)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("About, edit, archive or delete \(b.name)")
                 Button {
                     withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil }
                 } label: {

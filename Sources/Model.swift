@@ -294,7 +294,13 @@ final class Model: ObservableObject {
     @Published var draftSeed: String?
     @Published var about: (title: String, url: URL)?
     @Published var viewing: URL? { didSet { if viewing != nil { closeOtherPanels(keep: .file) } } }
-    @Published var routinesOpen = false { didSet { if routinesOpen { closeOtherPanels(keep: .routines) } } }  // RoutinesView.swift
+    @Published var routinesOpen = false {
+        didSet { if routinesOpen { closeOtherPanels(keep: .routines) } else { routinesPick = nil } }
+    }  // RoutinesView.swift
+    var routinesPick: (bot: String, routine: String)?  // opened from a bot's sheet: its routine, filtered to it
+    @Published var botSheet: BotSheetAsk? { didSet { if botSheet != nil { closeOtherPanels(keep: .bots) } } }  // BotSheet.swift
+    @Published var botsArchive = false { didSet { if botsArchive { closeOtherPanels(keep: .bots) } } }  // the archived bots
+    @Published var botMenu: UUID?  // a bot's ⋯ menu (BotSheet.swift)
     @Published var stopAsk: UUID? { didSet { if stopAsk != nil { closeOtherPanels(keep: .stopAsk) } } }  // "Stop this helper?" (HelperStop.swift)
     @Published var meCard = false { didSet { if meCard { closeOtherPanels(keep: .meCard) } } }  // the name pill's card (MeCard.swift)
     @Published var connectionsSheet = false { didSet { if connectionsSheet { closeOtherPanels(keep: .connections) } } }

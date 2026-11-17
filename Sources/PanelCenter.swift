@@ -11,7 +11,7 @@ import Foundation
 
 /// Every panel this rule covers. `.rooms` is the one real macOS window among them (RoomGraphView.swift).
 enum Panel: Equatable {
-    case shelf, file, routines, stopAsk, meCard, connections, talkKey, folders, writing, rooms, switchAI
+    case shelf, file, routines, stopAsk, meCard, connections, talkKey, folders, writing, rooms, switchAI, bots
 }
 
 extension Model {
@@ -29,5 +29,9 @@ extension Model {
         if keep != .writing { writingPanel = false }
         if keep != .rooms, RoomsWindow.isOpen { RoomsWindow.panel?.close() }
         if keep != .switchAI { switchingAI = false }
+        if keep != .bots {
+            botSheet = nil
+            botsArchive = false
+        }
     }
 }

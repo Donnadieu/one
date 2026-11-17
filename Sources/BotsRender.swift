@@ -6,7 +6,7 @@ import SwiftUI
 // their rooms and memory files are written under ONE_SUPPORT_DIR, never the brain.
 
 enum BotsRender {
-    static let names = ["bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines"]
+    static let names = ["bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines"] + BotsManageRender.names
 
     /// Draws `name` into `<out>-<name>.png`; false when the name isn't one of these.
     @MainActor static func draw(_ name: String, _ out: String) -> Bool {
@@ -16,6 +16,7 @@ enum BotsRender {
             return true
         }
         let path = "\(out)-\(name).png"
+        if BotsManageRender.names.contains(name) { return BotsManageRender.draw(name, dir, path) }  // view, edit, archive, delete
         UserDefaults.standard.set(name == "bots-collapsed", forKey: "botsCollapsed")
         defer { UserDefaults.standard.removeObject(forKey: "botsCollapsed") }
         HelperCard.stillKeeping = false

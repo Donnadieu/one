@@ -266,7 +266,8 @@ async def main():
 
     print("6. with helper lines in the same reply")
     out = await deliver(ad, "On it.\n[helper: Hotels | find a hotel in Lisbon]\nWhich nights?\n[choices: This weekend | Next weekend]", 9)
-    check("the helper line and the choices line both come off", out == "On it.\nWhich nights?")
+    check("the helper line and the choices line both come off (a receipt in the line's place)",
+          out == "On it.\nWhich nights?\n\n↳ Helper sent: Hotels")
     inbox = list((Path(os.environ["HERMES_HOME"]) / "one-phone" / "inbox").glob("*.json"))
     check("the helper still goes to One", len(inbox) == 1)
     check("and the buttons come", labels(ad.sent[-1])[0] == ["This weekend", "Next weekend"])

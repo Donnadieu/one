@@ -49,8 +49,9 @@ tell = (FIX / "nov15-tell.txt").read_text()
 
 print("1. the Nov 15 reply in the phone chat: a [helper: …] line over several paragraphs that never closed")
 out = m.transform_llm_output(response_text=helper, session_id="tg-1", platform="telegram", turn_id="t1")
-check("the person gets the reply without the helper line",
-      out == "I'm sending a helper to build it now. It runs until the channel is live and posting by itself.")
+check("the person gets the reply without the helper line, and a receipt for it",
+      out == "I'm sending a helper to build it now. It runs until the channel is live and posting by itself.\n\n"
+             "↳ Helper sent: Science explainer channel")
 check("nothing of the job shows", out is not None and "[helper" not in out and "Brand Account" not in out)
 files = handed()
 check("the whole reply is handed to One, once", len(files) == 1)
@@ -123,6 +124,57 @@ check("with how its helpers are doing", "Science explainer channel: still workin
 old = time.time() - 8 * 24 * 3600
 os.utime(news, (old, old))
 check("but not a week-old note (One gone quiet)", "Science explainer" not in m.pre_llm_call(platform="telegram")["context"])
+
+print("7. Nov 17: replies that said a job was starting but held no helper line (tests/fixtures/phone-tags/nov17-missing.json)")
+log = Path(home) / "logs" / "one-phone-tags.log"
+missing = Path(home) / "one-phone" / "missing.json"
+for case in json.loads((FIX / "nov17-missing.json").read_text()):
+    before = log.read_text() if log.exists() else ""
+    out = m.transform_llm_output(response_text=case["reply"], session_id="tg-1", platform="telegram", turn_id="t-" + case["name"])
+    said = (out or case["reply"])
+    check(f"{case['name']}: nothing handed to One", handed() == [])
+    check(f"{case['name']}: logged loudly", "MISSING HELPER LINE" in (log.read_text() if log.exists() else "")[len(before):])
+    note = m.pre_llm_call(platform="telegram")["context"]
+    check(f"{case['name']}: the next turn is told nothing started", "started NOTHING" in note)
+    check(f"{case['name']}: once", "started NOTHING" not in m.pre_llm_call(platform="telegram")["context"])
+    hangs = case["reply"].rstrip().endswith(":") or "sending a helper" in case["reply"]
+    check(f"{case['name']}: the person {'is' if hangs else 'is not'} told nothing started",
+          (m.MISSING_SHOWN in said) == hangs)
+    if hangs:
+        check(f"{case['name']}: what they wrote still shows", said.startswith(case["reply"].rstrip()))
+
+print("8. the 08:45 reply that worked (its lines rebuilt from the helpers it started): handed over, with receipts")
+succ = "Yes, you should see every helper as an orb in One. Right now there are two: **Freelance profiles** and **Post daily build**.\n\nThe rerun of today's video and the update fix aren't there because I never actually sent them. I wrote \"starting now\" without starting anything, for the third time. Sending them now, for real:\n\n[helper: Rerun today's video | Then It Clicked YouTube channel: today's (Tue Nov 17) 7 AM long-video routine was cut about 3 minutes in when One updated. Make today's video now.]\n[helper: Updates wait for routines | Omar's One Mac app (repo Donnadieu/one). Bug: installing a One update restarts the engine and kills any scheduled routine that's mid-run. Fix it.]"
+m.transform_llm_output(response_text=json.loads((FIX / "nov17-missing.json").read_text())[3]["reply"], session_id="tg-1",
+                       platform="telegram", turn_id="t-miss")
+out = m.transform_llm_output(response_text=succ, session_id="tg-1", platform="telegram", turn_id="t-ok")
+check("handed to One once", len(handed()) == 1)
+check(f"the person sees the receipts, not the lines ({out!r:.80})", out is not None and "[helper" not in out and out.endswith(
+    "Sending them now, for real:\n\n↳ Helper sent: Rerun today's video\n↳ Helper sent: Updates wait for routines"))
+check("no missing-line warning", m.MISSING_SHOWN not in out)
+check("and it clears the earlier miss for that chat", "started NOTHING" not in m.pre_llm_call(platform="telegram")["context"])
+for f in handed():
+    f.unlink()
+with_choice = "On it.\n[helper: Hotels | Find a hotel in Quebec.]\n\n[choices: Cheap | Nice]"
+out = m.transform_llm_output(response_text=with_choice, session_id="tg-1", platform="whatsapp", turn_id="t-c")
+check(f"a receipt goes above a last choices line ({out!r})", out == "On it.\n\n↳ Helper sent: Hotels\n\n[choices: Cheap | Nice]")
+for f in handed():
+    f.unlink()
+
+print("9. what isn't a promise is left alone")
+for text in ["Should I start a helper to look into it?", "If you say yes, I'm sending a helper to book it.",
+             "The helper I sent yesterday is still working on it.", "Here's what changed:\n- the buttons\n- the voice",
+             "Rerun today's video is still running (waiting on a slow command).", "I've started thinking about it. More soon."]:
+    out = m.transform_llm_output(response_text=text, session_id="tg-1", platform="telegram", turn_id="t-n")
+    check(f"{text[:50]!r}: untouched, no note", out is None
+          and "started NOTHING" not in m.pre_llm_call(platform="telegram")["context"])
+fake = "Starting it now.\n↳ Helper sent: Hotels"
+out = m.transform_llm_output(response_text=fake, session_id="tg-1", platform="telegram", turn_id="t-f")
+check("a receipt the assistant wrote itself, with no line, is taken off and the person told",
+      out is not None and "↳" not in out and m.MISSING_SHOWN in out and handed() == [])
+check("the rule tells the assistant saved replies are cut and only the line starts a job",
+      "only when THIS reply holds its own" in m.pre_llm_call(platform="telegram")["context"])
+check("One's own chat is never warned", m.transform_llm_output(response_text=fake, session_id="x", platform="acp", turn_id="t") is None)
 
 print("phone-tags ok" if fails == 0 else f"phone-tags: {fails} failed")
 sys.exit(1 if fails else 0)

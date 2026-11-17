@@ -1,8 +1,8 @@
 # Bots (design, not built)
 
-Status: design proposal, Nov 17 2026. Nothing here is built. Two directions are drawn in Claude Design
-(project "One bots design": `Bots A - Bots shelf.dc.html`, `Bots B - Moons.dc.html`); Omar picks one before any
-code. The screen it starts from is One 0.9.122 (read from tag `v0.9.122`; the home and Routines views did not
+Status: design agreed, Nov 17 2026. Nothing here is built. Omar picked **Direction B (Moons)** with A's three
+quiet facts in the bot's chat header. Drawn in Claude Design (project "One bots design": `Bots B - Moons.dc.html`,
+the chosen one; `Bots A - Bots shelf.dc.html` kept for reference). The screen it starts from is One 0.9.122 (read from tag `v0.9.122`; the home and Routines views did not
 change since 0.9.119, whose renders are used as "today").
 
 ## Why
@@ -66,12 +66,10 @@ A left column of bots balances Ready for you on the right.
 - The natural way in is Keep as a bot on a helper that just did something useful, so discovery happens at the
   right moment, not as a blank panel on day one.
 - One less state at first launch for non-technical people; the window keeps today's width.
-- A one-time card ("New: keep a bot…") tells existing users once. Direction B shows the alternative (a single faint
-  "New bot" circle always at the left edge) so Omar can see the trade-off.
-- Exception: a box that ships with bots (below) shows the left side from first launch, because there is
-  something in it.
+- In B the first-time state is a single faint "New bot" circle at the left edge with the hint "Keep a helper for
+  one job"; the moons column itself appears with the first bot.
 
-## The two directions
+## The two directions (B chosen)
 
 | | A · Bots shelf | B · Moons |
 |---|---|---|
@@ -84,13 +82,13 @@ A left column of bots balances Ready for you on the right.
 | Routines filter | Chips under the title | The bots' orbs as a row under the title |
 | First time | Hidden until the first bot | One faint "New bot" circle |
 
-**Recommendation: B**, with A's three quiet facts (uses, checks in, remembers N things) added to the bot's chat
-header. It keeps the left side Omar asked for in One's own world look, so it doesn't read as "what every other app
-has", and a working bot's thread to Iris shows at a glance who is busy. A is the fallback if B gets crowded past
-about eight bots. Omar decides.
+**Decision (Omar, Nov 17 2026): B**, with A's three quiet facts ("Uses: … · Checks in: … · Remembers N things")
+in the bot's chat header, above the "What it did" strip. Why: it keeps the left side in One's own world look, so it
+doesn't read as "what every other app has", and a working bot's thread to Iris shows at a glance who is busy. A is
+the fallback if B gets crowded past about eight bots.
 
 Gaps the design tool filled with made-up content (not real data): business details (Oak Park, Riverside), sample
-helpers and routines, and a "Business" room for the contractor's bots.
+helpers and routines.
 
 ## Routines (stay their own page)
 
@@ -110,21 +108,6 @@ helpers and routines, and a "Business" room for the contractor's bots.
   headline.
 - Stop works on a bot the same way as on a helper. Hiding a bot keeps its memory and routines.
 
-## The contractor box
-
-A Mac mini running One, shipped with a **Growth bot** and an **Intake bot** preloaded from Danny's setup, with Grok
-as the brain.
-
-- First launch: Iris greets by name ("Hi Luis, I'm Iris. Two bots came with this Mac, set up by Danny."). The left
-  side is open with both bots marked "Not set up yet".
-- One plain card per bot: what it does in one sentence, the one thing it needs from them ("Your Facebook sign-in",
-  "Your texts") and **Set it up**. Footer: "Nothing runs until you say so."
-- "Thinking with Grok" shows quietly in the name area; Switch AI still works.
-- A preloaded bot carries its job, rules, colour and routines (off until set up), never logins or someone else's
-  chat history (the same line Grok Bot draws for shared templates).
-- Setting up a bot reuses today's paths: Connections › Passwords for logins, the hidden browser for sign-ins,
-  hand-off for codes. No time promises in the words.
-
 ## Data model sketch (for later; nothing built)
 
 ```text
@@ -139,8 +122,7 @@ Support/One/bots.json            # the list, like UserDefaults `helpers` today
      sid: "<engine session id>",  # its own kept conversation (session/load, like Iris's)
      routines: ["<cron job id>", …],
      hidden: false,
-     from: "chat" | "helper:<helper id>" | "preloaded:<pack name>",
-     setUp: true,                 # preloaded bots start false
+     from: "chat" | "helper:<helper id>",
      unread: 0, line: "Answering 2 new leads…", state: "working|needsYes|resting" }]
 
 <room>/bots/<bot-name>/
@@ -153,7 +135,6 @@ Support/One/bots.json            # the list, like UserDefaults `helpers` today
   engine's `jobs.json` format is untouched).
 - "Only the connections it needs": a per-session mark the engine plugin reads before each tool call, the same way
   `LookOnly` marks a helper today (`guard/look-only/<session>.json`).
-- A box's preloaded bots: a "bot pack" folder (bot.md + routines with no logins) that One imports at first launch.
 
 ## Open questions
 
@@ -165,10 +146,7 @@ Support/One/bots.json            # the list, like UserDefaults `helpers` today
 6. A bot in a shared room (Co-Founder): can Ek talk to it too, and whose AI account does it use?
 7. Enforcing "only the connections it needs" in code: which connections can the engine plugin really block per
    session today (Browser and Files yes; Email drafts via the Mail bridge)?
-8. Contractor box: who updates a preloaded bot when Danny improves his setup (a new pack version, offered like an
-   app update?), and who fixes a broken login remotely.
-9. Grok as the brain on the box: which Grok plan, and do the bots' check-ins fit its weekly limit?
-10. Deleting a bot: same ask-first rule; what happens to its routines and its notes in the room.
+8. Deleting a bot: same ask-first rule; what happens to its routines and its notes in the room.
 
 ## Research (verified, Nov 17 2026)
 
@@ -194,6 +172,6 @@ Cursor). **Muse** is Meta's. **dots** is OpenAI's.
   "Muse for Small Business"; Axios (Sep 8 2026).
 
 Ideas borrowed (not their interface): one job per bot; the main assistant stays the front door; make and change a
-bot by talking; group bots by business (rooms); hide, don't delete; preloaded bots carry rules but never logins;
+bot by talking; group bots by business (rooms); hide, don't delete;
 three plain limits (on its own / ask first / never) which One already has; checking in on its own is read-only.
 What stays One's own: bots live on your Mac, inside a room, on the AI you already pay for, and Iris never goes away.

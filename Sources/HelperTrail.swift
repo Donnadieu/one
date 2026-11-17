@@ -18,6 +18,7 @@ enum HelperTrail {
     static func text(_ h: Helper) -> String {
         let when = DateFormatter.localizedString(from: h.started ?? Date(), dateStyle: .medium, timeStyle: .short)
         var out = "# \(h.title)\n\nStarted: \(when)\n"
+        if let sid = h.sid { out += "Conversation: \(sid)\n" }  // read back if it has to be brought back (RestartWait.swift)
         if let n = h.resumes, n > 0 { out += "Picked back up after a restart: \(n) time\(n == 1 ? "" : "s")\n" }
         out += "\n## The job\n\n\(h.task)\n\n## Steps so far\n\n"
         let steps = h.trail ?? []
@@ -50,13 +51,13 @@ enum HelperTrail {
     }
 
     /// What the helper is told when it's picked back up.
-    static func resumePrompt(_ h: Helper, brief: String) -> String {
+    static func resumePrompt(_ h: Helper, brief: String, lead: String = "You were interrupted by a restart.") -> String {
         let steps = (h.trail ?? []).map { "- \($0)" }.joined(separator: "\n")
         var r = h.reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if r.count > 4000 { r = String(r.suffix(4000)) }
         let did = (steps.isEmpty ? "(no steps were recorded)" : steps) + (r.isEmpty ? "" : "\n\nYour last words before the restart:\n\(r)")
         return """
-            You were interrupted by a restart. Here's what you already did:
+            \(lead) Here's what you already did:
             \(did)
 
             (The full trail is saved in \(url(h.id).path).) Check the real state first (files, git, releases) before redoing anything, then finish the job. Being picked back up is not a yes: anything that sends, posts, spends money or deletes still needs their yes, as usual.
@@ -79,6 +80,8 @@ enum HelperTrail {
         h.resumeQueued = false
         h.stoppedByYou = true
         h.updatePaused = nil
+        h.restartWait = nil
+        h.pausedFor = nil
         h.line = stoppedLine
         add("Stopped by you", to: &h)
         return wasWorking
@@ -106,7 +109,7 @@ enum HelperTrail {
             if hs[k].updatePaused == true {
                 // Paused so an update could install: always picked back up, and it doesn't count as a cut-off.
                 hs[k].resumeQueued = true
-                hs[k].line = hs[k].pausedFor == nil ? HelperStop.pausedLine : FolderWatch.pausedLine
+                hs[k].line = hs[k].restartWait != nil ? RestartWait.line : hs[k].pausedFor == nil ? HelperStop.pausedLine : FolderWatch.pausedLine
             } else if (hs[k].resumes ?? 0) < maxResumes {
                 hs[k].resumeQueued = true
                 hs[k].line = "Cut off by a restart · picking it back up"
@@ -123,8 +126,10 @@ enum HelperTrail {
     /// counts the resume and leaves a note for the assistant. Returns each helper's id and the prompt to send.
     static func pick(_ hs: inout [Helper], brief: (String) -> String) -> [(id: UUID, prompt: String)] {
         var out: [(id: UUID, prompt: String)] = []
-        for k in hs.indices where hs[k].resumeQueued == true && hs[k].stoppedByYou != true {
-            let prompt = resumePrompt(hs[k], brief: brief(hs[k].task))
+        for k in hs.indices where hs[k].resumeQueued == true && hs[k].stoppedByYou != true && !RestartWait.holding(hs[k]) {
+            let prompt = resumePrompt(
+                hs[k], brief: brief(hs[k].task), lead: hs[k].restartWait.map(RestartWait.lead) ?? "You were interrupted by a restart.")
+            hs[k].restartWait = nil
             hs[k].resumeQueued = false
             let update = hs[k].updatePaused == true
             let reason = hs[k].pausedFor

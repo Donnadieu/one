@@ -72,7 +72,7 @@ extension HelperStress {
         check("its words before the restart are kept", fd.reply.contains("I'll restart to use it"))
         check("a Got it tap is refused", !m.closeHelper(fd.id) && h("Free Docker memory") != nil)
         await m.send("STRESSDONE Free Docker memory")
-        _ = await wait(15) { !m.thinking }
+        _ = await wait(15) { !m.thinking && m.bubbles.contains { !$0.fromMe && $0.text.contains("Free Docker memory") } }
         let said = m.bubbles.last { !$0.fromMe }?.text ?? ""
         print("   [\(at())] reply: \(said.replacingOccurrences(of: "\n", with: " "))")
         check("the done-helper line is refused: it's still on the screen", h("Free Docker memory") != nil)
@@ -208,7 +208,15 @@ extension HelperStress {
             let tag = HelperTag(
                 title: h.title, line: m.progressLine(h, now: Date(), short: true), look: look, warm: h.viewState == .needsYes, opened: opened)
             HelperFace(state: h.viewState, t: 21.7, orb: 56, gap: 7, opened: opened, tag: tag, sleeping: m.asleep(h)).frame(width: 260)
-            HelperCard(m: m, h: h).frame(width: 520)
+            let card = HelperCard(m: m, h: h)  // its real title row and buttons; its words as plain text (a still picture can't draw them)
+            VStack(alignment: .leading, spacing: 12) {
+                card.titleRow
+                Text(Choices.split(h.reply).body).font(.system(size: 15)).foregroundStyle(WorldLook.cream)
+                if h.state == "stopped" { Text(h.line).font(.callout).foregroundStyle(.secondary) }
+                card.buttons
+            }
+            .padding(18).frame(width: 520, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 18).fill(Color(hex: 0x232326)))
         }
         .padding(30).background(WorldLook.bg).environment(\.colorScheme, .dark)
         let r = ImageRenderer(content: v)

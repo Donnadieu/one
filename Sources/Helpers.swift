@@ -33,6 +33,7 @@ struct Helper: Identifiable, Codable {
     var stoppedByYou: Bool?  // stopped on purpose (the Stop button): never picked back up after a restart
     var updatePaused: Bool?  // paused so an update could install: picks back up after the restart, never counted as a cut-off
     var pausedFor: String?  // what the pause was for, in plain words ("a new folder"); nil = the update
+    var restartWait: String?  // its turn ended with a restart it asked for still to come: waits for it (RestartWait.swift)
     var busyTries: Int?  // its old turn was still finishing when it was picked back up: retries so far (HelperFinish)
     var seen: Bool?  // false: finished and not opened yet (orange until they tap it). nil = from before this existed: seen.
     var lastStepAt: Date?  // when it last started a step (its trail file says so)

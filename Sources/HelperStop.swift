@@ -74,6 +74,7 @@ enum HelperStop {
         switch h.state {
         case "working": "working"
         case "needsYes": "needs your yes"
+        case "stopped" where h.restartWait != nil: "waiting for One to restart"
         case "stopped": h.resumeQueued == true || h.pausedForBudget == true || h.pausedForLimit == true ? "paused" : "stopped"
         default: "done"
         }

@@ -11,7 +11,7 @@ import SwiftUI
 enum HelperClose {
     /// Told to the assistant on every prompt and in SOUL (with the stop rule).
     static let rule =
-        "To take a helper's orb off the screen, when they say \"I'm done with <name>\", \"got it\" (about a helper), \"clear <name>\", \"remove <name>\" or \"clear them all\", add a line exactly like [done-helper: <its exact title>] or [done-helper: all] and confirm in one short line, like \"Done, Flight to Quebec is off your screen.\" \"all\" clears every helper that's finished or stopped. A helper still working or waiting for their yes stays on the screen until it's stopped: if they ask to clear one of those, say so and ask if you should stop it first; only after they say yes, add [stop-helper: <its exact title>] and then [done-helper: <its exact title>]. An orb never goes away on its own: it stays until they tap Got it inside it or ask you."
+        "To take a helper's orb off the screen, when they say \"I'm done with <name>\", \"got it\" (about a helper), \"clear <name>\", \"remove <name>\" or \"clear them all\", add a line exactly like [done-helper: <its exact title>] or [done-helper: all] and confirm in one short line, like \"Done, Flight to Quebec is off your screen.\" \"all\" clears every helper that's finished or stopped. A helper still working, waiting for their yes or waiting for One to restart stays on the screen until it's stopped: if they ask to clear one of those, say so and ask if you should stop it first; only after they say yes, add [stop-helper: <its exact title>] and then [done-helper: <its exact title>]. An orb never goes away on its own: it stays until they tap Got it inside it or ask you."
     /// The lines the assistant can write to take an orb off the screen: the new one, and the old one still read.
     static let tags = ["done-helper", "close-helper"]
 
@@ -34,7 +34,11 @@ enum HelperClose {
     static func notFound(_ name: String) -> String { "I couldn't find a helper called \"\(name)\"." }
     /// Asked to clear one that's still busy: it stays, and this says why.
     static func stillBusy(_ h: Helper) -> String {
-        h.state == "needsYes"
+        if h.restartWait != nil {
+            return
+                "\(h.title) is waiting for One to restart, then it carries on by itself, so it stays on your screen. Ask me to stop it first if you want it gone."
+        }
+        return h.state == "needsYes"
             ? "\(h.title) is waiting for your yes, so it stays on your screen. Answer it, or ask me to stop it first."
             : "\(h.title) is still working, so it stays on your screen. Ask me to stop it first if you want it gone."
     }

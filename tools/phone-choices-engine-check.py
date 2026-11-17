@@ -246,6 +246,21 @@ async def main():
         clear_session_vars(tokens)
     check("One's own chat keeps its line (its own buttons)", acp == "Sure?\n[choices: Yes | No]")
 
+    print("6. Nov 17: a reply that says a helper is starting but holds no line, through the engine's own turn end")
+    hung = "I'm sending a helper to find the cause, fix it, and ship it. It won't install while a routine is running:"
+    out, _ = await deliver(hung, "t11", 12)
+    check("the person is told nothing started", out.startswith(hung) and out.endswith(mod.MISSING_SHOWN))
+    log = os.path.join(os.environ["HERMES_HOME"], "logs", "one-phone-tags.log")
+    check("and it's logged loudly", "MISSING HELPER LINE" in open(log).read())
+    tokens = set_session_vars(platform="telegram", chat_id="42", chat_type="dm", user_id="42", session_key=KEY)
+    try:
+        note = mod.pre_llm_call(platform="telegram")
+    finally:
+        clear_session_vars(tokens)
+    check("the next turn in that chat is told", note is not None and "started NOTHING" in note["context"])
+    out, _ = await deliver("Sending it now:\n[helper: Fix it | find the cause and fix it]", "t12", 13)
+    check("a reply with the line gets a receipt instead", out == "Sending it now:\n\n↳ Helper sent: Fix it")
+
 
 asyncio.run(main())
 print("engine choices ok" if fails == 0 else f"engine choices FAILED ({fails})")

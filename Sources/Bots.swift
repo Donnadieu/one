@@ -20,6 +20,8 @@ struct BotInfo: Codable, Equatable {
     var checkIn: String = "asked"  // "morning", "incoming" or "asked"
     var made = Date()
     var from = "chat"  // "chat" or "helper"
+    var archived: Date? = nil  // put away: off the left, kept, its routines paused (BotsManage.swift)
+    var paused: [String]? = nil  // the routines archiving paused, turned back on by restore
 }
 
 enum Bots {

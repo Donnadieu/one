@@ -61,6 +61,8 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/handoff-check.sh --no-build
       - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
+      - name: The real engine's Telegram adapter turns a reply's choices line into tap buttons (one-phone-tags)
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/phone-choices-engine-check.sh
       - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)
         run: |
           cd "$RUNNER_TEMP/fresh"

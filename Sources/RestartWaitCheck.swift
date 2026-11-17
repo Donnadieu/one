@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// `One --test-helpers-stress restartwait` (tools/restart-wait-check.sh, in preflight): the Nov 17 "Free Docker memory"
 /// helper, replayed against the stand-in engine (tools/fake-engine.py, no account, no cost). A helper asks for a folder,
@@ -158,9 +159,66 @@ extension HelperStress {
             "the plain job was never picked back up",
             events().filter { $0.ev == "start" && $0.job == "P1" }.count == 1 && h("Plain job")?.state == "done")
 
+        print("5. A real restart: One quits and opens again (One --update --restart, the second run reads it back)")
+        let real = dir("real-restart")
+        m.spawnHelper(title: "Real restart", task: "STRESSGRANT path=\(real) token=REAL9090")
+        await turnOver("Real restart")
+        show("Real restart")
+        check("it waits for the restart", h("Real restart")?.line == waitLine && h("Real restart").map(HelperClose.busy) == true)
+        if let x = h("Real restart") { shot(m, x, "before") }
+        print("RESTART-QUIT fails=\(fails)")  // the script checks this run's failures, then opens One again
+        fflush(stdout)
+        Awake.fake = .full  // a runner has no lid: the restart waits for nothing
+        await Updater.shared.install(restartOnly: true)  // quits One when it works
+        print("FAIL One didn't quit for the restart: \(Updater.shared.state ?? "")")
+        return 1
+    }
+
+    /// The second run: the same One opened again after the real restart.
+    @MainActor
+    static func restartWaitAfter(_ m: Model) async -> Int32 {
+        print("6. One opened again after the restart")
+        func h(_ title: String) -> Helper? { m.helpers.last { $0.title == title } }
+        let x = h("Real restart")
+        print("   saved: \(x?.state ?? "gone") · \(x?.line ?? "-") · queued \(x?.resumeQueued ?? false)")
+        check("it's still on the screen after the restart", x != nil)
+        check("queued to pick back up, not done", x?.resumeQueued == true && x?.state != "done")
+        let sid = x?.sid
+        m.resumeInterrupted()  // what launch does once the engine is up (ensureEngine)
+        _ = await wait(30) { h("Real restart")?.state == "done" }
+        let r = events().filter { $0.ev == "restart-resumed" && $0.job == "REAL9090" }
+        check(
+            "it picked back up by itself, in the same conversation, told its last words",
+            r.count == 1 && r.first?.sid == sid && r.first?.resumed == true)
+        check("and finished", h("Real restart")?.state == "done" && h("Real restart")?.reply.contains("DONE REAL9090") == true)
+        if let y = h("Real restart") { shot(m, y, "after") }
         Engine.shared.stop()
         print(fails == 0 ? "restart-wait ok" : "restart-wait FAILED (\(fails))")
         return fails == 0 ? 0 : 1
+    }
+
+    /// The orb and its opened card, saved as a picture (ONE_SHOT_DIR, else the test's own folder).
+    @MainActor
+    static func shot(_ m: Model, _ h: Helper, _ name: String) {
+        let d = ProcessInfo.processInfo.environment["ONE_SHOT_DIR"].map { URL(fileURLWithPath: $0) } ?? Env.support
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        let v = HStack(alignment: .top, spacing: 24) {
+            let look = HelperRings.layout(count: 1).look
+            let opened = h.state == "done" && !h.waiting
+            let tag = HelperTag(
+                title: h.title, line: m.progressLine(h, now: Date(), short: true), look: look, warm: h.viewState == .needsYes, opened: opened)
+            HelperFace(state: h.viewState, t: 21.7, orb: 56, gap: 7, opened: opened, tag: tag, sleeping: m.asleep(h)).frame(width: 260)
+            HelperCard(m: m, h: h).frame(width: 520)
+        }
+        .padding(30).background(WorldLook.bg).environment(\.colorScheme, .dark)
+        let r = ImageRenderer(content: v)
+        r.scale = 2
+        if let img = r.nsImage, let t = img.tiffRepresentation, let rep = NSBitmapImageRep(data: t),
+            let png = rep.representation(using: .png, properties: [:])
+        {
+            try? png.write(to: d.appendingPathComponent("restart-wait-\(name).png"))
+            print("   picture: \(d.appendingPathComponent("restart-wait-\(name).png").path)")
+        }
     }
 
     /// The helper as an older One left it: shown done (its "I'll restart" words as its result), nothing queued.

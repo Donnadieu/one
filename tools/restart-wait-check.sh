@@ -16,12 +16,23 @@ APP=$(tools/test-copy.sh "${ID#ai.forjado.one.}" "$S") || exit 1
 defaults delete "$ID" >/dev/null 2>&1
 mkdir -p "$S/support"
 cp tools/fake-engine.py "$S/fake-engine.py"; chmod +x "$S/fake-engine.py"
-env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
-  LANG="${LANG:-en_US.UTF-8}" ONE_SUPPORT_DIR="$S/support" ONE_TEST_ENGINE="$S/fake-engine.py" ONE_FAKE_ENGINE_LOG="$S/engine.jsonl" ONE_TEST_ONE_BIN="$APP/Contents/MacOS/One" \
-  perl -e "alarm 200; exec @ARGV" "$APP/Contents/MacOS/One" --test-helpers-stress restartwait > "$S/out.txt" 2>"$S/err.txt"
-rc=$?
+run() {
+  local secs=$1 out=$2; shift 2
+  env -i GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" \
+    LANG="${LANG:-en_US.UTF-8}" ONE_SUPPORT_DIR="$S/support" ONE_TEST_ENGINE="$S/fake-engine.py" ONE_FAKE_ENGINE_LOG="$S/engine.jsonl" \
+    ONE_TEST_ONE_BIN="$APP/Contents/MacOS/One" ONE_UPDATE_NO_REOPEN=1 ONE_SHOT_DIR="${ONE_SHOT_DIR:-$S/shots}" \
+    perl -e "alarm $secs; exec @ARGV" "$APP/Contents/MacOS/One" --test-helpers-stress "$@" > "$out" 2>>"$S/err.txt"
+}
+# 1. The helpers wait for One to restart; a folder restart and a quit-and-open inside the run; then a real restart (One quits).
+run 200 "$S/out.txt" restartwait
+rc=0
 cat "$S/out.txt"
-grep -q '^restart-wait ok' "$S/out.txt" || rc=1
+grep -q '^RESTART-QUIT fails=0$' "$S/out.txt" || rc=1
+# 2. One opens again after the real restart: the helper that was waiting picks back up and finishes.
+for _ in $(seq 1 40); do pgrep -f "$APP/Contents/MacOS/One --test" >/dev/null || break; sleep 0.5; done
+run 120 "$S/after.txt" restartwait-after
+cat "$S/after.txt"
+grep -q '^restart-wait ok' "$S/after.txt" || rc=1
 for p in $(pgrep -f "$S/"); do kill "$p" 2>/dev/null; done
 defaults delete "$ID" >/dev/null 2>&1
 if [ $rc = 0 ]; then echo "restart-wait-check ok"; [ -n "${KEEP:-}" ] || rm -rf "$S"; else echo "restart-wait-check FAILED (logs in $S)"; tail -20 "$S/err.txt"; fi

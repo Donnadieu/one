@@ -16,6 +16,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -81,6 +82,23 @@ def prompt(rid, sid, text):
         cancelled.discard(sid)
     if text.startswith("/steer "):
         log(ev="steer", sid=sid, text=text[7:87])  # the check looks for messages held while One was getting ready
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    m = re.search(r"STRESS(GRANT|RESTARTASK) path=(\S+) token=(\S+)", text)
+    if m:  # Nov 17: a helper asks for a folder (or a restart), gets it, says it'll restart, and ends its turn
+        kind, path, token = m.group(1), m.group(2), m.group(3)
+        if "Here's what you already did" in text:  # picked back up after One restarted
+            log(ev="restart-resumed", job=token, sid=sid, resumed="I'll restart" in text)
+            chunk(sid, "Back after the restart. DONE %s" % token)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+            return
+        one = os.environ.get("ONE_TEST_ONE_BIN", "")
+        args = [one, "--grant-folder", path, "To finish the job"] if kind == "GRANT" else [one, "--update", "--restart"]
+        call = tool(sid, "terminal: One " + " ".join(args[1:3]))
+        ok = bool(one) and subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60).returncode == 0
+        tool_done(sid, call)
+        log(ev="restart-asked", job=token, sid=sid, resumed=ok)
+        chunk(sid, "Added. I'll restart to use it, then finish." if kind == "GRANT" else "Asked One to restart. I'll restart and carry on after.")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)

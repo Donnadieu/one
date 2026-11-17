@@ -272,6 +272,12 @@ LIMIT=240 check "one helper per phone reply, never twice; a tell reaches it; its
 grep "✗" "$T/pt.txt" 2>/dev/null | sed 's/^/    /'
 grep -q "phone-tags-check ok" "$T/pt.txt" 2>/dev/null || grep -q "✗" "$T/pt.txt" 2>/dev/null || tail -12 "$T/pt.txt" 2>/dev/null | sed 's/^/    /'
 
+echo "A helper waiting for One to restart can't be cleared and picks back up after it (stand-in engine, no cost; Nov 17 replayed)"
+LIMIT=240 check "a folder granted or a restart asked, then its turn ends: Waiting for One to restart, no Got it or done-helper, Stop works; after the restart it carries on in the same conversation and finishes; also one an older One showed done or took off the screen" \
+  bash -c "tools/restart-wait-check.sh --no-build > '$T/rw.txt' 2>&1"
+grep -e "✗" -e "^   \[" "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
+grep -q "restart-wait-check ok" "$T/rw.txt" 2>/dev/null || grep -q "✗" "$T/rw.txt" 2>/dev/null || tail -12 "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
+
 echo "The main chat is always free to talk (stand-in engine, no cost; Nov 11 replayed)"
 LIMIT=360 check "long tool work cut short and handed to a helper, a message meanwhile answered at once, a cut-off turn's job files sent (asked after Stop), a quick look and a long reply never cut" \
   bash -c "tools/main-free-check.sh --no-build > '$T/mf.txt' 2>&1"

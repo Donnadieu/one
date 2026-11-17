@@ -228,7 +228,7 @@ enum HelperStress {
 
     @MainActor
     static func run(_ phase: String) async -> Int32 {
-        guard let m = await setUp(watching: phase != "mainfree" && phase != "phone") else { return 2 }
+        guard let m = await setUp(watching: !["mainfree", "phone", "restartwait"].contains(phase)) else { return 2 }
         let t0 = Date()
         func at() -> String { String(format: "%5.1fs", Date().timeIntervalSince(t0)) }
         let fm = FileManager.default
@@ -239,6 +239,8 @@ enum HelperStress {
             return await queueCheck(m)  // QueueCheck.swift: one line for everything the assistant says
         case "phone":
             return await phoneCheck(m)  // PhoneTagsCheck.swift: helper lines in a phone-chat reply
+        case "restartwait":
+            return await restartWaitCheck(m)  // RestartWaitCheck.swift: a helper waiting for One to restart
         case "start":
             m.helpers = []
             m.bubbles = []

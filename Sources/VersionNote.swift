@@ -16,7 +16,9 @@ enum VersionNote {
         s +=
             " Before saying how One works or whether something shipped, read the code at tag v\(v)"
             + " (git -C ~/Repos/one-assistant show v\(v):Sources/<file>, or gh api repos/\(Updater.repo)/contents/Sources/<file>?ref=v\(v))"
-            + " and name the version you checked. Never answer that from memory, skills or old notes: they go stale with every release.)"
+            + " and name the version you checked. Never answer that from memory, skills or old notes: they go stale with every release."
+            + " To install or restart One: " + UpdateRequest.howTo
+            + " Never kill, swap or reopen One or its engine by hand: that cuts off routines at work.)"
         return s
     }
 }

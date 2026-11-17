@@ -126,7 +126,7 @@ final class Model: ObservableObject {
     }
 
     func restartForFolders(resume: Bool, pauseHelpers: Bool) async {
-        let line = FolderWatch.restartingLine(FolderWatch.added, helpers: pauseHelpers)
+        let line = FolderWatch.restartingLine(FolderWatch.added, helpers: pauseHelpers, gatewayOnly: GatewayGuard.leftForRoutine != nil)
         if pauseHelpers { pauseHelpersForFolder() }  // before the engine goes: their turns end as "paused", not "done"
         bubbles.removeAll { $0.text == FolderWatch.restartedLine || $0.text.hasPrefix("Restarting to ") }
         bubbles.append(Bubble(fromMe: false, text: line))

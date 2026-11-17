@@ -13,6 +13,7 @@ enum StorageCLI {
         if let c = HiddenBrowser.cli(args) { return c }  // --hidden-browser, --test-hidden-browser (HiddenBrowser.swift)
         if let c = Keeper.cli(args) { return c }  // --keeper: macOS runs it every minute; opens One again if it ended (Keeper.swift)
         if let c = HealthWatch.cli(args) ?? Limit.cli(args) { return c }  // --health, --limit-answer
+        if let c = UpdateRequest.cli(args) { return c }  // --update [--from <One.app>] [--restart]: install/restart once nothing is at work
         return nil
     }
 }

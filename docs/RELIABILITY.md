@@ -62,6 +62,7 @@ person's own Mac, not about a server One's team operates.
 | A dropped engine turn is retried, not lost | `GatewayGuard` + retry-once in `Engine` |
 | Stale (not healthy) gateways only are stopped | `GatewayGuard`; preflight `GatewayCheck`/`RestartCheck` |
 | Folder-permission changes never corrupt a mid-reply turn | `FolderWatch` (waits for idle before restarting) |
+| An update, install or restart never cuts a routine off; installs and restarts asked for from a chat, helper or script go through One | `Updater.waitForRoutines` (no time limit; before the download, before the swap starts, right before the quit), `FolderWatch.due` (a routine at work holds a restart however long), `GatewayGuard.stopIfStale` (a stale gateway still running a routine is left and retired once it's done, `leftForRoutine`), `One --update [--from <One.app>] [--restart]` (`UpdateRequest`, picked up by the open One every 10 s), the engine plugin refusing hand-made kill/swap/relaunch of One while it's open or a routine is at work; `UpdaterCheck.busyChecks` (`One --test-updates`) + `tools/restart-guard-check.py` (preflight) |
 | Restarts pause helpers only between steps; long active turns aren't cut off; the chat reopens after a slow restart | `FolderWatch.due(midStep:)`, `Updater.install`, `TurnWait`, `Engine.loadPatience`; `HelperWorkCheck` (`One --test-helper-work`, preflight) |
 | Crash-free session rate | **NOT YET ENFORCED** — no crash reporter wired up |
 | Voice/engine process liveness under Bluetooth route changes | `Speaker.rebuild()` on `.AVAudioEngineConfigurationChange`; checked manually, no automated assertion |
@@ -101,6 +102,13 @@ person's own Mac, not about a server One's team operates.
   08:17 Nov 7, both `Speaker.wakeAudio`). Nothing reopened it, and the bot threw away what was sent meanwhile.
   0.9.99: `AudioSafe.swift` + `OneCatch`, `Updater.waitForFullWake`, the keeper (`Keeper.swift`), and the
   `one-missed-messages` plugin (rows above).
+- Nov 17 2026, 7:17 AM: a helper installed One 0.9.120 by hand (kill One, swap the app, open it). Its "is a routine
+  running?" test read `state == "running"`, which the engine never writes, so it went ahead while the YouTube
+  long-video routine was 17 minutes in; the new One's first engine start found the old gateway orphaned, stopped it as
+  stale, and the run was cut ("lost its durable fire claim ownership"). Since 0.9.122: `One --update` is the only way
+  in (the open One waits with no time limit for routines and pauses helpers between steps), the engine plugin refuses
+  the hand-made commands while One is open or a routine is at work, and a stale gateway running a routine is left to
+  finish.
 - A routine's `fire_claim` left with no `at` timestamp by a dead run (e.g.
   the update-swap script killing the engine mid-routine) used to read as
   "still running" forever, silently blocking that routine from ever firing

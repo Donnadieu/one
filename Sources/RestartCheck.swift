@@ -88,8 +88,11 @@ enum RestartCheck {
             "a routine at work holds the restart (it would cut its run off)",
             !FolderWatch.due(talking: false, helpersWorking: false, waited: 600, routineBusy: true))
         check(
-            "but not for longer than an update would wait",
-            FolderWatch.due(talking: false, helpersWorking: false, waited: FolderWatch.routineWait, routineBusy: true))
+            "however long it takes: a routine is never cut off (Nov 17 2026)",
+            !FolderWatch.due(talking: false, helpersWorking: false, waited: 12 * 3600, routineBusy: true))
+        check(
+            "a restart only to retire a background helper left for a routine says so plainly",
+            FolderWatch.restartingLine([], helpers: false, gatewayOnly: true) == "Restarting to finish the update now that your routine is done.")
 
         // A helper mid a build/test/push/release holds the restart too, with its own (shorter) cap.
         check(

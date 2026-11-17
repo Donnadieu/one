@@ -13,12 +13,19 @@ import sys
 import types
 
 sys.path.insert(0, ".")
+from hermes_cli import plugins as P  # noqa: E402
+from gateway.session_context import set_session_vars, clear_session_vars  # noqa: E402
+from gateway.session import SessionSource  # noqa: E402
+from gateway.config import Platform  # noqa: E402
+from agent.turn_finalizer import apply_llm_output_transform  # noqa: E402
+from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+
 try:
     import telegram.ext  # noqa: F401
     REAL_PTB = True
 except ImportError:
-    # A fresh install gets the Telegram library only once Telegram is set up, and installing it here would leave the
-    # install's own dependency state owed (the engine then re-syncs at launch). Minimal stand-ins for the two classes
+    # A fresh install gets the Telegram library only once Telegram is set up; installing it, or touching imports before
+    # the engine's own, makes the engine re-sync this data root at launch. Minimal stand-ins for the two classes
     # the plugin uses; with the library present (any install with Telegram on) the real ones are used.
     import re as _re
 
@@ -41,12 +48,6 @@ except ImportError:
         InlineKeyboardButton, InlineKeyboardMarkup, CallbackQueryHandler)
     _tg.ext = _ext
     sys.modules["telegram"], sys.modules["telegram.ext"] = _tg, _ext
-from hermes_cli import plugins as P  # noqa: E402
-from gateway.session_context import set_session_vars, clear_session_vars  # noqa: E402
-from gateway.session import SessionSource  # noqa: E402
-from gateway.config import Platform  # noqa: E402
-from agent.turn_finalizer import apply_llm_output_transform  # noqa: E402
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 fails = 0
 

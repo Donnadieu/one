@@ -3,6 +3,19 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Choices in a phone reply become tap buttons (0.9.120, Nov 17 2026)
+
+**Problem.** Replies that end with `[choices: A | B]` showed as buttons in One's own chat but reached Telegram as that
+raw line, because a phone reply goes from the engine's gateway straight to the phone.
+
+**Picked.** The same engine plugin (`tools/overlay/plugins/one-phone-tags`) cuts a last-line choices list exactly like
+`Choices.split` and sends it as Telegram buttons under the reply, with its own `oc:` taps; a tap goes through the
+gateway's allowlist and in as the person's own message. Older sets stop working once a newer set arrives or the person
+types. **Rejected:** patching the engine's Telegram adapter or reusing its shared `cp:` picker state (collides with
+`/reasoning`). **Evidence:** `tools/phone-choices-check.py` in preflight, Swift parity in `--test-helpers`, and
+`tools/phone-choices-engine-check.sh` against the pinned engine in the fresh-install workflow (PR #133). No live tap on a
+phone yet.
+
 ## Helper lines from the phone chat are acted on by One (0.9.119, Nov 16 2026)
 
 **Problem.** On Nov 15 the assistant answered in the Telegram chat with a `[helper: …]` line and later a

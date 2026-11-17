@@ -3,6 +3,20 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Helper lines from the phone chat are acted on by One (0.9.119, Nov 16 2026)
+
+**Problem.** On Nov 15 the assistant answered in the Telegram chat with a `[helper: …]` line and later a
+`[tell-helper: …]` line. Nothing started: those lines are read only by One's own chat, and a phone reply goes from the
+engine's gateway straight to the phone.
+
+**Picked.** An engine plugin (`tools/overlay/plugins/one-phone-tags`) hands phone replies that carry helper, tell, stop
+or clear lines to One through `hermes/one-phone/inbox/`, and strips those lines from what the phone shows; One acts on
+each reply once through `Model.actOn`, the same code its own chat uses, and sends the helper's result back to that chat.
+**Rejected:** patching the engine's gateway files (lost on every engine bump) or teaching the assistant to avoid helper
+lines on the phone (the phone is where Omar is when he asks for work). **Evidence:** `tools/phone-tags-check.py` in
+preflight and the stand-in engine run in `One --test-helpers-stress phone` (PR #131); the pinned engine's own
+`apply_llm_output_transform` loaded the plugin in a scratch home. Also ships PR #130 (a hidden browser can start muted).
+
 ## A hand-off's wait is time spent waiting on the person (0.9.118, Nov 12 2026)
 
 **Problem.** The engine stops any tool call after 420 s unless the time is inside its human-wait window

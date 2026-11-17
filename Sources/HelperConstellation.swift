@@ -119,7 +119,7 @@ struct HelperConstellation: View {
     var pointed: UUID? = nil  // renders: this one shown as if pointed at
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
-        let hs = HelperRings.sorted(m.helpers)
+        let hs = HelperRings.sorted(m.helpers.filter { $0.bot == nil })  // bots live in the column on the left (BotsColumn.swift)
         let lay = HelperRings.layout(count: hs.count)
         let calm = still || reduceMotion
         GeometryReader { g in
@@ -141,6 +141,7 @@ struct HelperConstellation: View {
                     }
                     Orb(size: 92, active: m.thinking || m.gate == .gettingReady)  // the assistant's own orb; it breathes while getting ready
                         .starCalm(radius: 100, feather: 50)  // the galaxy keeps clear of the orb
+                        .anchorPreference(key: BotAnchors.self, value: .center) { ["orb": $0] }  // a working bot's thread ends here
                         .opacity(m.openHelper == nil ? 1 : 0.5)
                         .contentShape(Circle())
                         .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }

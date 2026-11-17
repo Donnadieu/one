@@ -194,7 +194,9 @@ extension Model {
         pulseStart(id)
         defer { pulseEnd(id) }
         // The helper's long rules go once per conversation and again when they change (NoteCache.swift).
-        let rules = Helpers.helperNote + BlockedAsk.note + SessionNotes.helper
+        let rules =
+            Helpers.helperNote + BlockedAsk.note + SessionNotes.helper
+            + (helpers.first { $0.id == id }?.bot.map { Bots.rules($0, user: userName) } ?? "")
         let body = text.replacingOccurrences(of: Helpers.helperNote, with: "")  // its first brief carries it already
         let stop = await Engine.shared.promptSession(
             sid, body + NoteCache.pack(sid, rules: rules), images: images,
@@ -270,9 +272,9 @@ extension Model {
             if !said.isEmpty {
                 var entry = said
                 if let a = h.asked, !a.isEmpty, !(h.log ?? []).isEmpty { entry = "**You:** \(a)\n\n" + said }
-                update(id) { $0.log = ($0.log ?? []) + [entry] }
+                update(id) { $0.log = Array((($0.log ?? []) + [entry]).suffix($0.bot == nil ? 10_000 : 40)) }  // a bot's chat is kept by the engine
             }
-            if let h2 = helpers.first(where: { $0.id == id }), h2.state == "done", let log = h2.log, !log.isEmpty {
+            if let h2 = helpers.first(where: { $0.id == id }), h2.state == "done", h2.bot == nil, let log = h2.log, !log.isEmpty {
                 // The file keeps the whole report: the first full answer plus every follow-up, never just the last line.
                 let body = log.joined(separator: "\n\n---\n\n")
                 if let sid = h2.shelfID, let k = shelf.firstIndex(where: { $0.id == sid }) {
@@ -488,7 +490,7 @@ extension Model {
         // quotes is never read (Oct 28: two helpers split in two by a quoted [close-helper: …], never started).
         let tags = Helpers.read(full)
         let all = tags.jobs
-        full = tags.said
+        full = makeBots(from: tags.said)  // [bot: …] lines make bots (Bots.swift)
         // Stops, clears, tells, then new helpers, in that order (HelperLines.swift); a phone-chat reply goes the same way.
         for miss in actOn(tags, typed: c.typed) { full += (full.isEmpty ? "" : "\n\n") + miss }
         full = learnFinish(mainFreeEnd(full, stop: stop, sent: all), stop: stop, idx: idx) + goalEnd(nil)  // handed over or cut off; [learned:]

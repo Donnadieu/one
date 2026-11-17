@@ -1,7 +1,7 @@
 # Bots (design, not built)
 
-Status: design agreed, Nov 17 2026. Nothing here is built. Omar picked **Direction B (Moons)** with A's three
-quiet facts in the bot's chat header. Drawn in Claude Design (project "One bots design": `Bots B - Moons.dc.html`,
+Status: design agreed and built, Nov 17 2026. Omar picked **Direction B (Moons)** with A's three quiet facts in
+the bot's chat header. Code: `Sources/Bots.swift`, `BotsColumn.swift`, `RoutinesBots.swift` (see "As built" below). Drawn in Claude Design (project "One bots design": `Bots B - Moons.dc.html`,
 the chosen one; `Bots A - Bots shelf.dc.html` kept for reference). The screen it starts from is One 0.9.122 (read from tag `v0.9.122`; the home and Routines views did not
 change since 0.9.119, whose renders are used as "today").
 
@@ -108,7 +108,23 @@ helpers and routines.
   headline.
 - Stop works on a bot the same way as on a helper. Hiding a bot keeps its memory and routines.
 
-## Data model sketch (for later; nothing built)
+## As built
+
+- A bot is a `Helper` with `bot: BotInfo` (name, colour, room name and folder, job, what it uses, when it checks in).
+  It keeps the same engine conversation for good, so stop, tell, picking back up after a restart and the ask-first
+  rules are the helpers' own. It's never on the constellation, never cleared by "clear them all", and has no week
+  budget. Saved with the helpers (UserDefaults `helpers`).
+- Made by the assistant's `[bot: Name | colour | room | job | uses | morning/incoming/asked]` line after its three
+  questions (rule in SOUL and every prompt), or by Keep as a bot on a finished helper (`KeepBotCard`).
+- Its card and memory are plain files in its room: `<room>/bots/<name>/bot.md` and `memory.md` (dated lines, a
+  `## Rules` part). Every bot turn tells it its job, room, what it may use, its memory file and the ask-first rule.
+- "Only what it needs" is told on every turn, not enforced in code yet (open question 7).
+- Routines: the engine records the conversation that made a routine (`origin.chat_id`); a routine made in a bot's
+  own conversation belongs to it (`Routine.owner`). The dial tints it and filters by bot.
+- The good morning roll-up: `botNews` tells the assistant each bot's state and memory file every turn. The scheduled
+  Morning brief routine doesn't read bots yet.
+
+## Data model sketch (the first idea, kept for the open questions)
 
 ```text
 Support/One/bots.json            # the list, like UserDefaults `helpers` today

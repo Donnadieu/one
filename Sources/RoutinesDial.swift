@@ -27,6 +27,7 @@ enum Dial {
         let minute: Int
         let kind: Kind
         let at: CGPoint
+        var tint: UInt32? = nil  // a bot's routine wears its colour (Bots.swift)
     }
     struct Band: Identifiable {
         var id: String { rid }
@@ -45,6 +46,7 @@ enum Dial {
         let from: CGPoint  // the mark
         var at: CGPoint  // where the words start (right side) or end (left side)
         let right: Bool
+        var tint: UInt32? = nil
     }
     struct Layout {
         var marks: [Mark] = []
@@ -61,7 +63,8 @@ enum Dial {
         return CGPoint(x: center.x + r * CGFloat(sin(th)), y: center.y - r * CGFloat(cos(th)))
     }
 
-    static func layout(_ s: RoutinesSnapshot) -> Layout {
+    /// `tints`: routine id → its bot's colour; the assistant's own routines stay cream.
+    static func layout(_ s: RoutinesSnapshot, tints: [String: UInt32] = [:]) -> Layout {
         var L = Layout()
         let now = Routines.minutes(s.now)
         L.nowMinute = now
@@ -88,7 +91,8 @@ enum Dial {
                 sub += " " + word(r)
                 L.labels.append(
                     Label(
-                        rid: r.id, key: -1, title: r.title, sub: sub, orange: r.needsLook, from: point(m, rad), at: point(m, rl), right: true))
+                        rid: r.id, key: -1, title: r.title, sub: sub, orange: r.needsLook, from: point(m, rad), at: point(m, rl), right: true,
+                        tint: tints[r.id]))
                 continue
             }
             if r.today.isEmpty {
@@ -120,12 +124,12 @@ enum Dial {
                     k = .next
                 }
                 let p = point(Double(t), r0)
-                L.marks.append(Mark(rid: r.id, minute: t, kind: k, at: p))
+                L.marks.append(Mark(rid: r.id, minute: t, kind: k, at: p, tint: tints[r.id]))
                 let th = Double(t) / 1440 * 2 * .pi
                 L.labels.append(
                     Label(
                         rid: r.id, key: t, title: r.title, sub: sub, orange: alarm(k), from: p,
-                        at: point(Double(t), rl), right: sin(th) >= -0.01))
+                        at: point(Double(t), rl), right: sin(th) >= -0.01, tint: tints[r.id]))
             }
         }
         L.later.sort { ($0.next ?? .distantFuture) < ($1.next ?? .distantFuture) }
@@ -223,6 +227,7 @@ enum Dial {
 
     static func mark(_ ctx: inout GraphicsContext, _ m: Mark, pulse: Double) {
         let p = m.at
+        let cream = m.tint.map { Color(hex: $0) } ?? Dial.cream  // a bot's routine in its colour
         switch m.kind {
         case .done:
             ctx.fill(dot(p, 6), with: .color(cream))

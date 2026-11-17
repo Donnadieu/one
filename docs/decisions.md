@@ -3,6 +3,21 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Bots: a helper you keep, as moons on the left (0.9.123, Nov 17 2026)
+
+**Problem.** Omar's friends use Grok Bot, Meta's Muse and OpenAI's dots; his friend Danny keeps a Growth bot and an
+Intake bot. One's helpers end when their job is done, so nothing could be gone back to for one focused job.
+
+**Picked.** Claude Design "One bots design", Direction B · Moons (Omar, Nov 17), with A's facts line: a bot is a
+`Helper` kept for good (`BotInfo`), shown as a small orb in its colour on the left, grouped by room (private rooms
+locked), a lit thread to the assistant while it works, its chat with what it uses, when it checks in, how much it
+remembers and What it did; made by saying it (three questions, then a `[bot: …]` line) or Keep as a bot. Routines
+stay their own dial: a routine made in a bot's conversation belongs to it, wears its colour, and the dial filters by
+bot. The column shows only after the first bot (before that, one faint New bot circle). **Rejected:** Direction A, a
+panel twin of Ready for you ("what every other app has"), a separate bots page, and moving routines into bots (Omar
+was firm that routines keep their dial). The contractor box was dropped by Omar. **Evidence:** `BotsCheck` in
+`One --test-helpers` (preflight) and the `bots-*` renders.
+
 ## Updates, installs and restarts wait until no routine is at work (0.9.122, Nov 17 2026)
 
 **Problem.** At 7:17 AM a helper installed 0.9.120 by hand (kill One, swap the app, open it) and cut the YouTube

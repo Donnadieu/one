@@ -214,6 +214,8 @@ enum Persona {
 
             \(HelperTell.soul)
 
+            \(Bots.soul)
+
             \(BrowserGuard.soul)
 
             \(BlockedAsk.soul)

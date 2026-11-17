@@ -289,6 +289,13 @@ helper started from the phone has the same rules as any other (asks before sendi
 Results go back with `Messenger.send` to that same chat only (the gateway's own chat id for the reply); a test copy
 never reaches the Bot API (`Messenger.standIn`).
 
+In the Telegram chat the same plugin turns a reply's last-line `[choices: …]` into inline buttons. A tap only ever
+becomes the person's own message text from that chat (exactly what typing it does, through the gateway's normal
+message path and its checks); it can't run anything a typed answer couldn't. Taps go through the adapter's button gate
+(`_callback_authorized`, the gateway's allowlist), so nobody else in a chat can answer for them, and the plugin
+refuses a tap when that gate is missing. Each set works once and only while it's the newest in that chat. Buttons
+use the plugin's own `oc:` prefix, never the engine's shared picker state.
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

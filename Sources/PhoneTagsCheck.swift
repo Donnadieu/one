@@ -161,5 +161,17 @@ extension HelperCheck {
         check("a long result fits one message and says where the rest is", long.count < 3600 && long.hasSuffix("under Ready for you on your Mac."))
         check("the same result gives the same mark", PhoneTags.mark(h, long) == PhoneTags.mark(h, long))
         check("a test never reaches the real phone chat", !Messenger.send("hi", to: Messenger.botChat + ":1"))
+
+        // The phone chat's buttons come from the same cut as One's own (the plugin's split_choices, checked by
+        // tools/phone-choices-check.py against these cases).
+        let cpath = (path as NSString).deletingLastPathComponent + "/choices.json"
+        let ccases =
+            (try? Data(contentsOf: URL(fileURLWithPath: cpath))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] } ?? []
+        check("the choices cases are there (\(ccases.count))", ccases.count >= 8)
+        for c in ccases {
+            let parts = Choices.split(c["reply"] as? String ?? "")
+            let same = parts.body == (c["body"] as? String) && parts.choices == (c["choices"] as? [String] ?? ["?"])
+            check("phone buttons are One's buttons: \(c["name"] as? String ?? "?")\(same ? "" : " (One: \(parts))")", same)
+        }
     }
 }

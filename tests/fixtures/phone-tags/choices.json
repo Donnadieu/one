@@ -1,0 +1,11 @@
+[
+ {"name": "a yes/no question", "reply": "Want me to book it?\n[choices: Yes, go ahead | Not now]", "body": "Want me to book it?", "choices": ["Yes, go ahead", "Not now"]},
+ {"name": "blank lines after the choices line", "reply": "Pick one.\n[choices: A | B]\n\n", "body": "Pick one.", "choices": ["A", "B"]},
+ {"name": "more than four: the first four", "reply": "Which?\n[choices: One | Two | Three | Four | Five]", "body": "Which?", "choices": ["One", "Two", "Three", "Four"]},
+ {"name": "not the last line: left alone", "reply": "[choices: A | B]\nMore text after it", "body": "[choices: A | B]\nMore text after it", "choices": []},
+ {"name": "a line that never closes: off, no buttons", "reply": "Which?\n[choices: A | B", "body": "Which?", "choices": []},
+ {"name": "no choices line", "reply": "All done. The table is booked for 7 PM.", "body": "All done. The table is booked for 7 PM.", "choices": []},
+ {"name": "empty options dropped", "reply": "OK?\n[choices: Yes |  | No ]", "body": "OK?", "choices": ["Yes", "No"]},
+ {"name": "indented, capitalised", "reply": "Go?\n  [Choices: Yes | No]", "body": "Go?", "choices": ["Yes", "No"]},
+ {"name": "a paragraph, then the line", "reply": "I found two hotels.\n\nThe first is closer, the second is cheaper.\n[choices: The closer one | The cheaper one | Neither]", "body": "I found two hotels.\n\nThe first is closer, the second is cheaper.", "choices": ["The closer one", "The cheaper one", "Neither"]}
+]

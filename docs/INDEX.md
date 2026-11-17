@@ -7,6 +7,7 @@
 - [design-docs/core-beliefs.md](design-docs/core-beliefs.md): the agent-first *why* behind golden principles
 - [design-docs/improve-score.md](design-docs/improve-score.md): One gets better by itself, step 1: the look-only score, its files and `One --improve`
 - [design/safety-features.md](design/safety-features.md): five safety features for running unattended (stop means stop, budgets, health watchdog, repo turns, phone hand-offs), screens in `design/`
+- [design/bots.md](design/bots.md): bots, a helper you keep (B · Moons, built in 0.9.123): research, the two directions, as built, open questions
 - [design-docs/ai-picker-extras.md](design-docs/ai-picker-extras.md): design for "Other AIs" (bring your own
   key) in Switch AI and the thinking level under the brain pills
 - [RELIABILITY.md](RELIABILITY.md): reliability targets and what enforces each one

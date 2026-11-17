@@ -13,6 +13,8 @@ import sys
 import types
 
 sys.path.insert(0, ".")
+if os.environ.get("ONE_CHECK_PTB"):
+    sys.path.append(os.environ["ONE_CHECK_PTB"])  # the engine's pinned Telegram library, for this check only
 from hermes_cli import plugins as P  # noqa: E402
 from gateway.session_context import set_session_vars, clear_session_vars  # noqa: E402
 from gateway.session import SessionSource  # noqa: E402
@@ -31,8 +33,7 @@ def check(name, ok):
 
 from plugins.platforms.telegram.adapter import check_telegram_requirements  # noqa: E402
 
-# A fresh install gets the Telegram library the first time Telegram is set up (the gateway's own lazy install).
-check("the engine's Telegram library is there (installed the gateway's way)", check_telegram_requirements())
+check("the engine's Telegram library is there", check_telegram_requirements())
 P.discover_plugins(force=True)
 check("the engine loads the plugin's reply, turn and message hooks",
       P.has_hook("transform_llm_output") and P.has_hook("pre_llm_call") and P.has_hook("pre_gateway_dispatch"))

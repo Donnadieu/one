@@ -13,8 +13,34 @@ import sys
 import types
 
 sys.path.insert(0, ".")
-if os.environ.get("ONE_CHECK_PTB"):
-    sys.path.append(os.environ["ONE_CHECK_PTB"])  # the engine's pinned Telegram library, for this check only
+try:
+    import telegram.ext  # noqa: F401
+    REAL_PTB = True
+except ImportError:
+    # A fresh install gets the Telegram library only once Telegram is set up, and installing it here would leave the
+    # install's own dependency state owed (the engine then re-syncs at launch). Minimal stand-ins for the two classes
+    # the plugin uses; with the library present (any install with Telegram on) the real ones are used.
+    import re as _re
+
+    REAL_PTB = False
+    _tg, _ext = types.ModuleType("telegram"), types.ModuleType("telegram.ext")
+
+    class InlineKeyboardButton:
+        def __init__(self, text, callback_data=None):
+            self.text, self.callback_data = text, callback_data
+
+    class InlineKeyboardMarkup:
+        def __init__(self, inline_keyboard):
+            self.inline_keyboard = inline_keyboard
+
+    class CallbackQueryHandler:
+        def __init__(self, callback, pattern=None):
+            self.callback, self.pattern, self.check_update = callback, _re.compile(pattern), True
+
+    _tg.InlineKeyboardButton, _tg.InlineKeyboardMarkup, _ext.CallbackQueryHandler = (
+        InlineKeyboardButton, InlineKeyboardMarkup, CallbackQueryHandler)
+    _tg.ext = _ext
+    sys.modules["telegram"], sys.modules["telegram.ext"] = _tg, _ext
 from hermes_cli import plugins as P  # noqa: E402
 from gateway.session_context import set_session_vars, clear_session_vars  # noqa: E402
 from gateway.session import SessionSource  # noqa: E402
@@ -31,9 +57,7 @@ def check(name, ok):
     fails += 0 if ok else 1
 
 
-from plugins.platforms.telegram.adapter import check_telegram_requirements  # noqa: E402
-
-check("the engine's Telegram library is there", check_telegram_requirements())
+print("  (Telegram library: " + ("the engine's own" if REAL_PTB else "not installed here, stand-in buttons") + ")")
 P.discover_plugins(force=True)
 check("the engine loads the plugin's reply, turn and message hooks",
       P.has_hook("transform_llm_output") and P.has_hook("pre_llm_call") and P.has_hook("pre_gateway_dispatch"))

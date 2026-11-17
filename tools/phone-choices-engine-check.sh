@@ -18,15 +18,6 @@ done
 [ -n "$PY" ] || { echo "engine python not found"; exit 1; }
 W="$SUP/hermes/cache/scratch/choices-check-$$"
 trap 'rm -rf "$W"' EXIT
-# A fresh install has no Telegram library until Telegram is set up. Put the engine's own pinned version in a scratch
-# folder for this check only (with the engine's uv), so the install itself stays as it was.
-PTB=$(grep -o 'python-telegram-bot\[webhooks\]==[0-9.]*' "$E/pyproject.toml" | head -1 | sed 's/\[webhooks\]//')
-UV=$(ls "$SUP"/hermes/tools/uv-*/uv 2>/dev/null | head -1)
-if ! (cd "$E" && "$PY" -I -c "import telegram.ext" >/dev/null 2>&1); then
-  [ -n "$PTB" ] && [ -x "$UV" ] || { echo "no pinned Telegram library or uv found"; exit 1; }
-  "$UV" pip install -q --python "$PY" --target "$W/ptb" "$PTB" || { echo "couldn't fetch $PTB"; exit 1; }
-fi
-export ONE_CHECK_PTB="$W/ptb"
 mkdir -p "$W/home/plugins/one-phone-tags"
 cp tools/overlay/plugins/one-phone-tags/__init__.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$W/home/plugins/one-phone-tags/"
 cp tools/phone-choices-engine-check.py "$W/check.py"

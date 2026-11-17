@@ -334,6 +334,7 @@ rm -f "$SUP/guard/allow/preflight-probe.json"
 
 echo "No browser window without their yes"
 check "visible launches blocked (open -a, AppleScript, no --headless), logged, one window per yes" /usr/bin/python3 tools/browser-guard-check.py
+check "no hand-made restart or reinstall of One while it's open or a routine is at work; One --update allowed" /usr/bin/python3 tools/restart-guard-check.py
 [ $CI = 0 ] && check "the real engine loads the guard and blocks a visible browser" tools/browser-guard-engine-check.sh
 
 echo "Updater"

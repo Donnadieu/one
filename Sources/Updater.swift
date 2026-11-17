@@ -46,8 +46,6 @@ final class Updater: ObservableObject {
     static let every: Double = 15 * 60
     /// Longest an update waits for the reply in progress before it goes ahead.
     static let replyWait: Double = 20
-    /// Longest an update waits for a routine at work (a scheduled job mid-run) before it goes ahead.
-    static var routineWait: Double = 2 * 3600
     /// Longest an update waits for a helper mid a sensitive dev step (building, testing, pushing, releasing)
     /// before it goes ahead: cutting that off mid-way can corrupt a build or leave a half-finished push.
     static var sensitiveWait: Double = 20 * 60
@@ -194,6 +192,7 @@ final class Updater: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "updateSkipped")
         UserDefaults.standard.removeObject(forKey: "updateSkippedAt")
         UpdateAlerts.setUp()
+        UpdateRequest.loop()  // `One --update` from a chat, a helper or a script: carried out here, with every wait
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(20))  // let the network come back first
@@ -208,8 +207,14 @@ final class Updater: ObservableObject {
         }
     }
     /// Downloads, unpacks, then a tiny script waits for One to quit, swaps the app and reopens it.
-    func install() async {
-        guard let a = available else { return }
+    /// `fromApp`: install this built One.app instead of the newest release (`One --update --from`).
+    /// `restartOnly`: no new app at all, just quit and open again (`One --update --restart`). Every kind waits the same way.
+    func install(fromApp local: URL? = nil, restartOnly: Bool = false) async {
+        guard !installing else { return }
+        guard local != nil || restartOnly || available != nil else { return }
+        installing = true
+        defer { installing = false }
+        let a = available
         let m = Model.shared
         // Only the reply in progress is waited for, and not for long. Working helpers never hold an update back:
         // they're paused just before the restart and pick back up by themselves after it.
@@ -221,15 +226,7 @@ final class Updater: ObservableObject {
         // Never in a dark wake or with the screens asleep (the lid closed): Nov 6 2026 an update clicked earlier went
         // ahead in a minute-long dark wake and One didn't come back for 18 hours. Wait for a full wake.
         await waitForFullWake()
-        // A routine at work is never cut off: restarting kills its run midway (a post made but the rest not done, and
-        // the routine shows as failed). Wait for it, up to `routineWait`, then go ahead.
-        var busy = await Task.detached { Routines.inFlight() }.value
-        let until = Date().addingTimeInterval(Updater.routineWait)
-        while !busy.isEmpty && Date() < until {
-            state = Updater.routineLine(busy)
-            try? await Task.sleep(for: .seconds(15))
-            busy = await Task.detached { Routines.inFlight() }.value
-        }
+        await waitForRoutines()
         // Working helpers never hold an update back for long, except one mid a sensitive dev step (a build,
         // a test run, a git push, a release): pausing there could corrupt a build or leave a half-finished
         // push. Wait for that step to clear, up to `sensitiveWait`, then go ahead (paused like any other).
@@ -240,40 +237,26 @@ final class Updater: ObservableObject {
             try? await Task.sleep(for: .seconds(10))
             sensitive = m.helpersInSensitiveStep()
         }
-        state = "Downloading the new version…"
         // A test copy keeps its download in its own throwaway home, never in the person's update folder.
         let dir = (Env.selfTest ? Env.hermesHome : Env.support).appendingPathComponent("update", isDirectory: true)
-        try? FileManager.default.removeItem(at: dir)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard let (tmp, resp) = try? await URLSession.shared.download(from: a.zip), (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            state = "The download didn't work. Check the internet and try again."
-            return
-        }
-        let zip = dir.appendingPathComponent("One.zip")
-        try? FileManager.default.moveItem(at: tmp, to: zip)
-        state = "Getting it ready…"
-        let ok: Bool = await withCheckedContinuation { c in
-            DispatchQueue.global().async {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-                p.arguments = ["-x", "-k", zip.path, dir.path]
-                try? p.run()
-                p.waitUntilExit()
-                c.resume(returning: p.terminationStatus == 0)
-            }
-        }
-        let newApp = dir.appendingPathComponent("One.app")
-        guard ok, FileManager.default.fileExists(atPath: newApp.appendingPathComponent("Contents/MacOS/One").path) else {
-            state = "The new version looked broken, so I kept this one. Try again later."
-            return
-        }
-        await waitForFullWake()  // the Mac may have gone back to sleep while it downloaded
         let target = Bundle.main.bundlePath
-        let script = Updater.swapScript(
-            newApp: newApp.path, target: target, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
-            enginePID: Engine.shared.enginePID, noReopen: ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1")
-        let sh = dir.appendingPathComponent("swap.sh")
+        let noReopen = ProcessInfo.processInfo.environment["ONE_UPDATE_NO_REOPEN"] == "1"
+        let script: String
+        if restartOnly {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            script = UpdateRequest.relaunchScript(
+                target: target, waitPID: ProcessInfo.processInfo.processIdentifier, noReopen: noReopen, dir: dir.path)
+        } else {
+            guard let newApp = await fetch(local: local, zip: a?.zip, into: dir) else { return }
+            await waitForFullWake()  // the Mac may have gone back to sleep while it downloaded
+            script = Updater.swapScript(
+                newApp: newApp.path, target: target, dir: dir.path, waitPID: ProcessInfo.processInfo.processIdentifier,
+                enginePID: Engine.shared.enginePID, noReopen: noReopen)
+        }
+        let sh = dir.appendingPathComponent(restartOnly ? "relaunch.sh" : "swap.sh")
         try? script.write(to: sh, atomically: true, encoding: .utf8)
+        // A routine may have started while it downloaded: wait for it too, before anything is stopped.
+        await waitForRoutines()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [sh.path]
@@ -294,12 +277,80 @@ final class Updater: ObservableObject {
         }
         state = "Restarting…"
         await waitForFullWake()
-        Keeper.updating(to: a.version)  // One comes back by itself if the relaunch fails (Keeper.swift)
+        await waitForRoutines()  // the last look: one may have started while helpers finished their steps (the script waits for us)
+        GatewayGuard.log("update: restarting now (\(restartOnly ? "restart" : local != nil ? "build" : a?.version ?? "?"))")
+        // One comes back by itself if the relaunch fails (Keeper.swift)
+        if !restartOnly { Keeper.updating(to: local.flatMap(Updater.version(of:)) ?? a?.version ?? "?") }
         m.pauseHelpersForUpdate()  // after this, nothing they did is lost: each picks back up after the restart
         Engine.shared.stop()
         try? await Task.sleep(for: .milliseconds(400))
         QuitHold.bypass = true  // it already waited for routines at work
         NSApp.terminate(nil)
+    }
+    /// True while an update (or an asked-for restart) is under way; a second one waits its turn.
+    private(set) var installing = false
+    /// How often a waiting update looks at the routines again (checks make it shorter).
+    static var routinePoll: Double = 15
+    /// A routine at work is never cut off: restarting kills its run midway (a post made but the rest not done, and
+    /// the routine shows as failed). Waited for with no time limit: a run reads as at work only while the engine's own
+    /// record says so (`Routines.routine`: a live claim, or dispatched under 3 hours ago and not finished).
+    func waitForRoutines() async {
+        var busy = await Task.detached { Routines.inFlight() }.value
+        if !busy.isEmpty { GatewayGuard.log("update waits for routines at work: \(busy.joined(separator: ", "))") }
+        while !busy.isEmpty {
+            state = Updater.routineLine(busy)
+            try? await Task.sleep(for: .seconds(Updater.routinePoll))
+            busy = await Task.detached { Routines.inFlight() }.value
+        }
+    }
+    /// The new app, ready to swap in: the release downloaded and unpacked, or a copy of a local build.
+    private func fetch(local: URL?, zip: URL?, into dir: URL) async -> URL? {
+        let fm = FileManager.default
+        try? fm.removeItem(at: dir)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let newApp = dir.appendingPathComponent("One.app")
+        if let local {
+            state = "Getting the new build ready…"
+            guard fm.fileExists(atPath: local.appendingPathComponent("Contents/MacOS/One").path) else {
+                state = "I couldn't find that build, so I kept this one."
+                return nil
+            }
+            guard await Updater.ditto([local.path, newApp.path]) else {
+                state = "The new build looked broken, so I kept this one. Try again later."
+                return nil
+            }
+            return newApp
+        }
+        guard let zipURL = zip else { return nil }
+        state = "Downloading the new version…"
+        guard let (tmp, resp) = try? await URLSession.shared.download(from: zipURL), (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            state = "The download didn't work. Check the internet and try again."
+            return nil
+        }
+        let z = dir.appendingPathComponent("One.zip")
+        try? fm.moveItem(at: tmp, to: z)
+        state = "Getting it ready…"
+        guard await Updater.ditto(["-x", "-k", z.path, dir.path]), fm.fileExists(atPath: newApp.appendingPathComponent("Contents/MacOS/One").path)
+        else {
+            state = "The new version looked broken, so I kept this one. Try again later."
+            return nil
+        }
+        return newApp
+    }
+    nonisolated static func ditto(_ args: [String]) async -> Bool {
+        await withCheckedContinuation { c in
+            DispatchQueue.global().async {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                p.arguments = args
+                try? p.run()
+                p.waitUntilExit()
+                c.resume(returning: p.terminationStatus == 0)
+            }
+        }
+    }
+    nonisolated static func version(of app: URL) -> String? {
+        NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
     }
     /// What the card says while an update waits for the Mac to wake up fully.
     static let wakeLine = "I'll finish the update when your Mac is awake and its screen is on."

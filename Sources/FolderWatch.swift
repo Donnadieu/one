@@ -10,7 +10,8 @@ import Foundation
 /// often the one that needs the folder, so after `helperGrace` working helpers are paused and picked
 /// back up after the restart, but only at a safe point: between two steps, never halfway through one
 /// (up to `stepWait`). A reply in progress gets up to `maxWait`. A routine at work (a scheduled job mid-run) is
-/// waited for, up to `routineWait`: restarting the engine would cut its run off midway.
+/// waited for until it's done, however long (like an update): restarting the engine would cut its run off midway.
+/// The same restart also retires a background helper that was left running for a routine (`GatewayGuard.leftForRoutine`).
 enum FolderWatch {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var startedWith: String?
@@ -23,8 +24,6 @@ enum FolderWatch {
     static let helperGrace: TimeInterval = 15
     /// The longest a change waits for anything, a reply in progress included (a newly allowed folder works within a minute).
     static let maxWait: TimeInterval = 45
-    /// The longest a change waits for a routine at work.
-    static let routineWait: TimeInterval = 2 * 3600  // same as an update (Updater.routineWait)
     /// The longest a change waits for a helper mid a sensitive dev step (build, test, push, release):
     /// cutting that off mid-way can corrupt a build or leave a half-finished push. Same cap as an update.
     static let sensitiveWait: TimeInterval = 20 * 60  // same as an update (Updater.sensitiveWait)
@@ -59,13 +58,14 @@ enum FolderWatch {
         return startedProfileText
     }
 
-    /// True when the running engine's lock is older than the folder list.
+    /// True when the running engine's lock is older than the folder list, or a stale background helper was left
+    /// running for a routine at work and must be retired once that routine is done (`GatewayGuard.leftForRoutine`).
     static var changed: Bool {
         lock.lock()
         let s = startedWith
         lock.unlock()
         guard let s else { return false }
-        return s != fingerprint()
+        return s != fingerprint() || GatewayGuard.leftForRoutine != nil
     }
 
     /// Folders and connection paths allowed since the engine started (shown in the restart line).
@@ -85,7 +85,7 @@ enum FolderWatch {
     static func due(
         talking: Bool, helpersWorking: Bool, waited: TimeInterval, routineBusy: Bool = false, sensitiveBusy: Bool = false, midStep: Bool = false
     ) -> Bool {
-        if routineBusy && waited < routineWait { return false }
+        if routineBusy { return false }  // never cut a routine off, however long it takes (Nov 17 2026)
         if sensitiveBusy && waited < sensitiveWait { return false }
         if midStep && waited < stepWait { return false }
         if !talking && !helpersWorking { return true }
@@ -130,9 +130,12 @@ enum FolderWatch {
     }
 
     /// The plain line shown (and said) just before the restart.
-    static func restartingLine(_ paths: [String], helpers: Bool) -> String {
+    static func restartingLine(_ paths: [String], helpers: Bool, gatewayOnly: Bool = false) -> String {
         let names = paths.map { ($0 as NSString).abbreviatingWithTildeInPath }
-        let what = names.isEmpty ? "use the new folder access" : "open " + names.joined(separator: ", ")
+        let what =
+            !names.isEmpty
+            ? "open " + names.joined(separator: ", ")
+            : gatewayOnly ? "finish the update now that your routine is done" : "use the new folder access"
         return "Restarting to \(what)." + (helpers ? " Your helpers will pick up where they left off." : "")
     }
     static let restartedLine = "I restarted to use the new folder access."

@@ -34,15 +34,47 @@ enum GatewayGuard {
     }
 
     /// Stops the gateway only if it's stale. Returns what it decided (also logged for later forensics).
+    /// A stale gateway still running a routine is left alone (`busy` names the routines at work): Nov 17 2026 a One
+    /// installed by hand found the old, orphaned gateway 17 minutes into the YouTube long-video run and stopped it,
+    /// which cut the run off. It's retired later, once the routine is done (`leftForRoutine`, FolderWatch).
     @discardableResult
-    static func stopIfStale(previousEngine: pid_t?, caller: String) -> Verdict {
+    static func stopIfStale(previousEngine: pid_t?, caller: String, busy: () -> [String] = { Routines.inFlight() }) -> Verdict {
         guard let pid = recordedPID() else { return .none }
         let v = verdict(pid, previousEngine: previousEngine)
         log("\(caller): gateway \(pid) \(v), previous engine \(previousEngine.map(String.init) ?? "none")")
         guard v == .stale else { return v }
+        let at = busy()
+        guard mayStop(v, routinesAtWork: at) else {
+            log("\(caller): gateway \(pid) left running: \(at.joined(separator: ", ")) at work on it; retired once done")
+            setLeft(pid)
+            return v
+        }
         kill(pid, SIGTERM)
         usleep(900_000)
         return v
+    }
+
+    /// Stop it? Only a stale gateway with no routine at work. Pure, so the check proves every case.
+    static func mayStop(_ v: Verdict, routinesAtWork: [String]) -> Bool { v == .stale && routinesAtWork.isEmpty }
+
+    private static let leftLock = NSLock()
+    nonisolated(unsafe) private static var leftPID: pid_t?
+    static func setLeft(_ pid: pid_t?) {
+        leftLock.lock()
+        leftPID = pid
+        leftLock.unlock()
+    }
+    /// A stale gateway left running for a routine, while it's still alive at that pid; nil once it's gone or retired.
+    static var leftForRoutine: pid_t? {
+        leftLock.lock()
+        let p = leftPID
+        leftLock.unlock()
+        guard let p else { return nil }
+        guard kill(p, 0) == 0, isGateway(arguments(of: p)) else {
+            setLeft(nil)
+            return nil
+        }
+        return p
     }
 
     /// The folder list changed: the helper in this home must go even if it looks healthy, because it
@@ -53,6 +85,7 @@ enum GatewayGuard {
         guard let pid = recordedPID() else { return .none }
         let v = verdict(pid, previousEngine: previousEngine)
         log("new folder access: gateway \(pid) \(v), previous engine \(previousEngine.map(String.init) ?? "none")")
+        setLeft(nil)  // whatever was left for a routine goes now (FolderWatch waited for the routine first)
         if v == .none || v == .notGateway { return v }
         kill(pid, SIGTERM)
         var waited = 0

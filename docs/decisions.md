@@ -3,6 +3,20 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Updates, installs and restarts wait until no routine is at work (0.9.122, Nov 17 2026)
+
+**Problem.** At 7:17 AM a helper installed 0.9.120 by hand (kill One, swap the app, open it) and cut the YouTube
+long-video routine 17 minutes into its run. Its "is a routine running?" test read `state == "running"` in jobs.json,
+which the engine never writes; the new One's first engine start then found the old gateway orphaned and stopped it as
+stale. One's own updater already waited for routines, but only for 2 hours, and nothing stopped a hand install.
+
+**Picked.** One way in: `One --update [--from <One.app>] [--restart]` leaves a request the open One carries out with
+every wait (`UpdateRequest`); routines are waited for with no time limit (the engine's own record ends a "running" read
+after 3 hours); helpers still pause only between steps. The engine plugin refuses hand-made kill/swap/relaunch of One
+while One is open or a routine is at work, and `GatewayGuard` leaves a stale gateway that is still running a routine and
+retires it once the routine is done. **Rejected:** a fixed longer cap (still cuts a long run) and asking helpers in the
+prompt only (the Nov 17 helper had the rule and still read the wrong field). **Evidence:** `UpdaterCheck.busyChecks`
+(`One --test-updates`) and `tools/restart-guard-check.py` in preflight, with the real Nov 17 job and command as fixtures.
 ## A phone reply that says a job is starting must carry its helper line (0.9.121, Nov 17 2026)
 
 **Problem.** On Nov 16-17 several Telegram replies said "It's starting now…:" or "I'm sending a helper…:" and ended at

@@ -634,7 +634,183 @@ def look_log(line: str) -> None:
         pass
 
 
+# --- No hand-made restarts or installs of One -------------------------------------------------------------------
+# Nov 17 2026, 7:17 AM: a helper installed One 0.9.120 by hand (kill One, swap /Applications/One.app, open it). Its
+# own "is a routine running?" test read a field the engine never writes, so the YouTube long-video routine was cut off
+# 17 minutes into its run. One's own way (`One --update`) waits until no routine is at work and every helper is
+# between two steps. So while One is open (its heartbeat, <hermes home>/pulse.json, is fresh) or a routine is at work,
+# commands that would stop One, its engine or its background helper, or replace its app, are refused here.
+RESTART_LOG = "one-restart-guard.log"
+HOW_TO = ("`One --update` installs the newest release, `One --update --from <path>/One.app` installs a build, "
+          "`One --update --restart` only restarts One. One does it as soon as no routine is running and every helper is "
+          "between two steps; your own turn is paused for the restart and picks back up by itself.")
+ONE_APP = re.compile(r"^(~|\$HOME|\$\{HOME\}|/Users/[^/]+)?/Applications/One\.app/?$")
+# The installed One (`/Applications/One.app`, or a bare `One.app/…` that matches every copy), never a test copy at
+# `$S/One.app` in a scratch folder.
+_ONE_APP_PROC = r"(?:^|(?<=[\s\"'=]))(?:(?:~|\$HOME|/Users/[^/\s]+)?/Applications/)?One\.app"
+ONE_PROC = re.compile(_ONE_APP_PROC + r"|Application Support/One/(engine|voice)|\bgateway\b|\bhermes\b")
+ONE_PID = re.compile(r"pgrep\s+(-\w+\s+)*(-x\s+)?[\"']?One[\"']?(\s|\)|$)|pgrep\s+(-\w+\s+)*-f\s+[\"']?(" + _ONE_APP_PROC
+                     + r"|[^\"']*(Application Support/One|gateway))"
+                     r"|gateway\.pid|pidof\s+One\b")
+
+
+def _kills_one(text: str) -> bool:
+    """A `kill` here whose target is One, its engine or its gateway: `kill $(pgrep -x One)`, `P=$(pgrep -x One); kill $P`,
+    `for p in $(pgrep -f "Application Support/One/engine"); do kill $p`, `pgrep -x One | xargs kill`. `kill -0` only asks."""
+    if re.search(r"(pgrep|pidof)[^|;&\n]*\|\s*xargs\s+kill", text) and ONE_PID.search(text):
+        return any(ONE_PID.search(m.group(0)) for m in re.finditer(r"(pgrep|pidof)[^|;&\n]*\|\s*xargs\s+kill", text))
+    for m in re.finditer(r"\bkill\s+((?:-\w+\s+)*)([^\n]*)", text):  # to the end of the line: $( … ; … ) may hold a `;`
+        if re.search(r"-s?0\b", m.group(1)):
+            continue
+        target = m.group(2)
+        if ONE_PID.search(target):
+            return True
+        for var in re.findall(r"\$\{?(\w+)\}?", target):
+            for a in re.finditer(r"(?:\b%s=|\bfor\s+%s\s+in\s+)([^\n;]*)" % (var, var), text):
+                if ONE_PID.search(a.group(1)):
+                    return True
+    return False
+
+
+def _restart_segment(seg: str, whole: str, in_script: bool = False) -> Optional[str]:
+    toks = _tokens(seg)
+    i = _command_start(toks)
+    if i >= len(toks):
+        return None
+    cmd = os.path.basename(toks[i])
+    rest = toks[i + 1:]
+    if cmd in ("pkill", "killall"):
+        if any(a == "One" or ONE_PROC.search(a) for a in rest if not a.startswith("-")):
+            return "stop One, its engine or its background helper"
+    if (cmd == "kill" or (cmd == "xargs" and "kill" in rest)) and _kills_one(whole):
+        return "stop One, its engine or its background helper"
+    if cmd == "launchctl" and rest and rest[0] in ("kickstart", "kill", "bootout", "stop", "remove") and \
+            any(re.search(r"forjado|\bone\b|hermes", a, re.I) for a in rest[1:]):
+        return "restart One or its engine (launchctl)"
+    if cmd == "hermes" and "gateway" in rest and any(a in ("restart", "stop", "kill") for a in rest):
+        return "restart or stop One's background helper (hermes gateway)"
+    if cmd == "osascript" and re.search(r"(application|app)\s+(id\s+)?\"(One|ai\.forjado\.one)\"[^\n]*\bquit\b|\bquit\s+(application|app)\s+\"One\"",
+                                        " ".join(rest), re.I):
+        return "quit One"
+    # Inside a script it runs, only stopping One counts: a build script's never-taken `--install` branch isn't an install.
+    if not in_script and cmd in ("cp", "ditto", "mv", "rsync", "ln", "rm", "unzip", "tar") and any(ONE_APP.match(a) for a in rest):
+        return "replace One's app in Applications"
+    return None
+
+
+def restart_shell(command: str, depth: int = 0, in_script: bool = False) -> Optional[str]:
+    """What a shell command would do to the running One by hand (stop, restart, replace it); None when nothing."""
+    if not command:
+        return None
+    for seg in split_segments(command):
+        hit = _restart_segment(seg, command, in_script)
+        if hit:
+            return hit
+    for inner in re.findall(r"\b(?:ba|z)?sh\s+-\w*c\s+(\"[^\"]*\"|'[^']*')", command):
+        hit = restart_shell(inner[1:-1], depth + 1, in_script)
+        if hit:
+            return hit
+    if depth < 2:
+        for p in scripts_run_by(command):
+            try:
+                hit = restart_shell(p.read_text(errors="ignore"), depth + 1, True)
+            except Exception:
+                hit = None
+            if hit:
+                return f"{hit} (inside {p.name})"
+    return None
+
+
+def restart_code(code: str) -> Optional[str]:
+    for line in (code or "").splitlines():
+        if not EXEC_LINE.search(_code_only(line)):
+            continue
+        lits = [x[1:-1] for x in re.findall(r"\"[^\"]*\"|'[^']*'", line)]
+        flat = " ".join(shlex.quote(x) for x in lits) if ("[" in line and len(lits) > 1) else " ".join(lits)
+        hit = restart_shell(flat, 1)
+        if hit:
+            return hit
+    return None
+
+
+def restart_tool(tool_name: str, args: dict[str, Any]) -> Optional[str]:
+    if tool_name == "terminal":
+        return restart_shell(str(args.get("command") or ""))
+    if tool_name == "execute_code":
+        return restart_code(str(args.get("code") or ""))
+    return None
+
+
+def _when(v: Any) -> Optional[float]:
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def routines_at_work(now: Optional[float] = None) -> list[str]:
+    """Routines mid-run, read the way One reads them (Routines.routine): a live claim, or dispatched under 3 hours ago
+    and not finished since. (The engine never writes state "running": that test is what let the hand install through.)"""
+    now = time.time() if now is None else now
+    try:
+        top = json.loads((hermes_home() / "cron" / "jobs.json").read_text())
+    except Exception:
+        return []
+    jobs = top.get("jobs", []) if isinstance(top, dict) else top if isinstance(top, list) else []
+    out = []
+    for j in jobs:
+        if not isinstance(j, dict) or j.get("enabled", True) is False or j.get("state") == "paused":
+            continue
+        claim = _when((j.get("fire_claim") or {}).get("at") if isinstance(j.get("fire_claim"), dict) else None)
+        sent = _when((j.get("last_dispatch") or {}).get("dispatched_at") if isinstance(j.get("last_dispatch"), dict) else None)
+        last = _when(j.get("last_run_at"))
+        if (claim is not None and now - claim < 300) or (sent is not None and (last is None or sent > last) and now - sent < 3 * 3600):
+            out.append(str(j.get("name") or "A routine"))
+    return out
+
+
+def one_open(now: Optional[float] = None) -> bool:
+    """One's heartbeat (Pulse.swift beats every 20 s into <hermes home>/pulse.json) is under 90 s old."""
+    now = time.time() if now is None else now
+    try:
+        ts = _when(json.loads((hermes_home() / "pulse.json").read_text()).get("ts"))
+    except Exception:
+        return False
+    return ts is not None and now - ts < 90
+
+
+def restart_message(what: str, busy: list[str]) -> str:
+    at = f" Right now {', '.join(busy)} {'is' if len(busy) == 1 else 'are'} at work." if busy else ""
+    return (f"One blocked this: it would {what} by hand, which cuts off any routine or helper at work.{at} "
+            f"Use One's own way instead: {HOW_TO} Don't look for another way around this.")
+
+
+def restart_log(line: str) -> None:
+    try:
+        f = hermes_home() / "logs" / RESTART_LOG
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with f.open("a", encoding="utf-8") as h:
+            h.write(time.strftime("%Y-%m-%dT%H:%M:%S%z ") + line.replace("\n", " ")[:600] + "\n")
+    except Exception:
+        pass
+
+
 def on_pre_tool_call(tool_name: str = "", args: Optional[dict[str, Any]] = None, session_id: str = "", **_: Any):
+    try:
+        args = args if isinstance(args, dict) else {}
+        what = restart_tool(tool_name, args)
+        if what:
+            busy = routines_at_work()
+            if one_open() or busy:
+                cmd = str(args.get("command") or args.get("code") or "")
+                restart_log(f"blocked {tool_name} (session {session_id or '?'}): would {what}; routines at work: {busy or 'none'}: {cmd[:300]}")
+                return {"action": "block", "message": restart_message(what, busy)}
+            restart_log(f"allowed {tool_name} (session {session_id or '?'}): would {what}, but One is closed and no routine is at work")
+    except Exception as e:  # never break a tool call because the restart check itself failed
+        log(f"restart check error on {tool_name}: {e}")
     try:
         args = args if isinstance(args, dict) else {}
         if look_only(session_id):

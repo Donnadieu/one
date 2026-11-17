@@ -1,0 +1,52 @@
+[
+ {
+  "name": "the Nov 15 reply: a helper line over several paragraphs that never closed",
+  "reply": "I'm sending a helper to build it now. It runs until the channel is live and posting by itself.\n\n[helper: Science explainer channel | Goal: build and launch a fully autopilot faceless YouTube channel of science and \"how things work\" explainers for curious families and teens (general audience, NOT made for kids). Approved on Nov 15 2026; they are usually away on their phone. Background: read the report \"2026-11-15 Faceless YouTube channel - which topic\" in Ready for you first (YouTube's inauthentic-content rules, the AI disclosure label, the partner-program bar that doubles for new channels on Feb 1 2027). Use the Google account they set aside for it; its sign-in is in their password manager, and the hidden browser may already be signed in. Steps: 1) create a Brand Account channel with its own name; pick a clear, searchable, available name and handle, write a short About that says videos are made with AI tools and fact-checked, and a simple banner and logo. 2) Build the pipeline in a work folder with one copy of every script: topic picker (real questions people search, never repeated, logged in topics.json), researched script of 8 to 12 minutes with 3+ cited sources [1][2][3] checked for accuracy, AI voice, visuals with motion and simple diagrams, captions, a thumbnail, title, description with sources; plus 2 to 3 Shorts cut from each long video. 3) Uploading: every upload sets made for kids = No, sets the AI disclosure label whenever visuals look realistic, and after it goes live open it and verify title, video, thumbnail, captions and visibility are right\n\nIt'll make the first video, then send you the link and the channel name for **one yes** before anything goes public. After that it runs on its own. You'll only hear from it if something breaks, plus a short Sunday report.",
+  "shown": "I'm sending a helper to build it now. It runs until the channel is live and posting by itself."
+ },
+ {
+  "name": "the Nov 15 tell, on lines of its own above the reply",
+  "reply": "[tell-helper: Science explainer channel | Angle change from Omar: make every video \"how it works, and how we figured it out\". Explain the science, then tell the real story of the people who discovered or invented it (for example GPS and the Cold War satellites, the fridge, vaccines). Use real public-domain archive images (old photos, drawings, patents, maps from Wikimedia Commons, Library of Congress, NASA and similar, with each license checked and credited in the description) for the history parts, and AI visuals only where nothing real exists. Pick the channel name and topics to fit this angle. Keep everything else in the job the same.]\n\nSent to Science explainer channel. It keeps going, now with the \"how it works, and how we figured it out\" angle and real archive images for the history parts.",
+  "shown": "Sent to Science explainer channel. It keeps going, now with the \"how it works, and how we figured it out\" angle and real archive images for the history parts."
+ },
+ {
+  "name": "three helper lines quoting close, stop and choices: the reply's own choices stay",
+  "reply": "Sending three helpers now.\n[helper: No X on orbs | Remove the X from the orbs. Elias confirms with \"Got it\" and writes [close-helper: Movie times] on its own line. Keep [close-helper: …] parsing.]\n[helper: Voice and Stop fix | Make Stop also stop helpers when they say [stop-helper: all], and never read tag lines aloud.]\n[helper: Choices check | Check that a reply ending in [choices: A | B] shows two buttons.]\nThey'll report back when done.\n[choices: Sounds good | Wait]",
+  "shown": "Sending three helpers now.\nThey'll report back when done.\n[choices: Sounds good | Wait]"
+ },
+ {
+  "name": "a stop line run into a sentence",
+  "reply": "Done.[stop-helper: A] Stopped A.",
+  "shown": "Done.\nStopped A."
+ },
+ {
+  "name": "a tell quoting choices, a link and code",
+  "reply": "Sent.\n[tell-helper: X | Read [the plan](https://example.com/a), check arr[0] and pick [choices: A | B]] Anything else?",
+  "shown": "Sent.\nAnything else?"
+ },
+ {
+  "name": "a stop and a clear on one line, brackets in the title",
+  "reply": "Stopped it.\n[stop-helper: Fix [beta] build] [done-helper: Fix [beta] build]\nIt's off your screen.",
+  "shown": "Stopped it.\n\nIt's off your screen."
+ },
+ {
+  "name": "job kind and learned lines never show",
+  "reply": "Here you go.\n[job-kind: research]\n[learned: Omar likes short answers]",
+  "shown": "Here you go."
+ },
+ {
+  "name": "a reply that is only a helper line",
+  "reply": "[helper: Hotels | Find a hotel in Quebec for Dec 20 to 24.]",
+  "shown": ""
+ },
+ {
+  "name": "a reply with no tags",
+  "reply": "Keep it running, and keep science.\n\n[choices: Yes, send it | Keep it pure science]",
+  "shown": "Keep it running, and keep science.\n\n[choices: Yes, send it | Keep it pure science]"
+ },
+ {
+  "name": "a helper line in another case, between two paragraphs",
+  "reply": "On it.\n\n[Helper: Movie times | Showtimes at the Ritz tonight.]\n\nBack soon.",
+  "shown": "On it.\n\nBack soon."
+ }
+]

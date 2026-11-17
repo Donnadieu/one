@@ -9,6 +9,8 @@ import Foundation
 /// It never stops a healthy helper (another One's, or one the engine started); it only fills the gap.
 enum Messenger {
     static let tokenKey = "TELEGRAM_BOT_TOKEN"
+    /// The engine's name for this chat app (a phone reply's platform, PhoneTags.swift).
+    static let botChat = "telegram"
     /// The engine's `sessions.source` for conversations from a phone chat (the score counts them as "phone").
     static let phoneSources: Set<String> = ["telegram", "whatsapp", "signal", "imessage"]
     nonisolated(unsafe) static var proc: Process?
@@ -89,22 +91,25 @@ enum Messenger {
     /// Now the bot keeps them, and the engine plugin `one-missed-messages` answers the last 2 hours as usual and lists
     /// older ones in one note instead of acting on them (tools/overlay/plugins/one-missed-messages).
     static let missedPlugin = "one-missed-messages"
-    static var missedDir: URL { Env.hermesHome.appendingPathComponent("plugins/\(missedPlugin)", isDirectory: true) }
     static let keepQueued = "platforms.telegram.extra.drop_pending_on_cold_boot"
 
-    /// What `hermes config set` must change: the plugin on, and Telegram keeping what was sent while One was off.
-    static func missedFixes(_ config: String) -> [[String]] {
+    /// The phone chat's own engine plugins: missed messages, and helper lines that work there (PhoneTags.swift).
+    static var phonePlugins: [String] { [missedPlugin, PhoneTags.plugin] }
+
+    /// What `hermes config set` must change: the plugins on, and Telegram keeping what was sent while One was off.
+    static func missedFixes(_ config: String, plugins: [String] = [missedPlugin]) -> [[String]] {
         var fixes: [[String]] = []
         let on = BrowserGuard.enabledPlugins(config)
-        if !on.contains(missedPlugin) {
+        let add = plugins.filter { !on.contains($0) }
+        if !add.isEmpty {
             fixes.append([
-                "config", "set", "plugins.enabled", "[" + (on + [missedPlugin]).map { "\"\($0)\"" }.joined(separator: ", ") + "]", "--force",
+                "config", "set", "plugins.enabled", "[" + (on + add).map { "\"\($0)\"" }.joined(separator: ", ") + "]", "--force",
             ])
         }
         let off = BrowserGuard.enabledPlugins(config, key: "disabled")
-        if off.contains(missedPlugin) {
+        if off.contains(where: plugins.contains) {
             fixes.append([
-                "config", "set", "plugins.disabled", "[" + off.filter { $0 != missedPlugin }.map { "\"\($0)\"" }.joined(separator: ", ") + "]",
+                "config", "set", "plugins.disabled", "[" + off.filter { !plugins.contains($0) }.map { "\"\($0)\"" }.joined(separator: ", ") + "]",
                 "--force",
             ])
         }
@@ -112,14 +117,19 @@ enum Messenger {
         return fixes
     }
 
-    /// Copies the bundled plugin into One's engine home. False when this copy of One doesn't carry it.
-    @discardableResult static func installMissed(from src: URL? = Bundle.main.url(forResource: missedPlugin, withExtension: nil)) -> Bool {
+    /// Copies a bundled plugin into One's engine home. False when this copy of One doesn't carry it.
+    @discardableResult static func installMissed(
+        from src: URL? = Bundle.main.url(forResource: missedPlugin, withExtension: nil), name: String = missedPlugin
+    )
+        -> Bool
+    {
         let fm = FileManager.default
+        let dest = Env.hermesHome.appendingPathComponent("plugins/\(name)", isDirectory: true)
         guard let src, fm.fileExists(atPath: src.appendingPathComponent("__init__.py").path) else { return false }
-        try? fm.createDirectory(at: missedDir, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
         for f in ["__init__.py", "plugin.yaml"] {
             let a = src.appendingPathComponent(f)
-            let b = missedDir.appendingPathComponent(f)
+            let b = dest.appendingPathComponent(f)
             if (try? Data(contentsOf: a)) != (try? Data(contentsOf: b)) {
                 try? fm.removeItem(at: b)
                 guard (try? fm.copyItem(at: a, to: b)) != nil else { return false }
@@ -131,9 +141,11 @@ enum Messenger {
     /// Before every engine start (through `PhoneVoice.sync`). The bot picks the setting up at its next start.
     static func sync() async {
         guard !Env.selfTest else { return }
-        if !installMissed() { GatewayGuard.log("phone chat: the missed-messages plugin isn't in this copy of One") }
+        for p in phonePlugins where !installMissed(from: Bundle.main.url(forResource: p, withExtension: nil), name: p) {
+            GatewayGuard.log("phone chat: the \(p) plugin isn't in this copy of One")
+        }
         let cfg = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
-        for f in missedFixes(cfg) {
+        for f in missedFixes(cfg, plugins: phonePlugins) {
             let (code, out) = await hermesRun(f)
             if code != 0 { GatewayGuard.log("phone chat: couldn't set \(f[2]): \(out.suffix(200))") }
         }
@@ -182,6 +194,29 @@ extension Messenger {
     @discardableResult static func tell(_ text: String) -> Int? {
         guard let chat = envValue("TELEGRAM_HOME_CHANNEL") else { return nil }
         return ((bot("sendMessage", ["chat_id": chat, "text": text])?["result"] as? [String: Any])?["message_id"]) as? Int
+    }
+    /// Test copies: what would have gone to a phone chat (`One --test-helpers-stress phone`). Never the Bot API in a test.
+    nonisolated(unsafe) static var standIn: ((String, String, [String]) -> Void)?
+    /// A message to the phone chat a reply came from ("telegram:<chat id>", PhoneTags.swift), its choices as buttons
+    /// that send the answer back as their message. Only Telegram can be reached from One itself; others are logged.
+    @discardableResult static func send(_ text: String, to origin: String, choices: [String] = []) -> Bool {
+        if let s = standIn {
+            s(origin, text, choices)
+            return true
+        }
+        guard !Env.selfTest else { return false }
+        let p = origin.split(separator: ":", maxSplits: 1).map(String.init)
+        guard p.first == botChat else {
+            GatewayGuard.log("phone chat: One can't message \(p.first ?? "that chat") itself")
+            return false
+        }
+        guard let chat = p.count > 1 && !p[1].isEmpty ? p[1] : envValue("TELEGRAM_HOME_CHANNEL") else { return false }
+        var body: [String: Any] = ["chat_id": chat, "text": String(text.prefix(4000))]
+        if !choices.isEmpty {
+            let rows = stride(from: 0, to: choices.count, by: 2).map { k in choices[k..<min(k + 2, choices.count)].map { ["text": $0] } }
+            body["reply_markup"] = ["keyboard": rows, "one_time_keyboard": true, "resize_keyboard": true]
+        }
+        return (bot("sendMessage", body)?["ok"] as? Bool) == true
     }
     /// The same message once the link has ended (the button goes).
     static func editLink(_ id: Int, _ text: String) {

@@ -150,12 +150,13 @@ extension Model {
         for k in helpers.indices where helpers[k].finishedAway { helpers[k].finishedAway = false }
     }
 
-    func spawnHelper(title: String, task: String, routine: UUID? = nil) {
+    func spawnHelper(title: String, task: String, routine: UUID? = nil, phone: String? = nil) {
         // No limit, and nothing makes room: every helper starts right away (the engine runs all its conversations
         // at once) and every finished one stays until they dismiss it (orbs used to vanish before they were opened).
         var h = Helper(title: title, task: task, sid: nil, state: "working", line: "Getting started…")
         h.started = Date()
         h.routine = routine
+        h.phone = phone  // sent from a phone chat: its result goes back there (PhoneTags.swift)
         h.budget = Budget.parse(task)  // "Budget 10%:" or "Goal (…, 10%):"; else the default (Budget.swift)
         HelperTrail.flush(h)
         withAnimation(.spring(response: 0.7, dampingFraction: 0.75)) { helpers.append(h) }
@@ -290,6 +291,7 @@ extension Model {
             }
         }
         saveTrail(id)
+        phoneDone(id)  // sent from a phone chat: the result goes back there (PhoneTags.swift)
         resumeInterrupted()  // pick up any helper a restart cut off that's still waiting
         let routine = helpers.first(where: { $0.id == id })?.routine
         if let b = routine {
@@ -487,21 +489,8 @@ extension Model {
         let tags = Helpers.read(full)
         let all = tags.jobs
         full = tags.said
-        // "[stop-helper: …]": stopped first, so a helper sent in the same reply is never caught by "all".
-        for s in tags.stops { if let miss = stopHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        // "[done-helper: …]" (or the older "[close-helper: …]"): asked to take an orb off the screen. The only way besides
-        // Got it in its thread. After the stops, so "stop it and clear it" in one reply works.
-        for s in tags.closes { if let miss = closeHelpers(named: s) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        // "[tell-helper: Title | message]": passes a message into that helper's thread, just as typing in its orb
-        // would. After the stops/closes, so a helper stopped or cleared in the same reply is never told anything.
-        for (name, msg) in tags.tells { if let miss = tellHelpers(named: name, message: msg) { full += (full.isEmpty ? "" : "\n\n") + miss } }
-        let (jobs, skipped) = Helpers.unique(all, among: helpers)  // the same job twice starts one helper
-        Helpers.logSkipped(skipped)
-        if !all.isEmpty {
-            // Started after the stops, so a helper sent in the same reply is never caught by "all".
-            let routine = Helpers.isRoutine(c.typed) ? UUID() : nil  // a good morning or status report: one combined report later
-            for j in jobs { spawnHelper(title: j.0, task: j.1, routine: routine) }
-        }
+        // Stops, clears, tells, then new helpers, in that order (HelperLines.swift); a phone-chat reply goes the same way.
+        for miss in actOn(tags, typed: c.typed) { full += (full.isEmpty ? "" : "\n\n") + miss }
         full = learnFinish(mainFreeEnd(full, stop: stop, sent: all), stop: stop, idx: idx) + goalEnd(nil)  // handed over or cut off; [learned:]
         detectFolderAsk(full)  // "I don't have access to <path>. Want me to add it?" -> a card, ACP only
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -279,6 +279,16 @@ ask, so the card never went away and a stopped helper kept writing asks for minu
 - "I'm not at the Mac" on a code card always closes it (`Model.hiddenSteps`); the ask continues in the phone chat when
   there is one, else the engine hears `away`.
 
+## Helper lines from the phone chat
+
+A phone-chat reply's `[helper: …]`, `[tell-helper: …]`, `[stop-helper: …]` and `[done-helper: …]` lines now act like
+in One's own chat (`PhoneTags.swift`, engine plugin `one-phone-tags`). The plugin only reads replies whose platform is a
+phone chat (never One's own chat, helpers, sub-helpers or routines) and only writes `hermes/one-phone/inbox/<id>.json`;
+One acts on each reply once (`one-phone/acted.json`, 24 hours) through the same `Model.actOn` its own chat uses, so a
+helper started from the phone has the same rules as any other (asks before sending, posting, spending or deleting).
+Results go back with `Messenger.send` to that same chat only (the gateway's own chat id for the reply); a test copy
+never reaches the Bot API (`Messenger.standIn`).
+
 ## Memory safety across threads (0.9.85)
 
 - State one thread writes while another reads (the engine's reader thread vs the main thread, two background

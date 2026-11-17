@@ -110,6 +110,7 @@ enum HelperCheck {
         quotedTags(check)
         nestedTags(check)
         spanTags(check)
+        phoneTags(check)  // PhoneTagsCheck.swift: helper lines in a phone-chat reply
 
         // Stop by chat: the assistant's [stop-helper: …] line.
         let (said, names) = HelperStop.extract("Stopped Flight to Quebec.\n[stop-helper: Flight to Quebec]\n[STOP-HELPER: all]\n")

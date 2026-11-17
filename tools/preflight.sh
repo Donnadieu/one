@@ -53,6 +53,7 @@ check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
 check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
 check "the missed-messages plugin bundled" test -f "$APP/Contents/Resources/one-missed-messages/__init__.py"
+check "the phone-tags plugin bundled" test -f "$APP/Contents/Resources/one-phone-tags/__init__.py"
 check "the keeper's launch agent bundled (runs One --keeper every minute)" bash -c "plutil -lint $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist >/dev/null && grep -q -- '--keeper' $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist"
 check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
@@ -194,6 +195,7 @@ grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the keeper really opens One again after a failed start, waits longer each time, puts the previous version back after 3 failures, never after a quit" bash -c "tools/keeper-check.sh $TBIN $T/keeper | tee $T/keeper.txt | grep -q '^keeper ok'"
 grep "✗" "$T/keeper.txt" 2>/dev/null | sed 's/^/    /'
 check "phone messages sent while One was off: the last 2 hours answered, older ones listed in one note and never acted on" /usr/bin/python3 tools/missed-messages-check.py
+check "helper lines in a phone-chat reply (engine): handed to One once, never shown, the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news" /usr/bin/python3 tools/phone-tags-check.py
 [ $CI = 0 ] && check "the real engine runs the missed-messages plugin on real messages" tools/missed-messages-engine-check.sh
 
 echo "Tell me when I learn (decisions on a made-up skill log)"
@@ -262,6 +264,12 @@ echo "Helpers show their real progress"
 mkdir -p "$T/pg"
 check "real step words, its time past 30 s, a slow command, no progress after 6 quiet min (never stopped), plan line, a build waiting its turn" bash -c "ONE_SUPPORT_DIR=$T/pg $TBIN --test-progress | tee $T/pg/out.txt | grep -q '^progress ok'"
 grep "✗" "$T/pg/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Helper lines from the phone chat act like in One's own chat (stand-in engine, no cost; Nov 15 replayed)"
+LIMIT=240 check "one helper per phone reply, never twice; a tell reaches it; its result and its question (buttons) go back to that chat once" \
+  bash -c "tools/phone-tags-check.sh --no-build > '$T/pt.txt' 2>&1"
+grep "✗" "$T/pt.txt" 2>/dev/null | sed 's/^/    /'
+grep -q "phone-tags-check ok" "$T/pt.txt" 2>/dev/null || grep -q "✗" "$T/pt.txt" 2>/dev/null || tail -12 "$T/pt.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "The main chat is always free to talk (stand-in engine, no cost; Nov 11 replayed)"
 LIMIT=360 check "long tool work cut short and handed to a helper, a message meanwhile answered at once, a cut-off turn's job files sent (asked after Stop), a quick look and a long reply never cut" \

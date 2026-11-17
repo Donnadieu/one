@@ -29,6 +29,10 @@ def check(name, ok):
     fails += 0 if ok else 1
 
 
+from plugins.platforms.telegram.adapter import check_telegram_requirements  # noqa: E402
+
+# A fresh install gets the Telegram library the first time Telegram is set up (the gateway's own lazy install).
+check("the engine's Telegram library is there (installed the gateway's way)", check_telegram_requirements())
 P.discover_plugins(force=True)
 check("the engine loads the plugin's reply, turn and message hooks",
       P.has_hook("transform_llm_output") and P.has_hook("pre_llm_call") and P.has_hook("pre_gateway_dispatch"))

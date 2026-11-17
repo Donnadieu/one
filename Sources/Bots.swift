@@ -20,6 +20,8 @@ struct BotInfo: Codable, Equatable {
     var checkIn: String = "asked"  // "morning", "incoming" or "asked"
     var made = Date()
     var from = "chat"  // "chat" or "helper"
+    var archived: Date? = nil  // put away: off the left, kept, its routines paused (BotsManage.swift)
+    var paused: [String]? = nil  // the routines archiving paused, turned back on by restore
 }
 
 enum Bots {
@@ -175,7 +177,7 @@ enum Bots {
 
     /// The main assistant's rule for making a bot (every prompt via `Helpers.note`, and SOUL).
     static let soul = """
-        Bots: a bot is a helper they keep for one job, with its own chat that stays, its own memory and only what it needs; it sits on the left of the screen, and its routines show on the Routines dial in its colour. When they ask for a bot ("make me a growth bot", "I'd like a new bot"), ask three quick questions, one per message: 1) its one job, 2) what it may use (end with [choices: Browser | Email drafts | Calendar | Files] or what fits), 3) whether it checks in on its own, ending with [choices: Every morning | When something comes in | Only when I ask]. Then show a short preview (its name, its room, its job, what it uses, when it checks in, and that it asks before sending, spending or posting) ending with [choices: Make the bot | Change something]. Only after "Make the bot", add one line exactly like [bot: Growth bot | amber | Co-Founder | Find new customers for the heating business | Browser, Email drafts | morning] (name | colour: amber, teal, rose, sage, sky or lilac | the room it lives in | its one job | what it may use | morning, incoming or asked) and say in one line it's on the left. The room is the one you're talking in; ask only if it could be two. "tell <bot> …" works like a helper: [tell-helper: <bot name> | message]. In a good morning or status report, add one line per bot on what it did (from its memory file); a bot in a private room only as a headline.
+        Bots: a bot is a helper they keep for one job, with its own chat that stays, its own memory and only what it needs; it sits on the left of the screen, and its routines show on the Routines dial in its colour. When they ask for a bot ("make me a growth bot", "I'd like a new bot"), ask three quick questions, one per message: 1) its one job, 2) what it may use (end with [choices: Browser | Email drafts | Calendar | Files] or what fits), 3) whether it checks in on its own, ending with [choices: Every morning | When something comes in | Only when I ask]. Then show a short preview (its name, its room, its job, what it uses, when it checks in, and that it asks before sending, spending or posting) ending with [choices: Make the bot | Change something]. Only after "Make the bot", add one line exactly like [bot: Growth bot | amber | Co-Founder | Find new customers for the heating business | Browser, Email drafts | morning] (name | colour: amber, teal, rose, sage, sky or lilac | the room it lives in | its one job | what it may use | morning, incoming or asked) and say in one line it's on the left. The room is the one you're talking in; ask only if it could be two. "tell <bot> …" works like a helper: [tell-helper: <bot name> | message]. To change a bot when they ask ("rename Growth bot to Leads bot", "let Growth bot use email drafts", "make it check in every morning"), add one line like [edit-bot: Growth bot | name: Leads bot] with only what changes: name, colour, job, uses (the whole new list), add uses, remove uses, check-in (morning, incoming or asked); its chat, memory and routines stay with it, and it can't move to another room yet. To put one away when they ask: [archive-bot: Growth bot] (off the left, kept, its routines paused); [restore-bot: Growth bot] brings it back. Deleting removes its memory, chat and routines for good: first ask exactly "Delete Growth bot? Its memory and routines go too." ending with [choices: Delete it | Keep it], and only after they answer Delete it add [delete-bot: Growth bot]; One deletes nothing without that yes. They can also right-click a bot on the left for all of this. In a good morning or status report, add one line per bot on what it did (from its memory file); a bot in a private room only as a headline.
         """
     static var note: String { "\n\n(One app note, not from the user: " + soul + ")" }
 
@@ -210,8 +212,8 @@ enum Bots {
 
 @MainActor
 extension Model {
-    /// Every bot, in the order they were made.
-    var bots: [Helper] { helpers.filter { $0.bot != nil } }
+    /// Every bot on the left (not archived), in the order they were made.
+    var bots: [Helper] { Bots.active(helpers) }
 
     /// Takes the [bot: …] lines out of a finished reply and makes each bot. Returns what's left to show.
     func makeBots(from text: String) -> String {
@@ -223,7 +225,7 @@ extension Model {
                 Helpers.log("couldn't read a bot line: \(Helpers.short(body, 200))")
                 continue
             }
-            guard !bots.contains(where: { $0.title.lowercased() == b.name.lowercased() }) else { continue }  // the same bot twice
+            guard botID(named: b.name) == nil else { continue }  // the same bot twice (or an archived one's name)
             if bots.contains(where: { $0.bot?.color == b.color }) { b.color = Bots.nextColor(used: bots.compactMap(\.bot?.color)) }
             makeBot(b)
         }
@@ -273,16 +275,20 @@ extension Model {
 
     /// What the main assistant is told about the bots every turn (part of `helperNews`).
     func botNews() -> String {
-        guard !bots.isEmpty else { return "" }
+        guard helpers.contains(where: { $0.bot != nil }) else { return "" }
         let lines = bots.compactMap { h -> String? in
             guard let b = h.bot else { return nil }
             if Bots.isPrivate(b) { return "- A bot in the private room \(b.room) (\(h.state == "working" ? "working" : "resting")): headline only." }
             let state =
                 h.state == "working"
                 ? "working (\(h.line))" : h.state == "needsYes" ? "waiting for \(userName)'s yes" : h.waiting ? "has something new" : "resting"
-            return "- \(b.name) (\(b.room) room, job: \(b.job)): \(state). What it did is in \(Bots.memory(b).path)."
+            let uses = b.uses.isEmpty ? "nothing named" : b.uses.joined(separator: ", ")
+            return
+                "- \(b.name) (\(b.room) room, \(b.color), job: \(b.job); uses: \(uses); checks in: \(b.checkIn)): \(state). What it did is in \(Bots.memory(b).path)."
         }
+        let away = archivedBots.compactMap(\.bot?.name)
+        let archived = away.isEmpty ? "" : "\nArchived (off the left, kept; [restore-bot: …] brings one back): " + away.joined(separator: ", ")
         return "\n\n(One app note, not from the user: their bots right now. Don't repeat a bot's result; tap its orb on the left to see it.\n"
-            + lines.joined(separator: "\n") + ")"
+            + lines.joined(separator: "\n") + archived + ")"
     }
 }

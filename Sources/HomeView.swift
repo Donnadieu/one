@@ -279,6 +279,8 @@ struct HomeView: View {
             }
         }
         .overlayPreferenceValue(BotAnchors.self) { a in GeometryReader { g in BotThreads(m: m, points: a.mapValues { g[$0] }) } }
+        .overlayPreferenceValue(BotAnchors.self) { a in GeometryReader { g in BotMenuLayer(m: m, points: a.mapValues { g[$0] }) } }
+        .modifier(BotPopups(m: m))  // a bot's sheet and the archived bots (BotSheet.swift)
         .modifier(HomeStars())
         .background(HomeBackdrop())
         .frame(minWidth: (m.shelf.isEmpty || shelfCollapsed ? 560 : 830) + (m.bots.isEmpty ? 0 : 160))
@@ -288,7 +290,11 @@ struct HomeView: View {
                 ShelfOpened(m: m, item: it).transition(.opacity)
             }
         }
-        .overlay { if m.routinesOpen { RoutinesPanel(m: m).transition(.opacity) } }
+        .overlay {
+            if m.routinesOpen {
+                RoutinesPanel(m: m, sel: m.routinesPick?.routine, picked: m.routinesPick != nil, onlyBot: m.routinesPick?.bot).transition(.opacity)
+            }
+        }
         .overlay { if let u = m.viewing { FileViewer(m: m, url: u).transition(.opacity) } }
         .overlay {
             if m.writingPanel || (HomeView.still && HomeView.stillWriting) {

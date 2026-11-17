@@ -191,3 +191,14 @@ Ideas borrowed (not their interface): one job per bot; the main assistant stays 
 bot by talking; group bots by business (rooms); hide, don't delete;
 three plain limits (on its own / ask first / never) which One already has; checking in on its own is read-only.
 What stays One's own: bots live on your Mac, inside a room, on the AI you already pay for, and Iris never goes away.
+
+## Managing a bot (0.9.124, Nov 17 2026)
+
+Omar: "We should have basic CRUD functionality for bots." Claude Design "Bots manage" had two options, A "In the card" (info and edit unfold inside the bot's chat card) and B "Glass sheet" (one centred sheet on the pop-up glass). Omar picked B.
+
+- The ⋯ on a bot's row, a right-click, or the ⋯ in its chat header: About, Edit…, Archive, Delete….
+- About: job, what it may use, when it checks in, its routines (tap one to open it on the dial, filtered to the bot), its memory file (Show in Finder), when it was made. Edit flips the same sheet to fields; the room shows as "can't be moved yet".
+- A rename moves `<room>/bots/<name>/` with its memory and renames routines "<old>: …" to "<new>: …"; routines stay the bot's because they're tied to its conversation (`origin.chat_id`), and a routine named "<bot>: …" counts as its own too (`BotStore.owns`).
+- Archive: off the left, kept whole, its routines paused; Restore (the box with a count next to New bot) turns them back on.
+- Delete: one question, "Delete <bot>? Its memory and routines go too." [Delete it | Keep it], then the saved entry, its folder and its own routines, nobody else's.
+- From chat: hidden `[edit-bot: …]`, `[archive-bot: …]`, `[restore-bot: …]`, `[delete-bot: …]`. A chat delete acts only when the reply before asked that question and they answered yes (`BotGate`); otherwise One asks itself.

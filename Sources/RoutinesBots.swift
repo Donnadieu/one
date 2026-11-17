@@ -7,7 +7,8 @@ import SwiftUI
 
 extension RoutinesPanel {
     /// The bot a routine belongs to, if any.
-    func owner(_ r: Routine) -> Helper? { r.owner.flatMap { o in m.bots.first { $0.sid == o } } }
+    /// Its conversation made it, or it's named "<bot>: …" (BotStore.owns); archived bots keep theirs.
+    func owner(_ r: Routine) -> Helper? { m.helpers.first { BotStore.owns($0, r) } }
 
     /// Routine id → its bot's colour.
     func tints(_ s: RoutinesSnapshot) -> [String: UInt32] {

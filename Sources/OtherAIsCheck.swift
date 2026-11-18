@@ -7,7 +7,7 @@ enum OtherAIsCheck {
     static func launch() -> Bool {
         let args = CommandLine.arguments
         let engine = args.contains("--test-other-ais-engine")
-        guard engine || args.contains("--test-other-ais") else { return false }
+        guard engine || args.contains("--test-other-ais") else { return ModelLineupCheck.launch() }  // same area
         TestWorld.enter()
         setvbuf(stdout, nil, _IONBF, 0)  // each line shows at once, so a stuck step names itself in CI
         Task { @MainActor in exit(engine ? await runEngine() : await run()) }

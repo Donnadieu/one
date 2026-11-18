@@ -116,6 +116,15 @@ Coding/Token plans). OAuth-only ones (Nous Portal, Qwen OAuth, MiniMax OAuth) an
 | ChatGPT (openai-codex) | `reasoning.effort` (`agent/transports/codex.py:293-343`) | gpt-6.1-sol: Low…Max. gpt-6-sol: Off, Low…Max. gpt-5.4-mini: Off, Low…Extra high | Max |
 | Grok (xai-oauth) | `reasoning.effort`, only for an allowlist (`model_metadata.py:371-377`) | grok-4.6: Low…Extra high. **grok-4.20-0309-reasoning and -non-reasoning: none** (nothing sent) | Extra high |
 | OpenRouter | Claude: top-level `verbosity`; others `reasoning.effort` from OpenRouter's catalog (`plugins/model-providers/openrouter/__init__.py:153-196`) | per model from the catalog (Claude 5.5: Low…Max; gemini-3-flash: Off…High) | the model's top |
+
+**Lineup update, Nov 18 2026 (One 0.9.128, `Sources/ModelLineup.swift`).** Smartest / Balanced / Fastest are now:
+Claude `claude-fable-5-2` / `claude-sonnet-5-5` / `claude-haiku-5-5`; ChatGPT `gpt-6.2-astra` / `gpt-6.2-sol` / `gpt-6-luna`
+(`gpt-5.4-mini` is retired from ChatGPT sign-in and was refused live); Grok `grok-4.7` / `grok-4.6` /
+`grok-4.20-0309-non-reasoning`; OpenRouter `anthropic/claude-fable-5.2` / `anthropic/claude-sonnet-5.5` /
+`google/gemini-3.8-flash`. Levels the pinned engine sends: Fable 5.2 Low…Max (no Off, the API rejects it); Sonnet 5.5
+Off (sent as `between_tools`)…Max; Haiku 5.5 Off…Max; GPT-6.2 Astra and Sol Off…Extra high (the engine clamps Max);
+GPT-6 Luna Off…Max; **Grok 4.7: none yet** (the engine's effort allowlist stops at 4.6, so xAI's default, high, applies).
+Saved choices still offered are never moved; retired ones move at launch to the maker's own replacement.
 | Local model (custom) | top-level `reasoning_effort` (`plugins/model-providers/custom/__init__.py:56-83`) | the engine can't tell; it always sends an explicit level, a server that refuses gets one retry without it | hidden (see below) |
 | Other AIs | per family (`agent/reasoning_effort.py:51-94`, e.g. Kimi K3 Low/High/Max, DeepSeek V4 Low…Max, Gemini Low…High) | per family | the family's top |
 

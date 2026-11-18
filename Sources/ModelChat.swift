@@ -49,6 +49,7 @@ extension Model {
         await SignIn.enableRoutines()
         BrowserGuard.log("nightly review routine: \(await NightlyRoutine.ensure())")  // made once (NightlyRoutine.swift)
         await PhoneVoice.sync()  // phone chats speak with the same voice as the Mac
+        await ModelLineup.atLaunch(provider: providerRaw)  // a retired saved model or routine pin moves to its replacement
         if let e = await Engine.shared.ensureStarted() {
             bubbles.append(Bubble(fromMe: false, text: "I couldn't start: \(e)"))
         } else {

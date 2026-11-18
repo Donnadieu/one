@@ -84,8 +84,10 @@ struct RoutinesPanel: View {
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
             card(s, L)
+            skillsZone(stars)
         }
         .frame(width: Dial.size.width, height: Dial.size.height, alignment: .topLeading)
+        .coordinateSpace(name: RoutineZones.space)
         .withStars {
             RadialGradient(colors: [Color(hex: 0x24242A, 0.6), .clear], center: UnitPoint(x: 0.41, y: 0.54), startRadius: 0, endRadius: 420)
         }
@@ -245,8 +247,17 @@ struct RoutinesPanel: View {
                     miniStop(r, sub: sub, width: 220)
                 }
             }
-            .frame(width: 240).starCalm(floor: 0.12).offset(x: 905, y: 80)
+            .frame(width: 240).routineZone("list").starCalm(floor: 0.12).offset(x: 905, y: 80)
         }
+    }
+
+    /// The skills' cluster, for the list check (RoutinesZones.swift).
+    func skillsZone(_ stars: [Dial.Star]) -> some View {
+        let xs = stars.map(\.at.x)
+        let ys = stars.map(\.at.y)
+        let box = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0, width: (xs.max() ?? 0) - (xs.min() ?? 0), height: (ys.max() ?? 0) - (ys.min() ?? 0))
+        return Color.clear.frame(width: box.width, height: box.height).routineZone("skills").allowsHitTesting(false)
+            .position(x: box.midX, y: box.midY)
     }
 
     func starHits(_ stars: [Dial.Star], skills: [SkillStar]) -> some View {

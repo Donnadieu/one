@@ -8,7 +8,7 @@ import Foundation
 /// never run yet all stay calm. Run again builds the right engine commands and asks first.
 enum RoutinesCheck {
     static func cli(_ args: [String]) {
-        guard args.contains("--test-routines") else { return }
+        guard args.contains("--test-routines") else { return RoutinesListCheck.cli(args) }
         TestWorld.enter()  // scratch One folder with made-up jobs; run with ONE_SUPPORT_DIR set to an empty folder
         exit(run())
     }

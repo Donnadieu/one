@@ -352,6 +352,9 @@ echo "Routines: only a real failure is orange"
 mkdir -p "$T/rtn"
 check "a routine that ran all its runs leaves the dial for the quiet Finished list (Run again asks first); paused, missed while the Mac slept, still to come and never run stay calm; only a real failure is orange" bash -c "ONE_SUPPORT_DIR=$T/rtn $TBIN --test-routines | tee $T/rtn/out.txt | grep -q '^routines ok'"
 grep "✗" "$T/rtn/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/rtl"
+check "a long routines list never runs over the skills; every routine has a plain name, a line saying what it does, its next run and last result; grouped, folds, leftovers can go (asks first)" bash -c "ONE_SUPPORT_DIR=$T/rtl $TBIN --test-routines-list | tee $T/rtl/out.txt | grep -q '^routines list ok'"
+grep "✗" "$T/rtl/out.txt" 2>/dev/null | sed 's/^/    /'
 
 if [ $CI = 0 ]; then
 echo "Screens"

@@ -213,6 +213,13 @@ enum RoutinesListCheck {
         let zb = host(big)
         check("55 routines: \(overlap(zb) ?? "constellations and skills apart, all on the panel")", overlap(zb) == nil)
         check("55 routines: still one open group, the rest are figures", zb["sky-groups"] != nil && zb["sky-open"] != nil)
+        let pts = (0..<6).map { CGPoint(x: Sky.starX($0, "r\($0)"), y: Sky.rowTops(6, picked: 2, details: 90)[$0] + Sky.starY) }
+        let l0 = Sky.light(pts, t: 0)
+        let l1 = Sky.light(pts, t: 1.5)
+        check("it flows: a light travels down the open group's thread", l0 != nil && l1 != nil && l0 != l1 && (l1?.y ?? 0) > (l0?.y ?? 0))
+        check("one column: every star sits on the thread (within 8 pt)", (pts.map(\.x).max() ?? 0) - (pts.map(\.x).min() ?? 0) <= 8)
+        check("the picked one's details push the stars under it down", pts[3].y - pts[2].y >= Sky.rowH + 90 - 0.5)
+        check("one group open at a time: the picked routine's own", Sky.open(who, sel: "ads", chosen: "me") == "bot:" + bot.id.uuidString)
 
         print(fails == 0 ? "routines list ok" : "routines list: \(fails) failed")
         return fails == 0 ? 0 : 1

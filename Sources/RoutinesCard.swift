@@ -35,9 +35,7 @@ extension RoutinesPanel {
             Group {
                 if id.hasPrefix("skill:"), let sk = s.skills.first(where: { "skill:" + $0.path == id }) {
                     skillCard(sk, now: s.now)
-                } else if let r = s.routines.first(where: { $0.id == id }) {
-                    if r.state == .finished && !r.outside { finishedCard(r, now: s.now) } else { routineCard(r, now: s.now) }
-                }
+                }  // a routine opens in place under its own star (RoutinesSkyActions.swift), never as a card
             }
             .frame(width: 250).starCalm().transition(.opacity)
             .modifier(CardSlot.Place(top: top))
@@ -52,6 +50,7 @@ extension RoutinesPanel {
                 RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(orange ? Dial.orange.opacity(0.4) : WorldLook.cream.opacity(0.12))
             )
             .shadow(color: orange ? Dial.orange.opacity(0.25) : Color(hex: 0xFFECD6, 0.12), radius: 18)
+            .routineZone("card")
     }
 
     func eyebrow(_ text: String, dot: Color) -> some View {
@@ -89,79 +88,6 @@ extension RoutinesPanel {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain).fixedSize().disabled(busy).opacity(busy ? 0.5 : 1)
-    }
-
-    func routineCard(_ r: Routine, now: Date) -> some View {
-        let failed = r.needsLook  // orange only when it did nothing it can show
-        let partly = r.state == .failed && r.miss == .partly
-        var last = "Never ran yet"
-        if let l = r.lastRun { last = Routines.stamp(l, now: now) + " · " + Dial.word(r) }
-        if r.state == .running, let l = r.lastRun { last = "Running now. Before that: " + Routines.stamp(l, now: now) }
-        let next: String = r.state == .paused ? "Paused" : r.next.map { Routines.stamp($0, now: now) } ?? "Not again"
-        return cardShell(orange: failed) {
-            eyebrow(
-                (r.outside ? "Runs outside One" : "Scheduled job") + (r.state == .paused ? " · paused" : ""),
-                dot: failed ? Dial.orange : r.state == .never || r.state == .paused ? WorldLook.cream.opacity(0.4) : WorldLook.cream)
-            Text(r.name).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
-            Text(r.state == .failed ? Routines.missLine(r) : r.caughtUpAt != nil ? Routines.caughtUpLine(r) : r.line).font(.system(size: 11.5))
-                .foregroundStyle(WorldLook.cream.opacity(0.6)).padding(
-                    .top, 4
-                ).lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
-            Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
-            VStack(alignment: .leading, spacing: 8) {
-                fact("How often", r.often)
-                if let l = r.leftover { fact("Looks done", l) }
-                if r.state != .failed && r.what != r.line && r.what != "Hasn't said anything yet." { fact("Said last", r.what) }
-                if r.name != r.title { fact("Saved as", r.title, color: WorldLook.cream.opacity(0.55)) }
-                if let room = r.room { fact("Room", room) }
-                if let b = owner(r)?.bot { fact("Belongs to", b.name, color: Color(hex: Bots.hex(b.color))) }  // RoutinesBots.swift
-                fact(
-                    "Last run", last, color: failed ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.85),
-                    sub: partly && !r.notes.did.isEmpty ? nil : r.reason)
-                if partly || r.caughtUpAt != nil { outcomeFacts(r) }
-                fact(failed ? "Next try" : "Next", next)
-            }
-            HStack(spacing: 6) {
-                if !r.outside {
-                    pill(r.leftover != nil ? "Run" : "Run now", filled: r.leftover == nil) {
-                        Task {
-                            await act(
-                                r, ["cron", "run", r.id], doing: "Starting it now…", done: "It starts within a minute. Its result shows up here.")
-                        }
-                    }
-                    pill(r.state == .paused ? "Turn back on" : "Pause") {
-                        let on = r.state == .paused
-                        Task {
-                            await act(
-                                r, ["cron", on ? "resume" : "pause", r.id], doing: on ? "Turning it back on…" : "Pausing it…",
-                                done: on ? "It's back on." : "Paused. It won't run until you turn it back on.")
-                        }
-                    }
-                }
-                if RoutinesPanel.canRemove(r) {
-                    pill("Remove", filled: r.leftover != nil) {
-                        note = nil
-                        removeAsk = r.id
-                    }
-                } else {
-                    askPill(r)
-                }
-            }
-            .padding(.top, 14)
-            if RoutinesPanel.canRemove(r) { askPill(r).padding(.top, 6) }
-            removeRow(r)
-            if let note {
-                Text(note).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 8).fixedSize(
-                    horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    func askPill(_ r: Routine) -> some View {
-        pill("Ask \(m.name)") {
-            ask("Tell me about my routine “\(r.title)”: what it does, how it's been going, and anything I should do about it.")
-        }
     }
 
     /// What worked and what didn't, plainly, from the run's own report and step log.
@@ -271,7 +197,7 @@ extension RoutinesPanel {
             .background(Capsule().fill(Color(hex: 0x1E1E22, 0.97)))
             .overlay(Capsule().strokeBorder(WorldLook.cream.opacity(0.12)))
             .starCalm()
-            .offset(x: 316, y: 66)
+            .offset(x: 262, y: 66)  // ends short of the routines' constellations
             .transition(.opacity)
             .task {
                 guard !HomeView.still else { return }

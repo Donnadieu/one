@@ -109,62 +109,8 @@ extension Routines {
     }
 }
 
+// Finished routines sit in the routines list's own "Finished" group (RoutinesListView.swift); a tapped one opens here.
 extension RoutinesPanel {
-    /// Bottom left, above the legend: "✓ Finished · 2", folded until tapped.
-    @ViewBuilder func finishedSection(_ rs: [Routine], now: Date) -> some View {
-        if !rs.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                if finishedOpen {
-                    ForEach(rs.prefix(6)) { r in finishedRow(r) }
-                    if rs.count > 6 {
-                        Text("and \(rs.count - 6) more").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.35)).padding(
-                            .leading, 30)
-                    }
-                    Rectangle().fill(WorldLook.cream.opacity(0.07)).frame(height: 1).padding(.vertical, 4)
-                }
-                Button {
-                    withAnimation(.easeOut(duration: 0.18)) { finishedOpen.toggle() }
-                } label: {
-                    HStack(spacing: 8) {
-                        finishedCheck(16)
-                        Text("Finished · \(rs.count)").font(.system(size: 11.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.5))
-                        Image(systemName: finishedOpen ? "chevron.down" : "chevron.up").font(.system(size: 8.5, weight: .semibold))
-                            .foregroundStyle(WorldLook.cream.opacity(0.35))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).help(finishedOpen ? "Fold the finished routines" : "Routines that ran every time they were set to")
-            }
-            .padding(finishedOpen ? 10 : 0)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(hex: 0x1E1E22, finishedOpen ? 0.96 : 0))
-            )
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(WorldLook.cream.opacity(finishedOpen ? 0.1 : 0)))
-            .frame(width: 212, alignment: .leading)
-            .starCalm(floor: 0.12)
-            .frame(width: 260, height: 630, alignment: .bottomLeading)
-            .offset(x: finishedOpen ? 14 : 24, y: 0)
-        }
-    }
-
-    func finishedRow(_ r: Routine) -> some View {
-        Button {
-            pick(r.id)
-        } label: {
-            HStack(spacing: 9) {
-                finishedCheck(16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(r.title).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.7)).lineLimit(1)
-                    Text(Routines.finishedLine(r)).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.42)).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, 4).padding(.horizontal, 4)
-            .background(RoundedRectangle(cornerRadius: 7).fill(WorldLook.cream.opacity(sel == r.id ? 0.08 : 0)))
-            .contentShape(Rectangle())
-        }.buttonStyle(.plain)
-    }
-
     /// Calm grey with a check: done on purpose.
     func finishedCheck(_ size: CGFloat) -> some View {
         Circle().fill(WorldLook.cream.opacity(0.16)).frame(width: size, height: size)
@@ -175,7 +121,7 @@ extension RoutinesPanel {
         let reports = Routines.reports(r.id)
         return cardShell(orange: false) {
             eyebrow("Finished", dot: WorldLook.cream.opacity(0.4))
-            Text(r.title).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
+            Text(r.name).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
             Text(Routines.finishedWhy(r)).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 4)
                 .fixedSize(horizontal: false, vertical: true)
             Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
@@ -200,11 +146,17 @@ extension RoutinesPanel {
                         note = nil
                         renewAsk = r.id
                     }
-                    pill("Ask \(m.name)") {
-                        ask("Tell me about my finished routine “\(r.title)”: what it found over its runs, and whether it's worth running again.")
+                    pill("Remove") {
+                        note = nil
+                        removeAsk = r.id
                     }
                 }
                 .padding(.top, 14)
+                pill("Ask \(m.name)") {
+                    ask("Tell me about my finished routine “\(r.title)”: what it found over its runs, and whether it's worth running again.")
+                }
+                .padding(.top, 6)
+                removeRow(r)
             }
             if let note {
                 Text(note).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 8).fixedSize(
@@ -253,7 +205,7 @@ extension RoutinesPanel {
         let ok = await Routines.renew(r.id)
         renewAsk = nil
         busy = false
-        snap = await Task.detached { Routines.load() }.value
+        await reload()
         guard ok else {
             // The engine can refuse to set a routine up again by itself (its safety check can't read a file the
             // instructions name). The yes is already given: hand it to the assistant, who can sort that out.

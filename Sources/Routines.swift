@@ -35,6 +35,15 @@ struct Routine: Identifiable, Equatable {
     var once = false
     /// Finished routines only: its very last run didn't work (the engine's own record says so).
     var lastFailed = false
+    /// For the list (RoutineLabels.swift): its instructions, how many runs it was set to (nil = no end), whether its
+    /// newest runs all had nothing to say, whether it's only a small script, and its plain name, line and room.
+    var prompt = ""
+    var times: Int?
+    var quiet = false
+    var script = false
+    var shownName: String?
+    var shownLine: String?
+    var room: String?
 
     /// How the panel draws it. Only a real failure gets the alarm (orange, an X); a routine that finished on purpose,
     /// a paused one, a missed time (the Mac asleep or closed) and one that never ran yet each look calm.
@@ -151,6 +160,10 @@ enum Routines {
         r.runs = (rep?["completed"] as? Int) ?? 0
         r.once = runsOnce(sched)
         r.lastFailed = st == .finished && broke
+        r.prompt = j["prompt"] as? String ?? ""
+        r.times = rep?["times"] as? Int
+        r.quiet = quietLately(dir.appendingPathComponent("output/\(id)"))
+        r.script = !((j["script"] as? String) ?? "").isEmpty
         return r
     }
 
@@ -222,7 +235,7 @@ enum Routines {
         for raw in (body.isEmpty ? text : body).components(separatedBy: "\n") {
             var l = raw.trimmingCharacters(in: .whitespaces)
             if l.isEmpty || l.hasPrefix("[") || l.hasPrefix("#") || l.hasPrefix("---") || l.hasPrefix("|") || l.hasPrefix("**Job")
-                || l.hasPrefix("**Run")
+                || l.hasPrefix("**Run") || l.range(of: #"^\*\*[A-Za-z ]+:\*\*"#, options: .regularExpression) != nil  // "**Mode:** …"
             {
                 continue
             }

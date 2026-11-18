@@ -20,6 +20,9 @@ struct RoutinesPanel: View {
     @State var renewAsk: String?  // a finished routine's id while "Run it again?" waits for a yes
     @State var renewHelp: String?  // Run again didn't take: offer to hand it to the assistant
     @State var onlyBot: String?  // the filter by bot: nil = all, "main" = the assistant's own, else a bot's id (RoutinesBots.swift)
+    @State var listBy: RoutineList.By = .who  // the list on the right: grouped by who it's for, or how often (RoutinesListView.swift)
+    @State var folded: Set<String>?  // folded groups; nil = the list's own first choice
+    @State var removeAsk: String?  // a routine's id (or "group:<id>") while "Remove it?" waits for a yes
 
     var body: some View {
         let s = fixed ?? snap
@@ -36,9 +39,8 @@ struct RoutinesPanel: View {
         .task {
             guard fixed == nil else { return }
             while !Task.isCancelled {
-                let fresh = await Task.detached { Routines.load() }.value
-                snap = fresh
-                if !picked { sel = RoutinesPanel.firstPick(fresh) }
+                await reload()
+                if !picked { sel = RoutinesPanel.firstPick(snap) }
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
             }
         }
@@ -53,18 +55,26 @@ struct RoutinesPanel: View {
 
     func close() { withAnimation(.easeOut(duration: 0.2)) { m.routinesOpen = false } }
 
+    /// Reads everything again, with plain words, rooms and bots (RoutineLabels.swift).
+    func reload() async {
+        let fresh = await Task.detached { Routines.load() }.value
+        var s = fresh
+        s.routines = RoutineLabels.dress(fresh.routines, labels: RoutineLabels.load(), rooms: RoomPrivacy.facts, bots: m.helpers, owner: m.userName)
+        snap = s
+    }
+
     // MARK: The stage (design points)
 
     @ViewBuilder func stage(_ all: RoutinesSnapshot) -> some View {
         let s = only(all)  // filtered by bot (RoutinesBots.swift)
         let L = Dial.layout(s, tints: tints(all))
-        let starTop = max(200, 120 + CGFloat(L.later.count) * 44)
-        let starC = CGPoint(x: 1025, y: starTop + 70)
-        let stars = Dial.stars(s.skills, center: starC, radius: 62)
+        let starC = Dial.starCenter  // its own place under the list, whatever the list holds
+        let stars = Dial.stars(s.skills, center: starC, radius: Dial.starRadius)
         ZStack(alignment: .topLeading) {
             pulseCanvas(L, stars: stars, skills: s.skills)
             // The skills' own stars stay a cluster of their own: the galaxy keeps clear of them.
-            Color.clear.frame(width: 124, height: 124).starCalm(radius: 62, feather: 30).position(starC).allowsHitTesting(false)
+            Color.clear.frame(width: Dial.starRadius * 2, height: Dial.starRadius * 2).starCalm(radius: Dial.starRadius, feather: 30).position(starC)
+                .allowsHitTesting(false)
             orb.starCalm(radius: 88, feather: 40).position(Dial.center)
             Text("6 AM").dialHour().position(x: Dial.center.x + Dial.r0 - 26, y: Dial.center.y)
             Text("Noon").dialHour().position(x: Dial.center.x, y: Dial.center.y + Dial.r0 - 18)
@@ -73,19 +83,19 @@ struct RoutinesPanel: View {
             ForEach(L.labels) { l in dialLabel(l) }
             header(s)
             botFilter.offset(x: 24, y: 68)  // All · the assistant · each bot (RoutinesBots.swift)
-            outsideColumn(L.outside)
-            laterColumn(L.later, now: s.now)
+            routineList(s)  // every routine, grouped, folding, scrolling in its own place (RoutinesListView.swift)
             Text("What I know how to do · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
-                .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + 84)
+                .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + Dial.starRadius + 20)
             starHits(stars, skills: s.skills)
             legend.starCalm(floor: 0.15).offset(x: 24, y: 644)
-            finishedSection(L.finished, now: s.now)
             learnedNotice(s)
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
             card(s, L)
+            skillsZone(stars)
         }
         .frame(width: Dial.size.width, height: Dial.size.height, alignment: .topLeading)
+        .coordinateSpace(name: RoutineZones.space)
         .withStars {
             RadialGradient(colors: [Color(hex: 0x24242A, 0.6), .clear], center: UnitPoint(x: 0.41, y: 0.54), startRadius: 0, endRadius: 420)
         }
@@ -161,6 +171,7 @@ struct RoutinesPanel: View {
 
     func dialLabel(_ l: Dial.Label) -> some View {
         let col = l.orange ? Color(hex: 0xF6B46E) : l.tint.map { Color(hex: $0) } ?? WorldLook.cream
+        let room = Dial.labelRoom(l)  // a long name stops short of the list on the right (…)
         return Button {
             pick(l.rid)
         } label: {
@@ -169,13 +180,14 @@ struct RoutinesPanel: View {
                 Text(l.sub).font(.system(size: 10.5)).foregroundStyle(l.orange ? Color(hex: 0xF6B46E, 0.85) : WorldLook.cream.opacity(0.5)).lineLimit(
                     1)
             }
-            .fixedSize()
             .starCalm(pad: 4, feather: 14, floor: 0.12)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 6).fill(WorldLook.cream.opacity(sel == l.rid ? 0.1 : 0)))
             .contentShape(Rectangle())
+            .routineZone("dial")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).help(l.title)
+        .frame(width: room, alignment: l.right ? .leading : .trailing)
         .frame(width: 0, height: 0, alignment: l.right ? .leading : .trailing)
         .position(x: l.at.x + (l.right ? 4 : -4), y: l.at.y)
     }
@@ -206,51 +218,19 @@ struct RoutinesPanel: View {
             .opacity(r.state == .never || r.state == .paused ? 0.5 : 1)
     }
 
-    func miniStop(_ r: Routine, sub: String, width: CGFloat) -> some View {
-        Button {
-            pick(r.id)
-        } label: {
-            VStack(spacing: 3) {
-                smallOrb(r)
-                Text(r.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
-                Text(sub).font(.system(size: 10)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(1)
-            }
-            .frame(width: width).contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: 8).fill(WorldLook.cream.opacity(sel == r.id ? 0.08 : 0)))
-        }.buttonStyle(.plain)
-    }
-
-    @ViewBuilder func outsideColumn(_ rs: [Routine]) -> some View {
-        if !rs.isEmpty {
-            VStack(spacing: 8) {
-                Text("Runs outside One").font(.system(size: 10.5, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.35))
-                LazyVGrid(columns: [GridItem(.fixed(118)), GridItem(.fixed(118))], spacing: 10) {
-                    ForEach(rs) { r in miniStop(r, sub: r.often, width: 118).opacity(0.6) }
-                }
-            }
-            .frame(width: 250).starCalm(floor: 0.12).offset(x: 24, y: 96)
-        }
-    }
-
-    @ViewBuilder func laterColumn(_ rs: [Routine], now: Date) -> some View {
-        if !rs.isEmpty {
-            VStack(spacing: 6) {
-                Text("Not on today's dial").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.42))
-                ForEach(rs) { r in
-                    let when = r.next.map { Routines.day($0, now: now, lower: false) } ?? ""
-                    let sub =
-                        r.state == .never
-                        ? "Never ran yet" + (when.isEmpty ? "" : " · " + when)
-                        : Dial.word(r).capitalizingFirst + (when.isEmpty ? "" : " · next " + when)
-                    miniStop(r, sub: sub, width: 220)
-                }
-            }
-            .frame(width: 240).starCalm(floor: 0.12).offset(x: 905, y: 80)
-        }
+    /// The skills' cluster, for the list check (RoutinesZones.swift).
+    func skillsZone(_ stars: [Dial.Star]) -> some View {
+        let xs = stars.map(\.at.x)
+        let ys = stars.map(\.at.y)
+        let box = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0, width: (xs.max() ?? 0) - (xs.min() ?? 0), height: (ys.max() ?? 0) - (ys.min() ?? 0))
+        return Color.clear.frame(width: box.width, height: box.height).routineZone("skills").allowsHitTesting(false)
+            .position(x: box.midX, y: box.midY)
     }
 
     func starHits(_ stars: [Dial.Star], skills: [SkillStar]) -> some View {
-        let box = CGRect(x: 945, y: (stars.map(\.at.y).min() ?? 200) - 14, width: 160, height: 170)
+        let c = Dial.starCenter
+        let rr = Dial.starRadius + 14
+        let box = CGRect(x: c.x - rr, y: c.y - rr, width: rr * 2, height: rr * 2)
         func nearest(_ p: CGPoint) -> Int? {
             let q = CGPoint(x: p.x + box.minX, y: p.y + box.minY)
             var best: Int?

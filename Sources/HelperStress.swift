@@ -71,7 +71,7 @@ enum HelperStress {
     }
 
     @MainActor
-    static func setUp() async -> Model? {
+    static func setUp(watching: Bool = true) async -> Model? {
         guard Env.selfTest, Bundle.main.bundleIdentifier != TestWorld.productionID, Env.testEngine != nil,
             ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil
         else {
@@ -89,7 +89,7 @@ enum HelperStress {
             return nil
         }
         try? await Task.sleep(for: .milliseconds(300))  // the engine's news (getting ready / ready) reaches the model
-        watch(m)
+        if watching { watch(m) }  // phone/restart checks send jobs that are not STRESSJOBs
         return m
     }
 

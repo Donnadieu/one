@@ -60,7 +60,7 @@ enum HumanStep {
 
     static let asking = [
         "code": "a code", "security_key": "your security key", "passkey": "your passkey",
-        "approve": "a tap to approve on your phone", "check": "a quick check",
+        "approve": "a tap to approve on your phone", "check": "a quick check", "sign_in": "you to sign in",
     ]
 
     /// The line in the chat, word for word (the engine sends the same one).
@@ -205,7 +205,9 @@ extension Model {
         guard !Env.selfTest, Messenger.configured, let chat = Messenger.envValue("TELEGRAM_HOME_CHANNEL") else { return false }
         phoneSent.insert(a.id)
         HumanStep.markPhoneAsk(a.id, chat: chat)
-        let title = helpers.first(where: { $0.state == "working" })?.title ?? "your job"
+        let title =
+            (a.session.isEmpty ? nil : helpers.first { $0.sid == a.session })?.title ?? helpers.first(where: { $0.state == "working" })?.title
+            ?? "your job"
         let text = HumanStep.phoneAsk(site: a.site, title: title, retry: a.retry)
         Task.detached { Messenger.tell(text) }
         HumanCheck.log("\(a.site): code step; the ask went to the phone chat")

@@ -151,6 +151,7 @@ struct HelperCard: View {
         VStack(alignment: .leading, spacing: 12) {
             if let b = h.bot {
                 BotHeader(m: m, h: h, b: b)  // its moon, room, what it uses and remembers, what it did
+                BotFiles(m: m, h: h)  // what it saved in its folder (BotRoute.swift)
                 BotThread(h: h)  // its kept chat, oldest first
             } else {
                 titleRow

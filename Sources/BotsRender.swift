@@ -6,7 +6,9 @@ import SwiftUI
 // their rooms and memory files are written under ONE_SUPPORT_DIR, never the brain.
 
 enum BotsRender {
-    static let names = ["bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines"] + BotsManageRender.names
+    static let names =
+        ["bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines", "bots-asks", "bots-asks-home"]
+        + BotsManageRender.names
 
     /// Draws `name` into `<out>-<name>.png`; false when the name isn't one of these.
     @MainActor static func draw(_ name: String, _ out: String) -> Bool {
@@ -93,10 +95,11 @@ enum BotsRender {
 
     @MainActor static func home(_ name: String, _ dir: String) -> AnyView {
         let m = Model.shared
-        HomeView.stillBottom = name != "bots-chat"  // the chat under the orb, not the top
+        HomeView.stillBottom = name != "bots-chat" && name != "bots-asks"  // the chat under the orb, not the top
         m.thinking = false
         m.working = nil
         m.goals = [:]
+        m.humanSteps = []
         m.openHelper = nil
         let v = HomeRender.scene(4)
         let f = bots(dir)
@@ -140,6 +143,20 @@ enum BotsRender {
             ]
         case "bots-chat":
             m.openHelper = f.growth.id
+        case "bots-asks", "bots-asks-home":
+            // A bot's file and its sign-in ask: in its chat only, with the ring on its orb (BotRoute.swift).
+            let file = URL(fileURLWithPath: dir).appendingPathComponent("drafts-2026-11-18.md")
+            try? "# Drafts, 2026-11-18\n\nNothing here is sent. Each one needs your yes.\n".write(to: file, atomically: true, encoding: .utf8)
+            m.shelf.insert(
+                ShelfItem(
+                    title: "Drafts, 2026-11-18", detail: "Nothing here is sent. Each one needs your yes.", from: f.growth.title, path: file.path,
+                    bot: f.growth.id), at: 0)
+            m.humanSteps = [
+                HumanStepAsk(
+                    id: "render-ask", site: "login.example.com", kind: "sign_in", line: HumanStep.line(site: "login.example.com", kind: "sign_in"),
+                    port: 9224, target: "t", url: "", session: f.growth.sid ?? "")
+            ]
+            m.openHelper = name == "bots-asks" ? f.growth.id : nil
         default:
             break
         }

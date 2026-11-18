@@ -87,6 +87,7 @@ final class Model: ObservableObject {
         for f in fresh.sorted(by: { $0.path < $1.path }) {
             // A run that crashed has no answer, only its error: said too, so no routine fails without a word.
             guard let t = try? String(contentsOf: f, encoding: .utf8), let (title, body) = Routines.report(t) else { continue }
+            if routineToBot(title: title, body: body, job: f.deletingLastPathComponent().lastPathComponent) { continue }  // a bot's: its chat
             Floater.shared.note(body.hasPrefix("It didn't work.") ? "\(title) didn't work." : "\(title) is done.")
             enqueue(.line(bubble: "**\(title)**\n\n\(body)", spoken: body))  // after whatever is being said, never into it
         }

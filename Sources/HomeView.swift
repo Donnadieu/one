@@ -154,10 +154,10 @@ struct HomeView: View {
                                 LimitNoticeCard(n: n, keep: { Task { await m.keepLimitSwitch() } }, dismiss: { m.dismissLimitNotice() })
                                     .starCalm().transition(.opacity)
                             }
-                            if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway }), !away.isEmpty {
+                            if m.openHelper == nil, case let away = m.helpers.filter({ $0.finishedAway && $0.bot == nil }), !away.isEmpty {
                                 AwayCard(m: m, hs: away).starCalm().transition(.opacity)
                             }
-                            ForEach(m.humanSteps) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
+                            ForEach(m.stepsHere) { a in HumanStepCard(a: a) { m.answerHumanStep(a.id, $0) }.starCalm() }
                             ForEach(m.folderAsks) { a in FolderAskCard(a: a) { m.answerFolderAsk(a.id, approved: $0) }.starCalm() }
                             if !m.asks.isEmpty {
                                 VStack(alignment: .leading, spacing: 8) {

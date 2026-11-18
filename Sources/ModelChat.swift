@@ -105,9 +105,12 @@ extension Model {
         guard !shelfScanning else { return }
         shelfScanning = true
         let have = shelf
+        let bots = helpers.filter { $0.bot != nil }
         Task.detached {
-            let new = Shelf.adopt(have)
+            let new = Shelf.adopt(have) + BotRoute.adopt(have, bots: bots)  // and every bot's files, tagged (BotRoute.swift)
+            let hide = BotRoute.privateBots(bots)
             await MainActor.run {
+                BotRoute.hidden = hide
                 self.shelfScanning = false
                 let known = Set(self.shelf.map(\.path))
                 let fresh = new.filter { !known.contains($0.path) }
@@ -263,7 +266,7 @@ extension Model {
                 h.state = "done"
                 h.line = "Done · " + Helpers.summary(parts.body, 30)
             }
-            h.finishedAway = away || (self.openHelper != id && h.state == "needsYes")
+            h.finishedAway = BotRoute.awayCard(h, away: away, open: self.openHelper)  // her helpers only, never a bot
             // Orange until they open it, unless they're looking at it right now or it's part of a routine (reported in the chat).
             h.seen = self.openHelper == id || h.routine != nil
         }
@@ -397,7 +400,7 @@ extension Model {
             liftLookOnly(hid)  // they're talking to it directly: it may do what they ask
             carryOnWhenWrittenTo(hid)  // a budget pause ends: their reply is the go-ahead (Budget.swift)
             BrowserGuard.heard(text, after: h.reply)  // "Yes, open it" to a helper's ask unlocks one window
-            c.engine += blockedYes(text, helper: hid)  // "Yes, show it" to a robot-check ask shows that one window
+            c.engine += blockedYes(text, helper: hid) + takeRoutineNews(hid)  // its routine's report rides along (BotRoute.swift)
             // Busy or stopped: never refused. It goes into the helper's running turn, or next.
             // Being picked back up, or One is getting ready: it waits next up and goes once the helper is back.
             if paused || h.state == "working" || asleep(h) || !isReady { return followUp(c, helper: hid, hidden: false) }

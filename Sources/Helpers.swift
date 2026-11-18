@@ -56,6 +56,7 @@ struct Helper: Identifiable, Codable {
     var limitChoice: String?  // their answer for this job only: "switch" or "wait"
     var phone: String?  // sent from a phone chat ("<platform>:<chat>"): its result goes back there (PhoneTags.swift)
     var phoneTold: String?  // what the phone was last sent about it (one message per result)
+    var routineNews: String?  // a bot's routine reported in its chat: the next thing they say to it carries it (BotRoute.swift)
     var bot: BotInfo?  // kept as a bot: never on the constellation, never cleared by "all" (Bots.swift)
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
@@ -354,14 +355,14 @@ struct ShelfPanel: View {
     @State private var matched: Set<UUID>?
     @State private var olderOpen = false
     var body: some View {
-        let fresh = m.shelf.filter(\.fresh).count
+        let fresh = m.shelfShown.filter(\.fresh).count
         VStack(alignment: .leading, spacing: 10) {
             ShelfHeader(fresh: fresh, markAll: { m.markShelfRead() }, collapse: collapse).padding(.horizontal, 4)
-            if m.shelf.count > 6 || !query.isEmpty { ShelfSearchField(text: $query).padding(.horizontal, 4) }
+            if m.shelfShown.count > 6 || !query.isEmpty { ShelfSearchField(text: $query).padding(.horizontal, 4) }
             StillScroll {
                 VStack(alignment: .leading, spacing: 8) {
                     if query.isEmpty {
-                        ForEach(ShelfGroups.grouped(m.shelf), id: \.0) { day, items in
+                        ForEach(ShelfGroups.grouped(m.shelfShown), id: \.0) { day, items in
                             if day == .older {
                                 ShelfOlderRow(count: items.count, open: $olderOpen).padding(.horizontal, 4)
                                 if olderOpen { ForEach(items) { card($0) } }
@@ -371,7 +372,7 @@ struct ShelfPanel: View {
                             }
                         }
                     } else if let matched {
-                        let results = m.shelf.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
+                        let results = m.shelfShown.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
                         if results.isEmpty {
                             Text("No matches for “\(query)”").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.4))
                                 .padding(.horizontal, 4).padding(.top, 8)
@@ -387,12 +388,12 @@ struct ShelfPanel: View {
         .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 50) }
         .onAppear { ShelfCopy.shared.start() }
         .onChange(of: query) { _, q in search(q) }
-        .onChange(of: m.shelf.map(\.id)) { _, _ in if !query.isEmpty { search(query) } }
+        .onChange(of: m.shelfShown.map(\.id)) { _, _ in if !query.isEmpty { search(query) } }
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WorldLook.cream.opacity(0.04)))
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.06)))
         .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
-        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelf.map(\.id))
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelfShown.map(\.id))
     }
     @ViewBuilder private func card(_ it: ShelfItem) -> some View {
         ShelfCardView(item: it)
@@ -411,7 +412,7 @@ struct ShelfPanel: View {
             matched = nil
             return
         }
-        let items = m.shelf
+        let items = m.shelfShown
         Task {
             let r = await ShelfTextIndex.shared.matches(items, query: q)
             if query == q { matched = r }

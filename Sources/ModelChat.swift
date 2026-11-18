@@ -259,6 +259,7 @@ extension Model {
             if stop.hasPrefix("error") && h.reply.isEmpty { h.reply = "I couldn't finish this (\(stop.dropFirst(7)))." }
             // One stopped it at a robot check and its ask is still open: it ends on that ask, orange, never done.
             if let b = self.blockedAsk(for: id) { h.reply = BlockedAsk.enforce(h.reply, line: b.line) }
+            h.pending = nil  // answered: never sent again with a later pick-up
             let parts = Choices.split(h.reply)
             if !parts.choices.isEmpty {
                 h.state = "needsYes"
@@ -409,6 +410,7 @@ extension Model {
             update(hid) {
                 $0.asked = c.display
                 $0.toldState = nil  // asked something new: its next finish gets its own notice
+                HelperTrail.took(c.engine, into: &$0, start: true)  // kept until answered: a restart never loses it
             }
             await runHelper(hid, c.engine, images: c.images)
             return
@@ -486,7 +488,9 @@ extension Model {
             try? await Task.sleep(for: .milliseconds(150))
         }
         await turnOver(idx, failed: stop.hasPrefix("error"))
-        var full = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
+        let said = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
+        var full = RestartNotice.hide(said)  // the engine's "will not be run again" never shows; One already sent it again
+        if full.isEmpty && RestartNotice.has(said) { full = RestartNotice.stopped }
         heldText = ""
         full = Helpers.undouble(full)  // one reply delivered twice shows (and sends its helpers) once
         // Helper lines come out FIRST, whole: a [helper: …] line is opaque, so a stop/close/choices tag its job text

@@ -39,7 +39,11 @@ enum RoomMap {
     static let skipFiles: Set<String> = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md", "UNLOCK-CHECK.md"]
     static let skipDirs: Set<String> = ["skills", "agents", "templates", "confidential", ".git", "node_modules"]
     static let wiki = try! NSRegularExpression(pattern: #"\[\[([^\]\|#]+)"#)
-    static let mdLink = try! NSRegularExpression(pattern: #"\]\(([^)\s]+\.md)\)"#)
+    /// `[x](a.md)`, `[x](<a b.md>)`, `[x](a%20b.md#part)`: spaces come percent-encoded or in <>.
+    static let mdLink = try! NSRegularExpression(pattern: #"\]\(<?([^)<>\n]+?\.md)(?:#[^)>\n]*)?>?\)"#)
+    /// Most notes one room draws. Big enough for a real brain (a shared room passed 330 notes in a
+    /// month); the old 200 left whole folders, and every thread in them, off the map.
+    static let maxNotes = 1000
 
     static func roomFolders() -> [URL] {
         let items = (try? FileManager.default.contentsOfDirectory(at: Brain.root, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
@@ -88,7 +92,7 @@ enum RoomMap {
                         en.skipDescendants()
                         continue
                     }
-                    guard notes.count < 200, f.pathExtension == "md", !skipFiles.contains(f.lastPathComponent),
+                    guard notes.count < maxNotes, f.pathExtension == "md", !skipFiles.contains(f.lastPathComponent),
                         let t = try? String(contentsOf: f, encoding: .utf8)
                     else { continue }
                     texts[f.path] = t
@@ -101,7 +105,8 @@ enum RoomMap {
                 let t = texts[notes[k].id] ?? ""
                 var ls = Set<String>()
                 for w in matches(wiki, t) { if let id = byStem[w.trimmingCharacters(in: .whitespaces).lowercased()] { ls.insert(id) } }
-                for l in matches(mdLink, t) {
+                for raw in matches(mdLink, t) {
+                    let l = raw.removingPercentEncoding ?? raw
                     let target = URL(fileURLWithPath: l, relativeTo: URL(fileURLWithPath: notes[k].id).deletingLastPathComponent())
                         .standardizedFileURL.path
                     if texts[target] != nil {

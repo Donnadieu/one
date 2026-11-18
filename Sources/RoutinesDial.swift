@@ -150,7 +150,7 @@ enum Dial {
     /// With many routines (50+), labels pushed apart would run off the panel or into the legend: each side drops its
     /// least pressing label (the ones that didn't work stay longest, then the next to run) until the rest fit. Every
     /// mark stays on the dial; a dropped label's words are in the constellations on the right.
-    static func fit(_ all: [Label], now: Int, top: CGFloat = 78, bottom: CGFloat = size.height - 40) -> [Label] {
+    static func fit(_ all: [Label], now: Int, top: CGFloat = 78, bottom: CGFloat = size.height - 62) -> [Label] {
         func soon(_ l: Label) -> Int { l.key < 0 ? 720 : (l.key - now + 1440) % 1440 }
         var out: [Label] = []
         for side in [true, false] {

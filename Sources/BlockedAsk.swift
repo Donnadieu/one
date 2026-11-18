@@ -203,8 +203,8 @@ extension Model {
     /// "Yes, show it" in the helper's chat (or the main chat): One shows that one window and tells the job to wait for them.
     func blockedYes(_ text: String, helper: UUID?) -> String {
         guard BlockedAsk.isYes(text) else { return "" }
-        let a = helper.flatMap { blockedAsk(for: $0) } ?? (helper == nil ? humanSteps.first { $0.ask && BlockedAsk.helperFor[$0.id] == nil } : nil)
-        guard let a else { return "" }
+        // A yes in the assistant's chat never answers a bot's ask; in a bot's or helper's chat, only its own (BotRoute.swift).
+        guard let a = BotRoute.askFor(helper: helper, steps: humanSteps, in: helpers, helperFor: BlockedAsk.helperFor) else { return "" }
         showHumanStep(a)
         BlockedAsk.log("their yes: showed the window for \(a.site)")
         return BlockedAsk.shownNote

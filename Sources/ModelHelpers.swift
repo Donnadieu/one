@@ -12,7 +12,7 @@ extension Model {
     /// One per change of state: a helper that ends several turns the same way (picked back up, carried on after a
     /// check) gets one notice, and a notice still waiting says its newest state. None for a helper they opened.
     func queueDoneNote(_ id: UUID) {
-        guard let h = helpers.first(where: { $0.id == id }), h.waiting, h.routine == nil, h.toldState != h.state else { return }
+        guard let h = helpers.first(where: { $0.id == id }), h.bot == nil, h.waiting, h.routine == nil, h.toldState != h.state else { return }
         enqueue(.helperNews(id))
     }
 

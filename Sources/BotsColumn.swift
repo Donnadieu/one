@@ -179,7 +179,7 @@ struct BotsColumn: View {
     func row(_ h: Helper, t: Double) -> some View {
         let b = h.bot!
         let open = m.openHelper == h.id
-        let yes = h.viewState == .needsYes && h.state == "needsYes"
+        let yes = (h.viewState == .needsYes && h.state == "needsYes") || m.stepWaiting(h)  // its yes, or a sign-in waiting
         let lit = (HomeView.still ? BotsColumn.stillHover == h.id : hovered == h.id) || m.botMenu == h.id
         return Button {
             withAnimation(.easeOut(duration: 0.3)) { m.focusHelper(h.id) }
@@ -190,7 +190,7 @@ struct BotsColumn: View {
                 if !collapsed {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(b.name).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(yes ? Color(hex: 0xF6B46E) : WorldLook.cream)
-                        Text(BotsColumn.line(h)).font(.system(size: 10.5))
+                        Text(BotsColumn.line(h, waiting: m.stepWaiting(h))).font(.system(size: 10.5))
                             .foregroundStyle(yes ? Color(hex: 0xF6B46E, 0.8) : WorldLook.cream.opacity(0.5))
                     }
                     .lineLimit(1).truncationMode(.tail)
@@ -221,8 +221,8 @@ struct BotsColumn: View {
     }
 
     /// What a bot is doing now, in a few words.
-    static func line(_ h: Helper) -> String {
-        if h.state == "needsYes" { return "Needs your yes" }
+    static func line(_ h: Helper, waiting: Bool = false) -> String {
+        if h.state == "needsYes" || waiting { return "Needs your yes" }
         if h.state == "working" { return h.line }
         if h.waiting { return "Something new · tap to see" }
         if h.state == "stopped" { return "Stopped" }
@@ -327,11 +327,13 @@ struct BotHeader: View {
         let days = Bots.days(b)
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                BotMoon(hex: Bots.hex(b.color), size: 40, t: 21.7, needsYes: h.state == "needsYes")
+                BotMoon(hex: Bots.hex(b.color), size: 40, t: 21.7, needsYes: h.state == "needsYes" || m.stepWaiting(h))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(b.name).font(.headline)
-                        Text("· " + BotsColumn.line(h)).foregroundStyle(h.state == "needsYes" ? Color.orange : Color.secondary).lineLimit(1)
+                        Text("· " + BotsColumn.line(h, waiting: m.stepWaiting(h))).foregroundStyle(
+                            h.state == "needsYes" || m.stepWaiting(h) ? Color.orange : Color.secondary
+                        ).lineLimit(1)
                     }
                     Text("\(b.room) room · \(b.job)").font(.callout).foregroundStyle(.secondary).lineLimit(2)
                     Text(Bots.facts(b, remembered: Bots.remembered(b))).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.45))

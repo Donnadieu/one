@@ -95,6 +95,7 @@ extension Model {
         routeTend()
         Improve.tend()  // the score, once a day (Improve.swift)
         Task.detached(priority: .background) { ImproveNightRun.tendShelf() }  // no morning brief: a Ready for you card
+        tendNightAsk()  // last night's one question, in the chat and on the phone (ModelNightAsk.swift)
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {
             learning.started = true  // no log yet: nothing old to skip, so the very first line counts
@@ -264,6 +265,7 @@ extension Model {
     /// A tap on a choice: Undo / Yes, remember it / No thanks are One's own; anything else goes to the assistant.
     func choose(_ c: String) async {
         if await learnPick(c) { return }
+        if nightAskPick(c) { return }  // the nightly review's Yes / Not now (ModelNightAsk.swift)
         await send(c)
     }
 

@@ -7,6 +7,7 @@ import Foundation
 enum StorageCLI {
     static func run(_ args: [String]) -> Int32? {
         FirstLaunchCheck.main(args)  // `--test-first-launch` (fresh-install workflow, CI only)
+        _ = ListenerCheck.launch()  // `--test-listener` (preflight, CI only): App.swift is at its line limit
         if let c = FrontPage.cli(args) ?? SkillFiler.cli(args) { return c }  // --front-page, --file-skills
         if let c = History.cli(args) ?? Offsite.cli(args) ?? HistoryRender.cli(args) ?? HistoryCheck.cli(args) { return c }  // copies, restore
         if let c = ImproveCLI.run(args) { return c }  // --improve: the score and the nightly review (Improve*.swift)

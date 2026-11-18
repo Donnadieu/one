@@ -97,13 +97,21 @@ enum ImproveNightRun {
         for root in r.roots.values.sorted() {
             for name in ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []).sorted() where !name.hasPrefix(".") {
                 let f = URL(fileURLWithPath: root).appendingPathComponent(name).appendingPathComponent("SKILL.md")
-                if FileManager.default.fileExists(atPath: f.path) { out += "- \(name): \(f.path)\n" }
+                let size = (try? FileManager.default.attributesOfItem(atPath: f.path))?[.size] as? Int
+                if let size, size <= ImproveSeen.recipeLimit { out += "- \(name): \(f.path)\n" }  // too big: listed below
             }
         }
         if s.mode == "edit" { out += "- notes (the assistant's MEMORY.md): \(Env.hermesHome.appendingPathComponent("memories/MEMORY.md").path)\n" }
         out += "\n## The lessons ledger so far (newest last)\n"
         let ledger = ((try? String(contentsOf: Improve.lessonsFile, encoding: .utf8)) ?? "").split(separator: "\n").suffix(60)
         out += ledger.isEmpty ? "(empty)\n" : ledger.joined(separator: "\n") + "\n"
+        // What it never saw before (ImproveSeen.swift, ImproveAsk.swift): held edits, recipes too big for a lesson,
+        // their rules that name a feature One took back, and every ask it already made.
+        let last = ImproveNight.dates().filter { $0 != date }.compactMap { ImproveNight.read($0)?.began }.max()
+        out += ImproveSeen.heldSection(since: last ?? now.timeIntervalSince1970 - 86400)
+        out += ImproveSeen.tooBigSection(roots: Array(r.roots.values))
+        out += ImproveSeen.staleSection()
+        out += ImproveAsk.section()
         if !judged.isEmpty { out += "\n## 7-day checks on earlier changes\n" + judged.map { "- \($0)" }.joined(separator: "\n") + "\n" }
         out += "\n" + ImproveMoments.render(date: yesterday, max: 20)
         return out

@@ -101,6 +101,24 @@ def prompt(rid, sid, text):
         chunk(sid, "Added. I'll restart to use it, then finish." if kind == "GRANT" else "Asked One to restart. I'll restart and carry on after.")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    m = re.search(r"STRESSSLOWMAIN (\S+) steps=(\d+) secs=(\d+(?:\.\d+)?)", text)
+    if m:  # Nov 17 (corrections check): a main-chat turn that takes a while and several steps, then answers in full
+        tag, steps, secs = m.group(1), int(m.group(2)), float(m.group(3))
+        log(ev="main-start", sid=sid, kind="slow", title=tag)
+        for i in range(steps):
+            call = tool(sid, "terminal: step %d of %d" % (i + 1, steps))
+            end = time.time() + secs / steps
+            while time.time() < end:
+                if is_cancelled(sid):
+                    log(ev="cancelled", job=tag, sid=sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.1)
+            tool_done(sid, call)
+        chunk(sid, "ANSWER %s: your channel got 1,204 views this week." % tag)
+        log(ev="main-end", sid=sid, kind="slow", title=tag)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)
     if m:
         job, secs, ask = m.group(1), float(m.group(2)), bool(m.group(3))

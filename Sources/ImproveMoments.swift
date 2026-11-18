@@ -163,6 +163,8 @@ enum ImproveCLI {
             return settings(Array(a.dropFirst()))
         case "night":
             return ImproveNightRun.cli(Array(a.dropFirst()))  // the nightly review (ImproveNightRun.swift)
+        case "ask":
+            return ImproveAsk.cli(Array(a.dropFirst()))  // its one question: show | yes | no (ImproveAsk.swift)
         default:
             print(usage)
             return 2

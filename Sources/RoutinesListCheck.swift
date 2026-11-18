@@ -39,11 +39,13 @@ enum RoutinesListCheck {
     }
 
     /// Lays the real panel out in an off-screen window: the zones it reports, and a picture of it.
-    @MainActor static func host(_ s: RoutinesSnapshot, pick: String? = nil, open: Bool = false, image: URL? = nil) -> [String: CGRect] {
+    @MainActor static func host(_ s: RoutinesSnapshot, pick: String? = nil, open: Bool = false, remove: Bool = false, image: URL? = nil) -> [String:
+        CGRect]
+    {
         let box = Box()
         let sel = pick.flatMap { t in s.routines.first { $0.title == t }?.id }
         let size = CGSize(width: 1200, height: 740)
-        let v = RoutinesPanel(m: Model.shared, fixed: s, sel: sel, picked: true, finishedOpen: open)
+        let v = RoutinesPanel(m: Model.shared, fixed: s, sel: sel, picked: true, finishedOpen: open, removeAsk: remove ? sel : nil)
             .onPreferenceChange(RoutineZones.self) { z in box.zones = z }
             .frame(width: size.width, height: size.height).background(WorldLook.bg).environment(\.colorScheme, .dark)
         let w = NSWindow(contentRect: NSRect(origin: CGPoint(x: -4000, y: 0), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -64,13 +66,37 @@ enum RoutinesListCheck {
     }
 
     @MainActor static func picture(to url: URL, pick: String?, open: Bool) -> [String: CGRect] {
-        host(setUp(), pick: pick, open: open, image: url)
+        let env = ProcessInfo.processInfo.environment
+        let s = setUp()
+        let n = env["ONE_RENDER_MANY"].flatMap(Int.init) ?? 0
+        return host(n > s.routines.count ? many(s, to: n) : s, pick: pick, open: open, remove: env["ONE_RENDER_REMOVE"] == "1", image: url)
+    }
+
+    /// The fixture filled up to `n` routines: copies of the working ones under new ids and names.
+    static func many(_ s: RoutinesSnapshot, to n: Int) -> RoutinesSnapshot {
+        var t = s
+        let base = s.routines.filter { !$0.outside && $0.state != .finished && $0.leftover == nil }
+        var k = 0
+        while t.routines.count < n, !base.isEmpty {
+            let o = base[k % base.count]
+            var r = Routine(
+                id: o.id + "-\(k)", title: o.title + " \(k + 2)", what: o.what, often: o.often, today: o.today, every: o.every, lastRun: o.lastRun,
+                next: o.next, state: o.state, reason: o.reason)
+            (r.owner, r.miss, r.notes, r.runs, r.once, r.prompt, r.times) = (o.owner, o.miss, o.notes, o.runs, o.once, o.prompt, o.times)
+            (r.shownName, r.shownLine, r.room) = (o.name + " \(k + 2)", o.line, o.room)
+            t.routines.append(r)
+            k += 1
+        }
+        return t
     }
 
     /// What's wrong with where things landed, in plain words; nil when nothing is.
     static func overlap(_ z: [String: CGRect]) -> String? {
         let stage = CGRect(origin: .zero, size: Dial.size).insetBy(dx: -1, dy: -1)
-        guard let list = z["list"], let sky = z["skills"] else { return "the list or the skills didn't show" }
+        guard let groups = z["sky-groups"], let open = z["sky-open"], let sky = z["skills"] else {
+            return "the routines' constellations or the skills didn't show"
+        }
+        let list = groups.union(open)
         if let d = z["dial"], d.intersects(list) {
             return "a dial label runs into the list (labels end at \(Int(d.maxX)), list starts at \(Int(list.minX)))"
         }
@@ -160,6 +186,40 @@ enum RoutinesListCheck {
             ["ping3", "bets", "p009"].allSatisfy { rs[$0].map(RoutinesPanel.canRemove) == true }
                 && ["x2", "brief", "out1"].allSatisfy { rs[$0].map(RoutinesPanel.canRemove) == false })
         check("Remove is the engine's own remove", rs["ping3"].map(RoutineList.removeSteps) == ["cron", "remove", "ping3"])
+
+        print("6. the list is part of the sky: constellations, no box, no pop-up card (Claude Design, Omar Nov 18 2026)")
+        // Omar: "It feels like it's just popping out at me … square, rectangle, rectangle." Each group is a small star
+        // figure with a count; one opens at a time, its routines in one column on a thread; a picked one opens in place.
+        check("no list box any more", z["list"] == nil)
+        check("each group is a star figure, the open one's routines below them", z["sky-groups"] != nil && z["sky-open"] != nil)
+        if let g = z["sky-groups"], let o = z["sky-open"] { check("figures above the open group, apart", g.maxY <= o.minY + 1) }
+        let zp = host(s, pick: "Forge X replies (morning)")
+        check("a picked routine shows no pop-up card", zp["card"] == nil)
+        if let row = zp["picked"], let det = zp["details"], let open = zp["sky-open"] {
+            check("its details open in place, right under its own row", det.minY >= row.maxY - 2 && det.minY - row.maxY < 14)
+            check("inside the open group's own place", open.insetBy(dx: -2, dy: -2).contains(CGPoint(x: det.minX, y: det.minY)))
+        } else {
+            check("a picked routine has its row and its details in the open group", false)
+        }
+        check("a thread joins its mark on the dial to its star in the list", zp["thread"] != nil)
+        check("and still nothing overlaps: " + (overlap(zp) ?? "apart"), overlap(zp) == nil)
+        let zr = host(s, pick: "Friday bets scorecard", remove: true)
+        if let ask = zr["remove-ask"], let det = zr["details"] {
+            check("Remove asks first, in place, no card", det.insetBy(dx: -2, dy: -2).contains(ask) && zr["card"] == nil)
+        } else {
+            check("Remove asks first, in place", false)
+        }
+        let big = many(s, to: 55)
+        let zb = host(big)
+        check("55 routines: \(overlap(zb) ?? "constellations and skills apart, all on the panel")", overlap(zb) == nil)
+        check("55 routines: still one open group, the rest are figures", zb["sky-groups"] != nil && zb["sky-open"] != nil)
+        let pts = (0..<6).map { CGPoint(x: Sky.starX($0, "r\($0)"), y: Sky.rowTops(6, picked: 2, details: 90)[$0] + Sky.starY) }
+        let l0 = Sky.light(pts, t: 0)
+        let l1 = Sky.light(pts, t: 1.5)
+        check("it flows: a light travels down the open group's thread", l0 != nil && l1 != nil && l0 != l1 && (l1?.y ?? 0) > (l0?.y ?? 0))
+        check("one column: every star sits on the thread (within 8 pt)", (pts.map(\.x).max() ?? 0) - (pts.map(\.x).min() ?? 0) <= 8)
+        check("the picked one's details push the stars under it down", pts[3].y - pts[2].y >= Sky.rowH + 90 - 0.5)
+        check("one group open at a time: the picked routine's own", Sky.open(who, sel: "ads", chosen: "me") == "bot:" + bot.id.uuidString)
 
         print(fails == 0 ? "routines list ok" : "routines list: \(fails) failed")
         return fails == 0 ? 0 : 1

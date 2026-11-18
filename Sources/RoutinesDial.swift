@@ -11,11 +11,11 @@ import SwiftUI
 
 enum Dial {
     static let size = CGSize(width: 1152, height: 676)
-    static let center = CGPoint(x: 470, y: 366)
+    static let center = CGPoint(x: 420, y: 366)
     static let r0: CGFloat = 180  // the ring
     static let rl: CGFloat = 228  // where labels start
-    /// The routines list's place on the stage (RoutinesListView.swift). The skills sit below it.
-    static let listBox = CGRect(x: 874, y: 66, width: 262, height: 432)
+    /// The routines' constellations' place on the stage (RoutinesSky.swift). The skills sit below it.
+    static let listBox = CGRect(x: 790, y: 66, width: 350, height: 440)
     /// The skills' stars: their own place under the routines list (RoutinesListView.swift), never pushed by it.
     static let starCenter = CGPoint(x: 1005, y: 574)
     static let starRadius: CGFloat = 50
@@ -143,8 +143,41 @@ enum Dial {
         }
         L.later.sort { ($0.next ?? .distantFuture) < ($1.next ?? .distantFuture) }
         L.finished.sort { ($0.lastRun ?? .distantPast) > ($1.lastRun ?? .distantPast) }
-        L.labels = spread(L.labels)
+        L.labels = fit(L.labels, now: now)
         return L
+    }
+
+    /// With many routines (50+), labels pushed apart would run off the panel or into the legend: each side drops its
+    /// least pressing label (the ones that didn't work stay longest, then the next to run) until the rest fit. Every
+    /// mark stays on the dial; a dropped label's words are in the constellations on the right.
+    static func fit(_ all: [Label], now: Int, top: CGFloat = 78, bottom: CGFloat = size.height - 62) -> [Label] {
+        func soon(_ l: Label) -> Int { l.key < 0 ? 720 : (l.key - now + 1440) % 1440 }
+        var out: [Label] = []
+        for side in [true, false] {
+            var arr = all.filter { $0.right == side }.sorted { a, b in a.orange != b.orange ? a.orange : soon(a) < soon(b) }
+            var laid = slide(spread(arr), top: top, bottom: bottom)
+            while arr.count > 1, laid.contains(where: { $0.at.y < top || $0.at.y > bottom }) {
+                arr.removeLast()
+                laid = slide(spread(arr), top: top, bottom: bottom)
+            }
+            out += laid
+        }
+        return out
+    }
+
+    /// A stack of labels that runs past the top or bottom slides back as a whole (their leader lines follow), so
+    /// labels drop only when there are more than the panel's height holds.
+    static func slide(_ ls: [Label], top: CGFloat, bottom: CGFloat) -> [Label] {
+        guard let lo = ls.map(\.at.y).min(), let hi = ls.map(\.at.y).max() else { return ls }
+        var dy: CGFloat = 0
+        if hi > bottom { dy = max(bottom - hi, top - lo) } else if lo < top { dy = min(top - lo, bottom - hi) }
+        return dy == 0
+            ? ls
+            : ls.map { l in
+                var l = l
+                l.at.y += dy
+                return l
+            }
     }
 
     static func word(_ r: Routine) -> String {

@@ -21,7 +21,10 @@ struct RoutinesPanel: View {
     @State var renewHelp: String?  // Run again didn't take: offer to hand it to the assistant
     @State var onlyBot: String?  // the filter by bot: nil = all, "main" = the assistant's own, else a bot's id (RoutinesBots.swift)
     @State var listBy: RoutineList.By = .who  // the list on the right: grouped by who it's for, or how often (RoutinesListView.swift)
-    @State var folded: Set<String>?  // folded groups; nil = the list's own first choice
+    @State var openGroup: String?  // the constellation tapped open (RoutinesSky.swift); a picked routine opens its own
+    @State var detailsH: CGFloat = 0  // the picked routine's details, so the stars under it make room
+    @State var selStar: CGPoint?  // the picked routine's star, for the thread to its mark on the dial
+    @State var hoverRow: String?
     @State var removeAsk: String?  // a routine's id (or "group:<id>") while "Remove it?" waits for a yes
 
     var body: some View {
@@ -83,7 +86,7 @@ struct RoutinesPanel: View {
             ForEach(L.labels) { l in dialLabel(l) }
             header(s)
             botFilter.offset(x: 24, y: 68)  // All · the assistant · each bot (RoutinesBots.swift)
-            routineList(s)  // every routine, grouped, folding, scrolling in its own place (RoutinesListView.swift)
+            routineSky(s)  // every routine, as constellations: one group open at a time (RoutinesSky.swift)
             Text("What I know how to do · point at a star").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.42))
                 .fixedSize().starCalm(floor: 0.15).position(x: starC.x, y: starC.y + Dial.starRadius + 20)
             starHits(stars, skills: s.skills)
@@ -91,11 +94,13 @@ struct RoutinesPanel: View {
             learnedNotice(s)
             askBubble
             if let h = hoverStar, h < s.skills.count, let st = stars.first(where: { $0.index == h }) { starTip(s.skills[h], at: st.at) }
+            skyThread(L)  // the picked routine's mark on the dial, joined to its star in the list
             card(s, L)
             skillsZone(stars)
         }
         .frame(width: Dial.size.width, height: Dial.size.height, alignment: .topLeading)
         .coordinateSpace(name: RoutineZones.space)
+        .onPreferenceChange(SkyStarKey.self) { p in if p != selStar { selStar = p } }
         .withStars {
             RadialGradient(colors: [Color(hex: 0x24242A, 0.6), .clear], center: UnitPoint(x: 0.41, y: 0.54), startRadius: 0, endRadius: 420)
         }
@@ -182,7 +187,7 @@ struct RoutinesPanel: View {
             }
             .starCalm(pad: 4, feather: 14, floor: 0.12)
             .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 6).fill(WorldLook.cream.opacity(sel == l.rid ? 0.1 : 0)))
+            .shadow(color: Dial.cream.opacity(sel == l.rid ? 0.45 : 0), radius: 8)  // picked: it glows, no box
             .contentShape(Rectangle())
             .routineZone("dial")
         }
@@ -209,13 +214,6 @@ struct RoutinesPanel: View {
             .font(.system(size: 12))
         }
         .fixedSize().starCalm(floor: 0.12).offset(x: 24, y: 20)
-    }
-
-    func smallOrb(_ r: Routine, size: CGFloat = 18) -> some View {
-        let col: Color = r.needsLook ? Dial.orange : WorldLook.cream
-        return Circle().fill(RadialGradient(colors: [col.opacity(0.75), col.opacity(0.15)], center: .center, startRadius: 0, endRadius: size / 2))
-            .overlay(Circle().strokeBorder(col.opacity(0.45), lineWidth: 1)).frame(width: size, height: size)
-            .opacity(r.state == .never || r.state == .paused ? 0.5 : 1)
     }
 
     /// The skills' cluster, for the list check (RoutinesZones.swift).

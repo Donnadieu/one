@@ -120,6 +120,10 @@ person's own Mac, not about a server One's team operates.
   (`RoutineLabels`, display only: the engine's job is never renamed), and offers Remove only after a yes, through the
   engine's own `cron remove`. Reading jobs.json gained the job's prompt, repeat count and whether its last reports were
   silent (read only); nothing about running, pausing or failing routines changed.
+- Nov 18 2026: Omar rejected the boxed list and its pop-up card ("square, rectangle, rectangle"). From Claude Design's
+  three options he picked Constellations (`RoutinesSky.swift`): only the look changed. Run now, Pause, Remove and Run
+  again call the same engine commands, Remove still asks first. With 50+ routines the dial keeps at most 15 labels a
+  side (`Dial.fit`: didn't-work first, then the next to run), so its words stay on the panel; every mark still shows.
 - 0.9.123: the Routines dial reads which conversation set each routine up (`origin.chat_id` in jobs.json, read only)
   to show and filter a bot's routines in its colour; nothing about running, pausing or failing routines changed.
 - Nov 9 2026: "Argo P009 check" ran its 15 allowed runs with no errors and the Routines dial still drew it orange

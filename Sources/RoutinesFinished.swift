@@ -109,72 +109,8 @@ extension Routines {
     }
 }
 
-// Finished routines sit in the routines list's own "Finished" group (RoutinesListView.swift); a tapped one opens here.
+// Finished routines sit in their own quiet constellation (RoutinesSky.swift); a picked one opens in place (RoutinesSkyActions.swift).
 extension RoutinesPanel {
-    /// Calm grey with a check: done on purpose.
-    func finishedCheck(_ size: CGFloat) -> some View {
-        Circle().fill(WorldLook.cream.opacity(0.16)).frame(width: size, height: size)
-            .overlay(Image(systemName: "checkmark").font(.system(size: size * 0.48, weight: .bold)).foregroundStyle(WorldLook.cream.opacity(0.62)))
-    }
-
-    func finishedCard(_ r: Routine, now: Date) -> some View {
-        let reports = Routines.reports(r.id)
-        return cardShell(orange: false) {
-            eyebrow("Finished", dot: WorldLook.cream.opacity(0.4))
-            Text(r.name).font(.system(size: 15, weight: .semibold)).padding(.top, 9).fixedSize(horizontal: false, vertical: true)
-            Text(Routines.finishedWhy(r)).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 4)
-                .fixedSize(horizontal: false, vertical: true)
-            Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1).padding(.vertical, 11)
-            VStack(alignment: .leading, spacing: 8) {
-                fact("Finished", r.lastRun.map { Routines.stamp($0, now: now) } ?? "Yes")
-                fact("Ran", r.runs == 1 ? "Once" : "\(r.runs) times", color: WorldLook.cream.opacity(0.85))
-                if r.lastFailed { fact("Last run", "Didn't work", color: Color(hex: 0xF6B46E)) }
-                fact("How often", r.often)
-                reportsFact(reports, now: now)
-            }
-            if renewAsk == r.id {
-                Text(Routines.renewQuestion(r)).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.8)).padding(.top, 14)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    pill("Yes, run it again", filled: true) { Task { await renewNow(r) } }
-                    pill("Not now") { renewAsk = nil }
-                }
-                .padding(.top, 8)
-            } else {
-                HStack(spacing: 6) {
-                    pill("Run again", filled: true) {
-                        note = nil
-                        renewAsk = r.id
-                    }
-                    pill("Remove") {
-                        note = nil
-                        removeAsk = r.id
-                    }
-                }
-                .padding(.top, 14)
-                pill("Ask \(m.name)") {
-                    ask("Tell me about my finished routine “\(r.title)”: what it found over its runs, and whether it's worth running again.")
-                }
-                .padding(.top, 6)
-                removeRow(r)
-            }
-            if let note {
-                Text(note).font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.6)).padding(.top, 8).fixedSize(
-                    horizontal: false, vertical: true)
-            }
-            if renewHelp == r.id {
-                pill("Ask \(m.name) to do it") {
-                    renewHelp = nil
-                    ask(
-                        "Please set up my finished routine “\(r.title)” (id \(r.id)) to run again: same instructions, schedule and settings, "
-                            + (r.once ? "once more, now." : "for another \(r.runs) runs.")
-                            + " The Routines screen couldn't do it by itself. I've already said yes.")
-                }
-                .padding(.top, 8)
-            }
-        }
-    }
-
     /// Its past reports: the newest few, each opens in One's reader.
     @ViewBuilder func reportsFact(_ reports: [(at: Date, file: URL)], now: Date) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {

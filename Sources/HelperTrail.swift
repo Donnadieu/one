@@ -53,9 +53,17 @@ enum HelperTrail {
     /// What the helper is told when it's picked back up.
     static func resumePrompt(_ h: Helper, brief: String, lead: String = "You were interrupted by a restart.") -> String {
         let steps = (h.trail ?? []).map { "- \($0)" }.joined(separator: "\n")
-        var r = h.reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Without the engine's "will not be run again" lines or One's own "picking this back up": only what it said.
+        var r = RestartNotice.hide(h.reply).replacingOccurrences(of: RestartNotice.resumed, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if r.count > 4000 { r = String(r.suffix(4000)) }
-        let did = (steps.isEmpty ? "(no steps were recorded)" : steps) + (r.isEmpty ? "" : "\n\nYour last words before the restart:\n\(r)")
+        var did = (steps.isEmpty ? "(no steps were recorded)" : steps) + (r.isEmpty ? "" : "\n\nYour last words before the restart:\n\(r)")
+        if let p = h.pending, !p.isEmpty {
+            // Their message the cut turn was answering: it goes now, once. They're never asked to send it again.
+            did +=
+                "\n\nTheir message you were answering when the restart came (not answered yet; answer it now, once, and "
+                + "don't ask them to send it again):\n\(p)"
+        }
         return """
             \(lead) Here's what you already did:
             \(did)
@@ -82,6 +90,7 @@ enum HelperTrail {
         h.updatePaused = nil
         h.restartWait = nil
         h.pausedFor = nil
+        h.pending = nil
         h.line = stoppedLine
         add("Stopped by you", to: &h)
         return wasWorking

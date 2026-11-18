@@ -58,6 +58,7 @@ struct Helper: Identifiable, Codable {
     var phoneTold: String?  // what the phone was last sent about it (one message per result)
     var routineNews: String?  // a bot's routine reported in its chat: the next thing they say to it carries it (BotRoute.swift)
     var bot: BotInfo?  // kept as a bot: never on the constellation, never cleared by "all" (Bots.swift)
+    var pending: String?  // their words this turn answers: kept until a turn finishes, so a cut-off one goes again once (HelperFinish)
     /// Finished, but they haven't opened it yet.
     var waiting: Bool { (state == "done" || state == "needsYes") && seen == false }
     var viewState: HelperState {
@@ -98,7 +99,8 @@ enum Helpers {
     /// Hide every tag while a reply is still streaming in, in one pass, outermost first, each to its own closing "]"
     /// over any number of lines, so a tag quoted inside one never splits it. One still being written is hidden to the end.
     static func strip(_ text: String) -> String {
-        TagLines.hide(text, tags: TagLines.hidden).components(separatedBy: "\n").filter {
+        // The engine's own restart words ("will not be run again") never show: One picks the turn back up itself.
+        TagLines.hide(RestartNotice.hide(text), tags: TagLines.hidden).components(separatedBy: "\n").filter {
             let l = $0.trimmingCharacters(in: .whitespaces).lowercased()
             return !TagLines.hidden.contains { l.hasPrefix("[" + $0) }
         }.joined(separator: "\n")

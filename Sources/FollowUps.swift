@@ -148,7 +148,10 @@ extension Model {
         let sent = followUps.filter { $0.helper == id && $0.state == .sent }
         followUps.removeAll { f in sent.contains { $0.id == f.id } }
         guard !sent.isEmpty else { return }
-        update(id) { h in h.asked = ([h.asked ?? ""] + sent.map(\.display)).filter { !$0.isEmpty }.joined(separator: "\n") }
+        update(id) { h in
+            h.asked = ([h.asked ?? ""] + sent.map(\.display)).filter { !$0.isEmpty }.joined(separator: "\n")
+            for f in sent { HelperTrail.took(f.engine, into: &h) }  // went into this turn: kept until it finishes
+        }
     }
 
     func nextUpForHelper(_ id: UUID) {
@@ -159,6 +162,7 @@ extension Model {
         update(id) {
             $0.asked = batch.map(\.display).joined(separator: "\n")
             $0.toldState = nil  // asked something new: its next finish gets its own notice
+            HelperTrail.took(batch.map(\.engine).joined(separator: "\n\n"), into: &$0, start: true)
         }
         Task { @MainActor in
             await self.runHelper(id, batch.map(\.engine).joined(separator: "\n\n"), images: batch.flatMap(\.c.images))

@@ -40,7 +40,55 @@ enum HelperEnd: Equatable {
     }
 }
 
+/// The engine's own words when a restart or shutdown cut a turn off (engine gateway/session_settlement_recovery.py and
+/// agent/turn_failure_copy.py): the turn "will not be run again", "Send your message again once Hermes is back". One picks a
+/// cut-off helper back up by itself and sends a dropped main-chat message again, so they never reach the screen and nobody
+/// is asked to resend (Nov 17, "Ship One PR 133": cut off at 07:18:05, picked back up at 07:18:35, finished).
+enum RestartNotice {
+    static let resumed = "One restarted; picking this back up."
+    static let stopped = "One restarted before this could finish."
+    static let failed = "Your request was not processed. Send it again if you still want me to carry it out."
+    static let partial = "This turn did not complete. Some actions may already have run; verify their effects before resending."
+    static let starts = ["Gateway shutting down:", "Gateway restarting:", "Operation interrupted:"]
+
+    static func engineLine(_ line: String) -> Bool {
+        let l = line.trimmingCharacters(in: .whitespaces)
+        if l.contains("will not be run again") || l.contains("Send your message again once Hermes") { return true }
+        return l.hasPrefix("Operation interrupted:") || l == failed || l == partial
+    }
+    static func has(_ text: String) -> Bool { text.components(separatedBy: "\n").contains(where: engineLine) }
+
+    /// The text without the engine's restart lines, also while they're still streaming in (a last line that starts one).
+    static func hide(_ text: String) -> String {
+        guard
+            text.contains("Gateway") || text.contains("Operation interrupted") || text.contains("Send it again")
+                || text.contains("resending")
+        else { return text }
+        var lines = text.components(separatedBy: "\n").filter { !engineLine($0) }
+        if let last = lines.last?.trimmingCharacters(in: .whitespaces), !last.isEmpty,
+            starts.contains(where: { $0.hasPrefix(last) || last.hasPrefix($0) })
+        {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// The engine's lines out, One's own plain line in.
+    static func replace(_ text: String, with line: String) -> String {
+        let kept = hide(text).replacingOccurrences(of: resumed, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return kept.isEmpty ? line : kept + "\n\n" + line
+    }
+}
+
 extension HelperTrail {
+    /// Their words a turn is sent to answer (`start`: a new turn; else steered into the running one). Kept until a turn
+    /// finishes: a turn a restart cut off goes again with the pick-up (`resumePrompt`), once, never lost or doubled.
+    static func took(_ words: String, into h: inout Helper, start: Bool = false) {
+        let w = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        if start { h.pending = nil }
+        guard !w.isEmpty else { return }
+        h.pending = h.pending.map { $0 + "\n\n" + w } ?? w
+    }
+
     static let cutLine = "Picking it back up…"
     static let busyLine = "Finishing its last step…"
     static let failedLine = "Couldn't finish · tap to see why"
@@ -72,16 +120,19 @@ extension HelperTrail {
             guard (h.resumes ?? 0) < maxResumes else {
                 h.resumeQueued = false
                 h.line = gaveUp(h.resumes ?? 0)
+                h.reply = RestartNotice.replace(h.reply, with: RestartNotice.stopped)
                 add("Cut off again · stopped", to: &h)
                 return false
             }
             h.resumeQueued = true
             h.line = cutLine
+            h.reply = RestartNotice.replace(h.reply, with: RestartNotice.resumed)  // never "will not be run again"
             add("Cut off before it finished · picking it back up", to: &h)
             return true
         case .failed(let why):
             h.busyTries = nil
             h.resumeQueued = false
+            h.pending = nil
             h.line = failedLine
             let note = "I couldn't finish this (\(why))."
             h.reply = h.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? note : h.reply + "\n\n" + note

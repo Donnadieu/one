@@ -155,14 +155,29 @@ enum Dial {
         var out: [Label] = []
         for side in [true, false] {
             var arr = all.filter { $0.right == side }.sorted { a, b in a.orange != b.orange ? a.orange : soon(a) < soon(b) }
-            var laid = spread(arr)
+            var laid = slide(spread(arr), top: top, bottom: bottom)
             while arr.count > 1, laid.contains(where: { $0.at.y < top || $0.at.y > bottom }) {
                 arr.removeLast()
-                laid = spread(arr)
+                laid = slide(spread(arr), top: top, bottom: bottom)
             }
             out += laid
         }
         return out
+    }
+
+    /// A stack of labels that runs past the top or bottom slides back as a whole (their leader lines follow), so
+    /// labels drop only when there are more than the panel's height holds.
+    static func slide(_ ls: [Label], top: CGFloat, bottom: CGFloat) -> [Label] {
+        guard let lo = ls.map(\.at.y).min(), let hi = ls.map(\.at.y).max() else { return ls }
+        var dy: CGFloat = 0
+        if hi > bottom { dy = max(bottom - hi, top - lo) } else if lo < top { dy = min(top - lo, bottom - hi) }
+        return dy == 0
+            ? ls
+            : ls.map { l in
+                var l = l
+                l.at.y += dy
+                return l
+            }
     }
 
     static func word(_ r: Routine) -> String {

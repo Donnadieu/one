@@ -414,7 +414,6 @@ extension Model {
         if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
         if !hidden && FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
-        if !hidden && thinking { mainFreeLook(.message) }  // working, not talking: that work goes to a helper, this is answered next
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),
         // shown as Next up, and is sent once everything before it is fully over. It never cuts into a reply.
         if !sayFree || !isReady || !outbox.isEmpty || outboxRunning {
@@ -435,7 +434,6 @@ extension Model {
         if !hidden { me(c.display) }
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
-        mainFreeBegin(c, hidden: hidden, idx: idx)  // a long turn here goes to a helper (MainFree.swift)
         thinking = true
         working = nil
         let voiceFirst = Speaker.shared.canSpeak && !Speaker.prefs.bool(forKey: "voiceMuted")
@@ -448,7 +446,6 @@ extension Model {
         Engine.shared.onTool = { s in
             Task { @MainActor in
                 self.working = Plain.step(s)
-                self.mainFreeStep(s)
                 BlockedAsk.saw(s, by: "main")
                 self.learnStep(s)
             }
@@ -495,7 +492,7 @@ extension Model {
         full = botLines(tags.said, typed: c.typed)  // [bot: …] makes a bot; edit/archive/restore/delete (BotsManage.swift)
         // Stops, clears, tells, then new helpers, in that order (HelperLines.swift); a phone-chat reply goes the same way.
         for miss in actOn(tags, typed: c.typed) { full += (full.isEmpty ? "" : "\n\n") + miss }
-        full = learnFinish(mainFreeEnd(full, stop: stop, sent: all), stop: stop, idx: idx) + goalEnd(nil)  // handed over or cut off; [learned:]
+        full = learnFinish(full, stop: stop, idx: idx) + goalEnd(nil)  // [job-kind:]/[learned:] hidden, the job recorded; a goal out of turns
         detectFolderAsk(full)  // "I don't have access to <path>. Want me to add it?" -> a card, ACP only
         if full.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             full = stop.hasPrefix("error") ? "I couldn't do that (\(stop.dropFirst(7))). Try again?" : "Done."

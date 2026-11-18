@@ -20,6 +20,9 @@ from gateway.session import SessionSource  # noqa: E402
 from gateway.config import Platform  # noqa: E402
 from agent.turn_finalizer import apply_llm_output_transform  # noqa: E402
 from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.session_envelope import _event_clause  # noqa: E402
+
+RUNNER = types.SimpleNamespace(config=types.SimpleNamespace(multiplex_profiles=False))  # one profile, like One's
 
 try:
     import telegram.ext  # noqa: F401
@@ -200,6 +203,10 @@ async def main():
     check("the gateway gets 'Not now' as their message from that chat",
           ev is not None and ev.text == "Not now" and ev.source.chat_id == "42" and ev.source.user_id == "42")
     check("not as a reply to their old message", ev is not None and ev.source.message_id is None)
+    # Nov 17-18 2026: the tap reached the phone as "⚠️ Hermes refused this message (invalid_params)": the engine's own
+    # admission check said "metadata". This one is the engine's, unchanged.
+    check("the engine's own admission takes the tap (Nov 17-18 it refused it: metadata)",
+          ev is not None and _event_clause(RUNNER, ev, None, False) is None)
     check("the buttons go and the message says what was picked",
           any(k == "text" and kw.get("text") == "✓ Not now" and kw.get("reply_markup") is None for k, kw in ad._bot.edits))
     await h.callback(types.SimpleNamespace(callback_query=Query(data)), None)
@@ -260,6 +267,39 @@ async def main():
     check("the next turn in that chat is told", note is not None and "started NOTHING" in note["context"])
     out, _ = await deliver("Sending it now:\n[helper: Fix it | find the cause and fix it]", "t12", 13)
     check("a reply with the line gets a receipt instead", out == "Sending it now:\n\n↳ Helper sent: Fix it")
+
+    print("7. Nov 18: the engine's own admission and notices, with the plugin on")
+    import gateway.session_ingress as si
+    from gateway.session_envelope import _refuse
+    from gateway.platforms.event import MessageEvent, MessageType
+    from hermes_state_runtime import RuntimeStoreError
+
+    class Authority:
+        """Stands in only for the durable store: the check itself is the engine's (_event_clause, _refuse)."""
+
+        async def admit_native(self, event):
+            clause = _event_clause(RUNNER, event, None, False)
+            if clause is not None:
+                _refuse(event, "invalid_params", clause)
+            raise RuntimeStoreError("stale_generation", field="route")  # past the check: the engine answers None
+
+    check("Telegram connecting wrapped the engine's admit_message", getattr(si.admit_message, mod._ADMIT_MARK, False))
+    link = "https://x.com/ephraim888sun/status/2122911791126614166?a=oEhpfol6Ao-9P1djTKE&s=19"
+
+    def stray():
+        return MessageEvent(text=link, message_type=MessageType.TEXT, source=src, metadata={"one_choice": "07a4dade77"})
+
+    before = await si.admit_message.__wrapped__(Authority(), stray())
+    check("the replay: the engine alone refuses a phone message carrying metadata, and says 'ask the operator'",
+          isinstance(before, str) and "operator" in before)
+    after = await si.admit_message(Authority(), stray())
+    check("with the plugin it's let in (answered), not refused", after is None)
+    said = await si.admit_message(Authority(), MessageEvent(text="/nope", message_type=MessageType.TEXT, allow_gateway_control=True, source=src))
+    check("a refusal that still happens reaches the phone in plain words", said == mod.REFUSED)
+    check("no operator, no log, no Hermes in it", not any(w in said.lower() for w in ("operator", "log", "hermes")))
+    acp = SessionSource(platform=Platform.LOCAL, chat_id="local-1", user_id="me")
+    mine = await si.admit_message(Authority(), MessageEvent(text="/nope", message_type=MessageType.TEXT, allow_gateway_control=True, source=acp))
+    check("One's own chat keeps the engine's text", isinstance(mine, str) and mine.startswith("⚠️ Hermes refused"))
 
 
 asyncio.run(main())

@@ -23,14 +23,37 @@ if [ -n "$LOCK" ]; then echo $$ > "$LOCK/pid"; trap 'rm -rf "$LOCK"' EXIT; fi
 # Releases and local builds: optimized (-O). Pull request checks set ONE_FAST_BUILD=1: unoptimized, whole-module,
 # about 7x faster to compile; the checks test behavior, not speed. ONE_MODULE_CACHE keeps Apple's prebuilt
 # framework modules in a folder CI can save between runs.
+# ONE_BUILD_CACHE=<dir> (CI with ONE_FAST_BUILD=1): unoptimized and incremental, one object per source file kept
+# in <dir>. CI saves that folder between runs, so a pull request only recompiles the files it changed (and what
+# depends on them): seconds instead of about two minutes. File contents are hashed, so a fresh checkout's new file
+# times don't count as changes.
 OPT=(-O)
 [ "${ONE_FAST_BUILD:-0}" = 1 ] && OPT=(-Onone -wmo -num-threads "$(sysctl -n hw.ncpu)")
+OUT="$APP/Contents/MacOS/One"
+if [ "${ONE_FAST_BUILD:-0}" = 1 ] && [ -n "${ONE_BUILD_CACHE:-}" ]; then
+  mkdir -p "$ONE_BUILD_CACHE/o"
+  /usr/bin/python3 - "$ONE_BUILD_CACHE" "$PWD" Sources/*.swift <<'PY'
+import json, os, sys
+d, root, files = sys.argv[1], sys.argv[2], sys.argv[3:]
+m = {"": {"swift-dependencies": f"{d}/o/master.swiftdeps"}}
+for f in files:
+    b = os.path.basename(f)[:-6]
+    m[f"{root}/{f}"] = {k: f"{d}/o/{b}.{e}" for k, e in (("object", "o"), ("swift-dependencies", "swiftdeps"), ("dependencies", "d"))}
+json.dump(m, open(f"{d}/output-file-map.json", "w"))
+PY
+  OPT=(-Onone -incremental -enable-incremental-file-hashing -j "$(sysctl -n hw.ncpu)" -output-file-map "$ONE_BUILD_CACHE/output-file-map.json")
+  OUT="$ONE_BUILD_CACHE/One"
+fi
 [ -n "${ONE_MODULE_CACHE:-}" ] && OPT+=(-module-cache-path "$ONE_MODULE_CACHE")
 # Sources/ObjC: the one Objective-C helper (catching audio exceptions from Apple frameworks, OneCatch.h), linked in.
 OBJC=(); while IFS= read -r l; do OBJC+=("$l"); done < <(tools/objc.sh build/objc.noindex)
+SRC=(); for f in Sources/*.swift; do SRC+=("$PWD/$f"); done
+T0=$(date +%s)
 swiftc "${OPT[@]}" -parse-as-library -target arm64-apple-macosx14.0 \
   -framework SwiftUI -framework AppKit -framework Speech -framework Carbon -framework EventKit -framework UserNotifications -framework IOKit \
-  -framework ServiceManagement -swift-version 5 "${OBJC[@]}" Sources/*.swift -o "$APP/Contents/MacOS/One"
+  -framework ServiceManagement -swift-version 5 "${OBJC[@]}" "${SRC[@]}" -o "$OUT"
+echo "compiled in $(($(date +%s) - T0)) s"
+[ "$OUT" = "$APP/Contents/MacOS/One" ] || cp "$OUT" "$APP/Contents/MacOS/One"
 if [ -n "$LOCK" ]; then rm -rf "$LOCK"; trap - EXIT; fi  # the compile is the slow, shared part; the rest runs side by side
 VERSION=$(tr -d ' \n' < VERSION)
 # LSEnvironment MallocProbGuard=1: macOS's sampling guard (a few allocations on guard pages, small cost). One has

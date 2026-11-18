@@ -1,9 +1,13 @@
 name: check
 # Goal: a pull request's check is green (or red) within 3 minutes of the push.
-#  - Pull requests: fast unoptimized build + every quick check (tools/preflight.sh --ci --quick).
-#  - main, release tags (v*) and every night: the same plus the slow helpers stress check (--ci).
+#  - Every pull request, push to main, release tag and every night: every check in tools/preflight.sh --ci, nothing
+#    skipped, split into 4 parts that run side by side on their own runners (the matrix below; the split is in
+#    preflight.sh, `part N` lines).
+#  - Each part builds the app itself, unoptimized and incremental (ONE_BUILD_CACHE): the compiled files of an earlier
+#    run come back from the cache, so only the files a change touched compile again.
+#  - The fast rules (identity, formatting, One's own rules, baseline, doc drift) run in part 1.
 #  - A newer push to the same pull request or branch cancels the older run, so stale runs never hold a runner.
-#  - Every check has its own time limit and the job stops at 10 minutes: a stuck check can't block the line for hours.
+#  - Every check has its own time limit and each part stops at 10 minutes: a stuck check can't block the line for hours.
 on:
   push:
     branches: [main]
@@ -12,20 +16,23 @@ on:
   pull_request:
     paths-ignore: ['*.md', 'docs/**', 'LICENSE', '.agents/**']
   schedule:
-    - cron: '17 7 * * *'  # nightly full run (3:17 am New York)
+    - cron: '17 7 * * *'  # nightly run (3:17 am New York)
   workflow_dispatch:
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   check:
+    name: check (part ${{ matrix.part }})
     runs-on: macos-26
     timeout-minutes: 10
-    env:
-      QUICK: ${{ github.event_name == 'pull_request' && '--quick' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]  # same count as PARTS in tools/preflight.sh. 4, not more: the account runs at most 5 macOS jobs at once
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: "${{ matrix.part == 1 && '0' || '1' }}" }
       - name: Use the newest Xcode on the runner
         id: xcode
         run: |
@@ -38,29 +45,46 @@ jobs:
         with:
           path: ${{ runner.temp }}/swift-module-cache
           key: swift-modules-${{ steps.xcode.outputs.key }}
+      - name: One's compiled files from an earlier run (only changed files compile again)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/one-build-cache
+          key: one-build-${{ steps.xcode.outputs.key }}-${{ github.sha }}
+          restore-keys: one-build-${{ steps.xcode.outputs.key }}-
       - name: Only Donnadieu's identity (never donnadieu-andela)
-        if: github.event_name == 'pull_request'
+        if: matrix.part == 1 && github.event_name == 'pull_request'
         run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       - name: Formatting
+        if: matrix.part == 1
         run: xcrun swift-format lint -r -s -p Sources
       - name: One's own rules
+        if: matrix.part == 1
         run: python3 tools/lint/one-lint.py
       - name: Lint baseline only shrinks
+        if: matrix.part == 1
         run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
       - name: Doc drift (sensitive code changed without its matching doc)
-        if: github.event_name == 'pull_request'
+        if: matrix.part == 1 && github.event_name == 'pull_request'
         run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
       - name: Chrome opens through the Mac's launcher without its first-open check (the hidden-browser check needs it)
         run: |
           xattr -l "/Applications/Google Chrome.app" | cut -c1-120 || true
           sudo xattr -dr com.apple.quarantine "/Applications/Google Chrome.app" || true
-      - name: Preflight (no login needed)
+      - name: Preflight part ${{ matrix.part }} (no login needed)
         env:
           ONE_FAST_BUILD: '1'
+          ONE_BUILD_CACHE: ${{ runner.temp }}/one-build-cache
           ONE_MODULE_CACHE: ${{ runner.temp }}/swift-module-cache
           ONE_SHOT_DIR: ${{ runner.temp }}/one-shots
-        run: tools/preflight.sh --ci $QUICK
+        run: tools/preflight.sh --ci --part ${{ matrix.part }}
+      - name: Keep the compiled files for the next run
+        if: always() && matrix.part == 1
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/one-build-cache
+          key: one-build-${{ steps.xcode.outputs.key }}-${{ github.sha }}
       - name: Pictures the checks took (a helper's orb before and after a restart)
         if: always()
         uses: actions/upload-artifact@v4
-        with: { name: check-pictures, path: '${{ runner.temp }}/one-shots', if-no-files-found: ignore }
+        with: { name: 'check-pictures-part-${{ matrix.part }}', path: '${{ runner.temp }}/one-shots', if-no-files-found: ignore }

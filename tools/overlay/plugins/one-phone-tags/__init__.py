@@ -42,6 +42,12 @@ buttons, reached Telegram as that raw line. So in the Telegram chat only:
   message from that chat. Each set works once and only while it's the newest: a newer set, or the person typing
   something else (``pre_gateway_dispatch``), takes the older buttons away, and a tap on old buttons says so.
 
+Nov 18 2026: a tap was refused by the engine ("⚠️ Hermes refused this message (invalid_params) … Ask the operator to
+check gateway.log."): it carried metadata, which the engine's admission refuses outside WhatsApp. A tap carries none
+now, any phone message still carrying some has it dropped before admission (``install_admission``, ``admissible``), and
+the engine's own refusal and pause notices reach the phone in plain words (``plain_notice``): no "Hermes", no operator,
+no log.
+
 Anything else (One's own chat, helpers, routines, other phone chats' choices) is never touched. Logged to
 ``logs/one-phone-tags.log``. Checked by tools/phone-tags-check.py and tools/phone-choices-check.py (plain python),
 and tools/phone-choices-engine-check.sh (the real engine's Telegram adapter).
@@ -686,7 +692,9 @@ def on_tap(adapter: Any) -> Any:
             await query.answer()
         from gateway.platforms.event import MessageEvent, MessageType
 
-        ev = MessageEvent(text=choice, message_type=MessageType.TEXT, source=src, metadata={"one_choice": sid})
+        # No metadata: the engine refuses any on a message outside WhatsApp (see ADMISSION below). The set is
+        # already gone (_take_away), so nothing needs to tell this tap apart from typing.
+        ev = MessageEvent(text=choice, message_type=MessageType.TEXT, source=src)
         _log(f"telegram {st['chat']}: tapped {int(idx) + 1} of {len(st['choices'])} ({sid}); sent as their message")
         await adapter.handle_message(ev)
 
@@ -703,11 +711,101 @@ def wire(native: Any, adapter: Any) -> None:
         loop = getattr(adapter, "_loop", None)
     _adapters[:] = [(a, lp) for a, lp in _adapters if a is not adapter] + [(adapter, loop)]
     native.add_handler(CallbackQueryHandler(on_tap(adapter), pattern=r"^oc:"))
+    install_admission()
     _log("telegram connected: choices become buttons")
+
+
+# ---------------------------------------------------------------------------
+# A phone message is answered, never refused for how it was made (ADMISSION)
+#
+# Nov 17 2026 4:16 PM and Nov 18 2:19 AM: Omar tapped a choice button in the Telegram chat and got "⚠️ Hermes refused
+# this message (invalid_params), so it was not saved or answered. Ask the operator to check gateway.log." gateway.log:
+# "Native admission refused: invalid_params (metadata) … message=None", the same second as this plugin's "tapped 1 of
+# 3 … sent as their message". The tap carried metadata={"one_choice": …}, and the engine's admission
+# (gateway/session_envelope.py, _native_metadata) refuses ANY metadata on a message outside WhatsApp. The tap carries
+# none now; and as a net for anything else that puts metadata on a phone message, it is dropped before admission
+# (the engine keeps none of it for these chats anyway). The engine's notices name it ("Hermes"), an operator and a
+# log; Omar is the only person here and is on his phone, so the phone gets plain words (the engine's wording and
+# clause stay in gateway.log and one-phone-tags.log).
+
+REFUSED = "⚠️ I couldn't take that message in, so I didn't answer it. Please send it again."
+RESTARTING = "⏳ I'm restarting. Your message is saved and I'll answer it when I'm back."
+CUT_OFF = ("⏸️ This chat is paused: a restart cut off my last answer. Your message is saved. Send {discard} to drop "
+           "that answer and carry on, or /reset to start a fresh chat.")
+UNCHECKED = ("⏸️ This chat is paused: a waiting message couldn't be checked again, so I can't answer here. "
+             "Send /reset to start a fresh chat.")
+_NOTICES = (("⚠️ Hermes refused this message", REFUSED), ("⏳ Hermes is restarting", RESTARTING),
+            ("⏸️ This conversation is paused: a previous turn did not finish", CUT_OFF),
+            ("⏸️ This conversation is paused: a queued message could not be re-authorized", UNCHECKED))
+_ADMIT_MARK = "_one_phone_admission"
+
+
+def _phone_event(event: Any) -> str:
+    """The phone chat an incoming message is from ('' when it's none, or internal)."""
+    src = getattr(event, "source", None)
+    if src is None or getattr(event, "internal", False):
+        return ""
+    p = str(getattr(getattr(src, "platform", None), "value", getattr(src, "platform", "")) or "").lower()
+    return p if p in PHONE else ""
+
+
+def admissible(event: Any) -> Any:
+    """The same event, with metadata the engine's admission would refuse the whole message for taken off. WhatsApp's
+    adapter stamps its own allowed keys, so it's left alone. In place: the gateway's turn markers ride on it."""
+    p = _phone_event(event)
+    meta = getattr(event, "metadata", None)
+    if p and p != "whatsapp" and meta:
+        keys = sorted(map(str, meta)) if isinstance(meta, dict) else [type(meta).__name__]
+        try:
+            event.metadata = {}
+            _log(f"{p} {getattr(event.source, 'chat_id', '')}: dropped metadata {keys} so the message is answered, not refused")
+        except Exception as e:
+            _log(f"{p}: couldn't drop metadata {keys}: {e}")
+    return event
+
+
+def plain_notice(text: Any) -> Any:
+    """The engine's own notice for a phone chat in plain words: no "Hermes", no operator, no log."""
+    if not isinstance(text, str):
+        return text
+    for start, said in _NOTICES:
+        if text.startswith(start):
+            m = re.search(r"Send (/hermes discard|/\w+) to drop", text)
+            out = said.format(discard=m.group(1) if m else "/discard")
+            _log(f"phone notice in plain words: {text[:120]!r}")
+            return out
+    return text
+
+
+def install_admission() -> bool:
+    """Wraps the engine's admit_message (read off its module at each call, gateway/run_inbound.py) once per gateway."""
+    try:
+        import gateway.session_ingress as si
+    except Exception:
+        return False
+    cur = getattr(si, "admit_message", None)
+    if cur is None or getattr(cur, _ADMIT_MARK, False):
+        return cur is not None
+
+    async def admit_message(authority: Any, event: Any) -> Any:
+        phone = bool(_phone_event(event))
+        out = await cur(authority, admissible(event) if phone else event)
+        return plain_notice(out) if phone else out
+
+    setattr(admit_message, _ADMIT_MARK, True)
+    admit_message.__wrapped__ = cur
+    si.admit_message = admit_message
+    _log("phone chat: messages are let in, notices in plain words")
+    return True
 
 
 async def pre_gateway_dispatch(event: Any = None, gateway: Any = None, **_: Any) -> None:
     """The person wrote in the Telegram chat: remember where from; buttons still up there are now old."""
+    try:
+        install_admission()
+        admissible(event)
+    except Exception as e:
+        _log(f"couldn't check a phone message: {e}")
     try:
         src = getattr(event, "source", None)
         if src is None or getattr(event, "internal", False) or _platform(getattr(src, "platform", "")) != "telegram":
@@ -718,7 +816,7 @@ async def pre_gateway_dispatch(event: Any = None, gateway: Any = None, **_: Any)
         ck = _chat_key(src.chat_id, src.thread_id)
         _sources[ck] = src
         sid = _newest.get(ck)
-        if sid and (getattr(event, "metadata", None) or {}).get("one_choice") != sid:
+        if sid:  # a tap already took its own set away (_take_away), so this is only ever an older one
             for adapter, _lp in list(_adapters):
                 if (getattr(adapter, "_bot", None)) is not None:
                     await _take_away(adapter, sid)

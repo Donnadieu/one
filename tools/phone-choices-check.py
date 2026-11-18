@@ -226,6 +226,7 @@ async def main():
     check("the gateway gets 'Not now' from that chat, as their message",
           ev is not None and ev.text == "Not now" and ev.source.chat_id == "42" and ev.source.user_id == "42")
     check("not quoting their older message", ev is not None and ev.source.message_id is None)
+    check("with no metadata (Nov 17-18: the engine refused the tap for it)", ev is not None and not ev.metadata)
     check("the buttons go; the message shows what was picked",
           ("text", {"chat_id": "42", "message_id": 101, "text": "✓ Not now", "reply_markup": None}) in ad._bot.edits)
     check("the tap is answered", t.answers == [None])
@@ -290,6 +291,59 @@ async def main():
     ad.fail_send = False
     only = await deliver(ad, "[choices: Yes | No]", 11)
     check("a reply that was only the line still says something", only == m.PROMPT and labels(ad.sent[-1])[0] == ["Yes", "No"])
+
+    print("8. Nov 18: a phone message is answered, never refused for how it was made; notices in plain words")
+    si = types.ModuleType("gateway.session_ingress")
+    admitted = []
+
+    async def engine_admit(authority, event):
+        """Like the engine's: any metadata outside WhatsApp is refused (session_envelope._native_metadata)."""
+        if event.metadata and str(event.source.platform) != "whatsapp":
+            return ("⚠️ Hermes refused this message (invalid_params), so it was not saved "
+                    "or answered. Ask the operator to check gateway.log.")
+        admitted.append(event)
+        return authority
+
+    si.admit_message = engine_admit
+    sys.modules["gateway.session_ingress"] = si
+    sys.modules["gateway"].session_ingress = si
+    check("the gateway's admission gets wrapped once", m.install_admission() and m.install_admission()
+          and si.admit_message.__wrapped__ is engine_admit)
+    stray = MessageEvent("https://x.com/a/status/1", source=Source(), metadata={"one_choice": "abc"})
+    out = await si.admit_message("answered", stray)
+    check("a Telegram message with stray metadata is let in and answered", out == "answered" and admitted[-1] is stray
+          and stray.metadata == {})
+    wa = MessageEvent("hi", source=Source(platform="whatsapp"), metadata={"whatsapp_native_type": "audio"})
+    check("WhatsApp's own metadata is left alone", m.admissible(wa).metadata == {"whatsapp_native_type": "audio"})
+    mine = MessageEvent("hi", source=Source(platform="acp"), metadata={"x": 1})
+    check("One's own chat is never touched", m.admissible(mine).metadata == {"x": 1})
+    notices = {
+        "⚠️ Hermes refused this message (invalid_params), so it was not saved or answered. Ask the operator to check "
+        "gateway.log.": m.REFUSED,
+        "⏳ Hermes is restarting — your message is saved and will be answered when it is back.": m.RESTARTING,
+        "⏸️ This conversation is paused: a previous turn did not finish when Hermes restarted, and only you know "
+        "whether to send it again. Your message is saved. Send /discard to drop the lost turn and continue (it is not "
+        "re-run), or /reset to start a fresh conversation.": m.CUT_OFF.format(discard="/discard"),
+        "⏸️ This conversation is paused: a queued message could not be re-authorized (permission_denied). Your message "
+        "is saved but will not be answered here. Send /reset to start a fresh conversation, or ask the operator to "
+        "resume this one.": m.UNCHECKED,
+    }
+    for engine, plain in notices.items():
+        got = m.plain_notice(engine)
+        check(f"plain words for {engine[:34]!r}…", got == plain)
+        check("  no operator, no log, no Hermes", not any(w in got.lower() for w in ("operator", "log", "hermes")))
+    check("the way out of a cut-off turn keeps its command", "/discard" in m.plain_notice(list(notices)[2]))
+
+    async def refusing(authority, event):
+        return list(notices)[0]
+
+    si.admit_message = refusing
+    m.install_admission()
+    said = await si.admit_message(None, MessageEvent("x", source=Source()))
+    check("a refusal that still happens reaches the phone in plain words", said == m.REFUSED)
+    other = await si.admit_message(None, MessageEvent("x", source=Source(platform="acp")))
+    check("other chats keep the engine's own text", other == list(notices)[0])
+    check("a reply that isn't a notice is left alone", m.plain_notice("Sure, drafting it now.") == "Sure, drafting it now.")
 
 
 asyncio.run(main())

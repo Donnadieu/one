@@ -1,6 +1,6 @@
 name: one-phone-tags
-version: "1.1.0"
-description: "One: helper lines work in the phone chat too. A reply there with [helper: …], [tell-helper: …], [stop-helper: …] or [done-helper: …] is handed to One on the Mac (which starts, tells, stops or clears the helper exactly as in its own chat, shows it there and messages the result back when it's done); the person never sees the raw lines. Each phone turn also tells the assistant how its helpers are doing. In the Telegram chat, a reply's last-line [choices: …] becomes tap buttons under it (a tap is the same as typing that answer)."
+version: "1.2.0"
+description: "One: helper lines work in the phone chat too. A reply there with [helper: …], [tell-helper: …], [stop-helper: …] or [done-helper: …] is handed to One on the Mac (which starts, tells, stops or clears the helper exactly as in its own chat, shows it there and messages the result back when it's done); the person never sees the raw lines. Each phone turn also tells the assistant how its helpers are doing. In the Telegram chat, a reply's last-line [choices: …] becomes tap buttons under it (a tap is the same as typing that answer). A phone message is never refused for how it was made, and the engine's notices reach the phone in plain words."
 author: "One (Donnadieu/one)"
 provides_hooks:
   - transform_llm_output

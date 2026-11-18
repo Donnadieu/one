@@ -221,8 +221,8 @@ struct BotsColumn: View {
     }
 
     /// What a bot is doing now, in a few words.
-    static func line(_ h: Helper) -> String {
-        if h.state == "needsYes" { return "Needs your yes" }
+    static func line(_ h: Helper, waiting: Bool = false) -> String {
+        if h.state == "needsYes" || waiting { return "Needs your yes" }
         if h.state == "working" { return h.line }
         if h.waiting { return "Something new · tap to see" }
         if h.state == "stopped" { return "Stopped" }

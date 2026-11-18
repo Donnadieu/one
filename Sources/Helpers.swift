@@ -189,6 +189,7 @@ struct ShelfItem: Identifiable, Codable {
     var path: String
     var made = Date()
     var fresh = true
+    var bot: UUID? = nil  // made by a bot: shown in its chat too, tagged with it (BotRoute.swift)
     var url: URL { URL(fileURLWithPath: path) }
     var icon: String {
         switch url.pathExtension.lowercased() {

@@ -112,6 +112,7 @@ enum RoutinesListCheck {
         check("plain words the assistant wrote win", rs["nov4"]?.name == "Clear out old backup copies")
         check("a room's routine belongs to that room", rs["hestia"]?.room == "Personal Room" && rs["argo"]?.room == "Co-Founder")
         check("one naming every room is the assistant's own", rs["router"]?.room == nil)
+        check("so is one listing \"personal, work, nyx rooms\" (an AI named like its room)", rs["rsync"]?.room == nil)
 
         print("3. grouped by who it's for, or how often; groups fold and count")
         let me = Model.shared.name

@@ -20,6 +20,7 @@ enum RoutinesFixture {
             RoomFacts(url: base.appendingPathComponent("personal-room"), title: "Personal Room", ai: "Hestia", isPrivate: true, isShared: false),
             RoomFacts(url: base.appendingPathComponent("work-room"), title: "Work Room", ai: "Ajax", isPrivate: true, isShared: false),
             RoomFacts(url: base.appendingPathComponent("Co-Founder"), title: "Co-Founder", ai: "Argo", isPrivate: false, isShared: true),
+            RoomFacts(url: base.appendingPathComponent("nyx-room"), title: "Nyx", ai: "Nyx", isPrivate: true, isShared: false),
         ]
     }
 

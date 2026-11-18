@@ -66,7 +66,9 @@ enum RoutineLabels {
         let inPrompt = rooms.filter { f in
             let folder = NSRegularExpression.escapedPattern(for: f.url.lastPathComponent)
             if head.range(of: "(^|[\\s\"'/(])" + folder + "/", options: .regularExpression) != nil { return true }
-            guard let a = f.ai, a.count >= 3 else { return false }
+            // An AI named like its room ("Nyx") is just the room's name: "personal, work, nyx rooms" names several.
+            guard let a = f.ai, a.count >= 3, a.lowercased() != f.title.lowercased(), !f.url.lastPathComponent.lowercased().hasPrefix(a.lowercased())
+            else { return false }
             return head.range(of: "\\b" + NSRegularExpression.escapedPattern(for: a) + "\\b", options: .regularExpression) != nil
         }
         return inPrompt.count == 1 ? inPrompt[0].title : nil

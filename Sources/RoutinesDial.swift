@@ -324,6 +324,7 @@ enum RoutinesRender {
         var s = RoutinesSnapshot(now: Date())
         s.routines = Routines.jobs(at: real, now: s.now)
         s.skills = Routines.skills()
+        RoomPrivacy.refresh()  // the rooms' names and AIs (the live app reads them at launch)
         s.routines = RoutineLabels.dress(s.routines, labels: RoutineLabels.load(), rooms: RoomPrivacy.facts, bots: m.helpers, owner: m.userName)
         RoutinesPanel.flatList = true  // ImageRenderer draws a scroll view blank
         // ONE_RENDER_PICK=<title>: open that routine's card instead of the first one that needs a look.

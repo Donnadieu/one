@@ -45,6 +45,7 @@ extension RoutinesPanel {
         }
         .padding(10)
         .frame(width: box.width, height: box.height, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0x1A1A1E, 0.9)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.08)))
         .routineZone("list")

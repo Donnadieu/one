@@ -34,7 +34,7 @@ enum RoutinesListCheck {
         m.helpers = [RoutinesFixture.bot()]
         var s = RoutinesFixture.snapshot(cron: Routines.cron)
         s.routines = RoutineLabels.dress(
-            s.routines, labels: RoutineLabels.load(), rooms: RoutinesFixture.rooms(Env.support), bots: m.helpers)
+            s.routines, labels: RoutineLabels.load(), rooms: RoutinesFixture.rooms(Env.support), bots: m.helpers, owner: "Sam")
         return s
     }
 
@@ -71,6 +71,9 @@ enum RoutinesListCheck {
     static func overlap(_ z: [String: CGRect]) -> String? {
         let stage = CGRect(origin: .zero, size: Dial.size).insetBy(dx: -1, dy: -1)
         guard let list = z["list"], let sky = z["skills"] else { return "the list or the skills didn't show" }
+        if let d = z["dial"], d.intersects(list) {
+            return "a dial label runs into the list (labels end at \(Int(d.maxX)), list starts at \(Int(list.minX)))"
+        }
         if list.intersects(sky) {
             return "the list runs over the skills (list \(Int(list.minY))…\(Int(list.maxY)), skills \(Int(sky.minY))…\(Int(sky.maxY)))"
         }
@@ -109,6 +112,53 @@ enum RoutinesListCheck {
         check("plain words the assistant wrote win", rs["nov4"]?.name == "Clear out old backup copies")
         check("a room's routine belongs to that room", rs["hestia"]?.room == "Personal Room" && rs["argo"]?.room == "Co-Founder")
         check("one naming every room is the assistant's own", rs["router"]?.room == nil)
+
+        print("3. grouped by who it's for, or how often; groups fold and count")
+        let me = Model.shared.name
+        let bot = Model.shared.helpers[0]
+        let who = RoutineList.groups(s.routines, by: .who, me: me) { r in
+            BotStore.owns(bot, r) ? (bot.id.uuidString, "Ads bot", 0xE9B26B) : nil
+        }
+        func g(_ gs: [RoutineList.Group], _ id: String) -> Set<String> { Set(gs.first { $0.id == id }?.rows.map(\.id) ?? []) }
+        check(
+            "every routine shows once", who.flatMap(\.rows).count == s.routines.count && Set(who.flatMap(\.rows).map(\.id)).count == s.routines.count)
+        check("the assistant's own first, under its name", who.first?.id == "me" && who.first?.title == me)
+        check("each room's own under the room", g(who, "room:Personal Room") == ["hestia"] && g(who, "room:Work Room") == ["work", "ajax"])
+        check("a bot's under the bot", g(who, "bot:" + bot.id.uuidString) == ["ads"])
+        check("jobs run outside One apart", g(who, "outside") == ["out1", "out2"])
+        check("the ones that look done together at the end", g(who, RoutineList.leftoverID) == ["ping3", "ping4", "ping5"])
+        check(
+            "then the finished ones",
+            who.last?.id == RoutineList.finishedID && g(who, RoutineList.finishedID) == ["p009", "chk", "safe", "ping1", "ping2"])
+        let often = RoutineList.groups(s.routines, by: .often, me: me) { _ in nil }
+        check(
+            "or by how often, most often first",
+            often.prefix(5).map(\.title) == ["Every hour or more", "Every day", "Some days of the week", "Once", "Paused"])
+        check("weekly ones together", g(often, "often:weekly").isSuperset(of: ["hestia", "ajax", "argo", "week", "tic1"]))
+        check("paused ones together", g(often, "often:paused") == ["bets"])
+        let shut = RoutineList.folded(who)
+        check("a long list starts folded, but for a group with something that needs a look", Set(who.map(\.id)).subtracting(shut) == ["me"])
+        let few = RoutineList.groups(Array(s.routines.prefix(6)), by: .who, me: me) { _ in nil }
+        check("a short list starts open, but for the quiet groups", RoutineList.folded(few) == Set(few.filter(\.clearable).map(\.id)))
+        check("needs a look comes first in its group", who.first?.rows.first?.needsLook == true)
+
+        print("4. each row says its next run, its last result, or that it's paused")
+        func st(_ id: String) -> String { rs[id].map { RoutineList.status($0, now: s.now) } ?? "" }
+        check("paused: \(st("bets"))", st("bets").hasPrefix("Paused"))
+        check("next and last: \(st("x2"))", st("x2").hasPrefix("Next ") && st("x2").hasSuffix("last done"))
+        check("didn't work: \(st("x1"))", st("x1").hasSuffix("last didn't work"))
+        check("never ran: \(st("tic3"))", st("tic3").hasSuffix("never ran yet"))
+        check("every few minutes: \(st("cosync"))", st("cosync") == "Every 5 minutes · last done")
+        check("finished: \(st("p009"))", st("p009").hasPrefix("Finished"))
+
+        print("5. clean-up: leftovers can go, after a yes")
+        check("a check-until-done job that already said its thing looks done", ["ping3", "ping4", "ping5"].allSatisfy { rs[$0]?.leftover != nil })
+        check("a sync that runs for good never does", rs["cosync"]?.leftover == nil && rs["token"]?.leftover == nil)
+        check(
+            "leftovers, paused and finished ones can be removed; working ones and outside ones can't from here",
+            ["ping3", "bets", "p009"].allSatisfy { rs[$0].map(RoutinesPanel.canRemove) == true }
+                && ["x2", "brief", "out1"].allSatisfy { rs[$0].map(RoutinesPanel.canRemove) == false })
+        check("Remove is the engine's own remove", rs["ping3"].map(RoutineList.removeSteps) == ["cron", "remove", "ping3"])
 
         print(fails == 0 ? "routines list ok" : "routines list: \(fails) failed")
         return fails == 0 ? 0 : 1

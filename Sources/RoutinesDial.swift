@@ -14,6 +14,15 @@ enum Dial {
     static let center = CGPoint(x: 470, y: 366)
     static let r0: CGFloat = 180  // the ring
     static let rl: CGFloat = 228  // where labels start
+    /// The routines list's place on the stage (RoutinesListView.swift). The skills sit below it.
+    static let listBox = CGRect(x: 874, y: 66, width: 262, height: 432)
+    /// The skills' stars: their own place under the routines list (RoutinesListView.swift), never pushed by it.
+    static let starCenter = CGPoint(x: 1005, y: 574)
+    static let starRadius: CGFloat = 50
+    /// How wide a dial label may be: on the right it stops short of the list, on the left short of the panel's edge.
+    static func labelRoom(_ l: Label) -> CGFloat {
+        l.right ? max(80, Dial.listBox.minX - 14 - (l.at.x + 4)) : max(80, l.at.x - 4 - 16)
+    }
 
     enum Kind: CaseIterable { case done, partly, failed, running, next, missed, paused }
     /// The legend under the dial. Keep it in step with `mark` below.
@@ -91,7 +100,7 @@ enum Dial {
                 sub += " " + word(r)
                 L.labels.append(
                     Label(
-                        rid: r.id, key: -1, title: r.title, sub: sub, orange: r.needsLook, from: point(m, rad), at: point(m, rl), right: true,
+                        rid: r.id, key: -1, title: r.name, sub: sub, orange: r.needsLook, from: point(m, rad), at: point(m, rl), right: true,
                         tint: tints[r.id]))
                 continue
             }
@@ -128,7 +137,7 @@ enum Dial {
                 let th = Double(t) / 1440 * 2 * .pi
                 L.labels.append(
                     Label(
-                        rid: r.id, key: t, title: r.title, sub: sub, orange: alarm(k), from: p,
+                        rid: r.id, key: t, title: r.name, sub: sub, orange: alarm(k), from: p,
                         at: point(Double(t), rl), right: sin(th) >= -0.01, tint: tints[r.id]))
             }
         }
@@ -315,9 +324,11 @@ enum RoutinesRender {
         var s = RoutinesSnapshot(now: Date())
         s.routines = Routines.jobs(at: real, now: s.now)
         s.skills = Routines.skills()
+        s.routines = RoutineLabels.dress(s.routines, labels: RoutineLabels.load(), rooms: RoomPrivacy.facts, bots: m.helpers, owner: m.userName)
+        RoutinesPanel.flatList = true  // ImageRenderer draws a scroll view blank
         // ONE_RENDER_PICK=<title>: open that routine's card instead of the first one that needs a look.
         let pick =
-            ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t }?.id }
+            ProcessInfo.processInfo.environment["ONE_RENDER_PICK"].flatMap { t in s.routines.first { $0.title == t || $0.name == t }?.id }
             ?? ProcessInfo.processInfo.environment["ONE_RENDER_SKILL"].flatMap { n in s.skills.first { $0.name == n }.map { "skill:" + $0.path } }
         // ONE_RENDER_FINISHED=1 unfolds the Finished list; ONE_RENDER_RENEW=1 shows the picked card's "Run it again?" question.
         let env = ProcessInfo.processInfo.environment

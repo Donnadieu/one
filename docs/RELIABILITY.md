@@ -114,6 +114,12 @@ person's own Mac, not about a server One's team operates.
   "still running" forever, silently blocking that routine from ever firing
   again; `Routines.inFlight` (0.9.80) now matches the engine's own claim
   TTL instead of treating a missing `at` as live.
+- Nov 17 2026: with 30+ routines the Routines panel's right column ran over the skills' stars and off the panel, and
+  names like "Hestia Sunday hub refresh" or "Ping: helper-lines bug" said nothing to Omar. The list now has a fixed place
+  and scrolls (checked by laying the real panel out off-screen, `One --test-routines-list`), shows plain words
+  (`RoutineLabels`, display only: the engine's job is never renamed), and offers Remove only after a yes, through the
+  engine's own `cron remove`. Reading jobs.json gained the job's prompt, repeat count and whether its last reports were
+  silent (read only); nothing about running, pausing or failing routines changed.
 - 0.9.123: the Routines dial reads which conversation set each routine up (`origin.chat_id` in jobs.json, read only)
   to show and filter a bot's routines in its colour; nothing about running, pausing or failing routines changed.
 - Nov 9 2026: "Argo P009 check" ran its 15 allowed runs with no errors and the Routines dial still drew it orange

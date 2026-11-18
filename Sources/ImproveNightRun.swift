@@ -223,7 +223,7 @@ enum ImproveNightRun {
             if let note = night?.note, note.contains("put back") { out[0] += " (\(note).)" }
         }
         if let ask = j?["ask"] as? [String: Any], let t = ask["text"] as? String, !t.isEmpty {
-            out.append("One thing needs your yes: \(t)")
+            out.append("One thing needs your yes (it's in your chat too, with Yes / Not now): \(t)")
         } else if let v = verdictLine(now: now) {
             out.append(v)
         }

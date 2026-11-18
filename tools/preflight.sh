@@ -125,8 +125,17 @@ grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "Nightly review: what one night may change, its undo, only when nothing else is working"
 mkdir -p "$T/night"
-check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
+check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once; it sees the same mistake again, held edits, too-big recipes and stale rules" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
 grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Omar's corrections: each one names its guard (tests/corrections/README.md)"
+check "every guard named there exists; the ones with none yet are counted" /usr/bin/python3 tools/corrections-index-check.py
+/usr/bin/python3 tools/corrections-index-check.py 2>/dev/null | tail -1 | sed 's/^/    /'
+
+echo "Push to talk: a second press never gets the first one's late words; nothing back but speech heard: Apple's server once"
+mkdir -p "$T/ls"
+check "a late final or cancel of an earlier press is dropped; what letting go does; his words never in the log" bash -c "ONE_SUPPORT_DIR=$T/ls $TBIN --test-listener | tee $T/ls/out.txt | grep -q '^listener ok'"
+grep "✗" "$T/ls/out.txt" 2>/dev/null | sed 's/^/    /'
 
 echo "The engine's own learning stays under the nightly limits"
 check "stop means stop (engine): a stopped helper's wake-ups dropped (Nov 9), its tools blocked, its and its sub-helpers' background programs and sub-helpers stopped, never another's; their message lifts it" /usr/bin/python3 tools/stop-plugin-check.py
@@ -277,6 +286,12 @@ LIMIT=240 check "a folder granted or a restart asked, then its turn ends: Waitin
   bash -c "tools/restart-wait-check.sh --no-build > '$T/rw.txt' 2>&1"
 grep -e "✗" -e "^   \[" "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
 grep -q "restart-wait-check ok" "$T/rw.txt" 2>/dev/null || grep -q "✗" "$T/rw.txt" 2>/dev/null || tail -12 "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
+
+echo "Omar's corrections replayed (stand-in engine, no cost): the Nov 17 cut-off main chat, the nightly review's question"
+LIMIT=200 check "a 24 s, 4-step main-chat turn ends in its own answer (no 'not processed', no canned line, no helper named from his words); the review's question shows once, Yes sends its helper, Not now holds 7 days" \
+  bash -c "tools/corrections-check.sh --no-build > '$T/cc.txt' 2>&1"
+grep "✗" "$T/cc.txt" 2>/dev/null | sed 's/^/    /'
+grep -q "corrections-check ok" "$T/cc.txt" 2>/dev/null || grep -q "✗" "$T/cc.txt" 2>/dev/null || tail -12 "$T/cc.txt" 2>/dev/null | sed 's/^/    /'
 
 if [ $QUICK = 0 ]; then
   echo "Lots of helpers survive restarts (stand-in engine, no cost)"

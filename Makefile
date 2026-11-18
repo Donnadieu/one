@@ -1,6 +1,6 @@
 # One: everything an agent or a person runs. `make check` must pass before every commit and release.
 # Hard rule: tests (preflight and every *-check) run in CI only, never on the person's Mac (tools/ci-only.sh).
-.PHONY: identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check sanitize soak learning
+.PHONY: corrections identity build format format-check lint docdrift check preflight full release-check hooks jobs followups handoff helperdone helperself helpernotes helperstop helpercut helpers-check sanitize soak learning
 
 build:            ## build build/app.noindex/One.app
 	./build.sh
@@ -40,6 +40,8 @@ helperstop:       ## stop a helper (button, by asking), it stays stopped; an upd
 	tools/helper-stop-check.sh
 helpercut:        ## helpers cut off by an engine restart show stopped, pick back up, are done only with their answer (real engine)
 	tools/helper-cut-check.sh
+corrections:      ## Omar's corrections replayed against the stand-in engine (tests/corrections/README.md; free, ~1 min; in preflight)
+	tools/corrections-check.sh
 helpers-check:    ## 100 helpers at once, engine killed, One killed, an update, all mid-run: none lost, doubled or falsely done (stand-in engine, free, ~1 min; in preflight)
 	tools/helpers-check.sh
 sanitize:         ## thread + address sanitizer builds drive the real audio line under load (`--test-voice-stress`, ~10 min)

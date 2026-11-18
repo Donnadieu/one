@@ -153,7 +153,11 @@ extension Model {
     }
 
     func writePhoneNews() {
-        let text = PhoneTags.news(helpers) { self.progressLine($0, now: Date()) }
+        // The review's open question first (the plugin keeps only the first 3000 characters), then the helpers.
+        let text = [
+            ImproveAsk.phoneNote.trimmingCharacters(in: .whitespacesAndNewlines), PhoneTags.news(helpers) { self.progressLine($0, now: Date()) },
+        ]
+        .filter { !$0.isEmpty }.joined(separator: "\n")
         let old = (try? String(contentsOf: PhoneTags.newsFile, encoding: .utf8)) ?? ""
         // Rewritten when it changed, and at least every hour so the plugin knows One is still here.
         let age = (try? PhoneTags.newsFile.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate).map {

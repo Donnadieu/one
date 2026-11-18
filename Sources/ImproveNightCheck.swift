@@ -213,6 +213,11 @@ enum ImproveNightCheck {
         check("removed by the person: stays removed", said.last?.hasPrefix("removed") == true)
         check("the engine's learning cap has its settings file", fm.fileExists(atPath: Improve.settingsFile.path))
 
+        // 10. What the review must see (ImproveSeenCheck.swift): the same mistake again, held edits, too-big recipes,
+        //     stale rules. And the idle prepare above lists recipes within the size limit only.
+        ImproveSeenCheck.run(check, roots: [mine.path])
+        check("prepare names a recipe only when it may take a lesson", idle.contains("- alpha: "))
+
         print(fails == 0 ? "nightly ok" : "nightly failed: \(fails)")
         return fails == 0 ? 0 : 1
     }

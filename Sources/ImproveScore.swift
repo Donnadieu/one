@@ -147,20 +147,36 @@ enum ImproveScore {
 
     // MARK: The same mistake again
 
-    /// For each day: lessons already a rule (status rule/proven/retired, `rule_since` before that day) whose
-    /// pattern was seen again that day (`seen` dates). `improve/lessons.jsonl` is written by the nightly review;
-    /// until it exists this is 0.
-    static func sameAgain(_ days: [String]) -> [String: Int] {
-        guard let t = try? String(contentsOf: Improve.lessonsFile, encoding: .utf8) else { return [:] }
-        var latest: [String: [String: Any]] = [:]  // a lesson's last line wins
+    /// For each day: lessons already a rule whose pattern was seen again that day. `improve/lessons.jsonl` is written
+    /// by the nightly review, one line per new or changed lesson: `{"key", "status", "evidence", "date"}` (the night's
+    /// date; it reviews the day before). A lesson is a rule from its first rule/proven/retired line; every later line
+    /// for the same key whose evidence grew is the same mistake again, on the day that night reviewed. (Until Nov 18
+    /// 2026 this read `id`/`rule_since`/`seen`, which the review never writes, so it was always 0.) Lines in that older
+    /// shape still count.
+    static func sameAgain(_ days: [String], text: String? = nil) -> [String: Int] {
+        guard let t = text ?? (try? String(contentsOf: Improve.lessonsFile, encoding: .utf8)) else { return [:] }
+        let want = Set(days)
+        var out: [String: Int] = [:]
+        var ruleSince: [String: String] = [:]  // key → the day it became a rule
+        var evidence: [String: Int] = [:]  // key → evidence count on its last line
         for l in t.split(separator: "\n") {
             guard let j = (try? JSONSerialization.jsonObject(with: Data(l.utf8))) as? [String: Any] else { continue }
-            latest[(j["id"] as? String) ?? (j["pattern"] as? String) ?? UUID().uuidString] = j
-        }
-        var out: [String: Int] = [:]
-        for j in latest.values {
-            guard ["rule", "proven", "retired"].contains((j["status"] as? String) ?? ""), let since = j["rule_since"] as? String else { continue }
-            for d in Set((j["seen"] as? [String]) ?? []) where d > since && days.contains(d) { out[d, default: 0] += 1 }
+            let status = (j["status"] as? String) ?? ""
+            let isRule = ["rule", "proven", "retired"].contains(status)
+            if let since = j["rule_since"] as? String, isRule {  // the older shape
+                for d in Set((j["seen"] as? [String]) ?? []) where d > since && want.contains(d) { out[d, default: 0] += 1 }
+                continue
+            }
+            guard let key = (j["key"] as? String) ?? (j["id"] as? String), let night = j["date"] as? String,
+                let reviewed = Improve.day(night).flatMap({ Calendar.current.date(byAdding: .day, value: -1, to: $0) }).map({ Improve.dayKey($0) })
+            else { continue }
+            let n = (j["evidence"] as? [Any])?.count ?? 0
+            defer { evidence[key] = max(n, evidence[key] ?? 0) }
+            guard let since = ruleSince[key] else {
+                if isRule { ruleSince[key] = reviewed }
+                continue
+            }
+            if n > (evidence[key] ?? 0), reviewed > since, want.contains(reviewed) { out[reviewed, default: 0] += 1 }
         }
         return out
     }

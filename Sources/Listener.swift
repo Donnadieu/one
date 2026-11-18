@@ -17,7 +17,9 @@ import SwiftUI
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var want = false
-    private var gotFinal = false
+    private var state = TalkState()  // which press a callback belongs to (TalkState.swift)
+    private let tape = TalkTape()  // this press's audio, for a second try on Apple's server
+    private var onDevice = false
     private var onFinal: (() -> Void)?
     private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
@@ -71,9 +73,11 @@ import SwiftUI
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.addsPunctuation = true
-        if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        onDevice = r.supportsOnDeviceRecognition
+        if onDevice { req.requiresOnDeviceRecognition = true }
         request = req
-        gotFinal = false
+        let n = state.start()
+        tape.reset()
         // A headset switching over, or no microphone at all, gives a format with no channels; Apple's installTap raises
         // on that instead of failing, which would end One. Check first, and catch what's left (AudioSafe.swift).
         var started = false
@@ -84,8 +88,11 @@ import SwiftUI
             guard f.channelCount > 0, f.sampleRate > 0 else { return }
             input.installTap(
                 onBus: 0, bufferSize: 1024, format: f,
-                block: Listener.tap(req) { lv in
-                    DispatchQueue.main.async { self.level = lv }
+                block: Listener.tap(req, tape: tape) { lv in
+                    DispatchQueue.main.async {
+                        self.state.level(n, lv)
+                        if self.state.turn == n { self.level = lv }
+                    }
                 })
             audio.prepare()
             do {
@@ -103,9 +110,10 @@ import SwiftUI
             with: req,
             resultHandler: Listener.handler { text, final in
                 DispatchQueue.main.async {
+                    // A late word (or the cancel) of an earlier press never lands on this one.
+                    guard self.state.heard(n, text, final: final) else { return }
                     if let text { self.text = text }
                     if final {
-                        self.gotFinal = true
                         let f = self.onFinal
                         self.onFinal = nil
                         f?()
@@ -151,9 +159,12 @@ import SwiftUI
     }
 
     /// Built outside the class's methods so the audio thread never touches main-thread-only state.
-    nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest, level: @escaping (Double) -> Void) -> AVAudioNodeTapBlock {
+    nonisolated private static func tap(_ req: SFSpeechAudioBufferRecognitionRequest, tape: TalkTape, level: @escaping (Double) -> Void)
+        -> AVAudioNodeTapBlock
+    {
         return { buf, _ in
             req.append(buf)
+            tape.add(buf)
             guard let ch = buf.floatChannelData?[0] else { return }
             let n = Int(buf.frameLength)
             var sum: Float = 0
@@ -181,24 +192,88 @@ import SwiftUI
         // The headset leaves call mode over the next second or two: the line is rebuilt once, after that (Speaker.rebuildSoon).
         Speaker.shared.rebuildSoon(after: 1.8, why: "push to talk ended")
         request?.endAudio()
+        // This press's own task and request: a new press in the next 1.6 s must never be cancelled by this clean-up.
+        let n = state.turn
+        let myTask = task
         var called = false
         let complete = {
             guard !called else { return }
             called = true
-            self.task?.cancel()
-            self.task = nil
-            self.request = nil
-            self.level = 0
-            done(self.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            myTask?.cancel()
+            if self.state.turn == n {
+                self.task = nil
+                self.request = nil
+                self.level = 0
+            }
+            self.settle(n, done)
         }
-        if gotFinal {
+        if state.gotFinal {
             complete()
         } else {
             onFinal = complete
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                self.onFinal = nil
+                if self.state.turn == n { self.onFinal = nil }
                 complete()
             }
+        }
+    }
+
+    /// What letting go does with what came back (TalkOutcome): send it, try Apple's server once, or say so.
+    private func settle(_ n: Int, _ done: @escaping (String) -> Void) {
+        let heard = state.turn == n ? text : ""
+        let outcome = TalkOutcome.after(text: heard, peak: state.turn == n ? state.peak : 0, onDevice: onDevice)
+        VoiceLine.log("push to talk: \(outcome.logLine)")  // never the words themselves
+        switch outcome {
+        case .send(let t): done(t)
+        case .nothing: done("")
+        case .unclear:
+            sayUnclear()
+            done("")
+        case .tryServer:
+            retryOnServer(n) { t in
+                VoiceLine.log("push to talk: the server \(t.isEmpty ? "made out nothing" : "made out the words")")
+                if t.isEmpty { self.sayUnclear() }
+                done(t)
+            }
+        }
+    }
+    private func sayUnclear() {
+        let msg = "I heard you but couldn't make out the words. Try again a little closer to the mic."
+        problem = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { if self.problem == msg { self.problem = nil } }
+    }
+
+    /// The same audio once more, through Apple's server recognizer (up to 6 s). Empty when it can't.
+    private func retryOnServer(_ n: Int, _ done: @escaping (String) -> Void) {
+        let buffers = tape.all
+        guard let r = recognizer, r.isAvailable, !buffers.isEmpty else {
+            done("")
+            return
+        }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = false
+        req.addsPunctuation = true
+        req.requiresOnDeviceRecognition = false
+        var best = ""
+        var finished = false
+        let end = { (t: String) in
+            guard !finished else { return }
+            finished = true
+            done(t.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let t = r.recognitionTask(
+            with: req,
+            resultHandler: Listener.handler { text, final in
+                DispatchQueue.main.async {
+                    if let text { best = text }
+                    if final { end(best) }
+                }
+            })
+        for b in buffers { req.append(b) }
+        req.endAudio()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+            t.cancel()
+            end(best)
         }
     }
 }

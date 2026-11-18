@@ -243,6 +243,41 @@ enum HelperCheck {
         check("and the retry doesn't count as another cut-off", hs2[0].resumes == 1)
         hs2[0].resumes = HelperTrail.maxResumes
         check("cut off too many times: stopped, not queued", !HelperTrail.notFinished(&hs2[0], .cutOff) && hs2[0].line == HelperTrail.gaveUp(2))
+        // Nov 17, "Ship One PR 133": the engine stopped mid-turn and its own words said the turn "will not be run again" and
+        // to send the message again, though One picked the helper back up 30 s later and it finished. Never shown, never asked.
+        let shutdown =
+            "Gateway shutting down: this turn was interrupted and will not be run again. Send your message again once Hermes is back."
+        var ship = Helper(title: "Ship One PR 133", task: "Merge PR 133 and ship it.", sid: "s-133", state: "working", line: "")
+        ship.reply = "Installed 0.9.120. Checking it started.\n\n" + shutdown
+        let shipEnd = HelperEnd.of(stop: "end_turn", reply: ship.reply)
+        check("an engine shutdown mid-turn is a cut-off", shipEnd == .cutOff)
+        check("and One will pick it back up", HelperTrail.notFinished(&ship, shipEnd) && ship.resumeQueued == true)
+        let shownShip = Choices.split(Helpers.strip(ship.reply)).body
+        check("a helper One will resume never shows \"will not be run again\"", !shownShip.contains("will not be run again"))
+        check("and never asks them to send it again", !shownShip.lowercased().contains("send your message again"))
+        check("it says plainly One is picking it back up", shownShip.contains("One restarted; picking this back up."))
+        check("its own words before the cut stay", shownShip.contains("Installed 0.9.120."))
+        var shipped = [ship]
+        let shipAgain = HelperTrail.pick(&shipped, brief: brief).first?.prompt ?? ""
+        check(
+            "the picked-up helper isn't handed the engine's resend words",
+            !shipAgain.contains("will not be run again") && !shipAgain.contains("Send your message again"))
+        var rest = Helper(title: "Restart words", task: "Ship it.", sid: "s-r", state: "working", line: "")
+        rest.reply =
+            "Operation interrupted: waiting for model response (4.6s elapsed).\nGateway restarting: this turn was interrupted and will "
+            + "not be run again. Send your message again once Hermes reconnects."
+        check("the restart wording is a cut-off too", HelperTrail.notFinished(&rest, HelperEnd.of(stop: "end_turn", reply: rest.reply)))
+        check(
+            "and neither of its lines shows",
+            !rest.reply.contains("will not be run again") && !rest.reply.contains("Operation interrupted")
+                && rest.reply.contains("One restarted; picking this back up."))
+        var tooMany = Helper(title: "Cut again", task: "Ship it.", sid: "s-t", state: "working", line: "")
+        tooMany.resumes = HelperTrail.maxResumes
+        tooMany.reply = shutdown
+        _ = HelperTrail.notFinished(&tooMany, .cutOff)
+        check(
+            "cut off too often: still no engine resend words",
+            !tooMany.reply.contains("will not be run again") && !tooMany.reply.contains("Send your message again"))
         var bad = Helper(title: "Bad", task: "", sid: nil, state: "working", line: "")
         check(
             "a failure is stopped with the reason, never done",

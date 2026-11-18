@@ -85,9 +85,13 @@ enum RoutingCheck {
         print("the brain")
         check("a showtimes lookup → balanced", Router.tier("Search for movie showtimes tomorrow") == 1)
         check("building → their own pick", Router.tier("Build and ship the orb fix") == 0)
-        check("steps down from Smartest only", Router.model(JobRoute(tier: 1), provider: .claude, current: "claude-opus-5-5") == "claude-sonnet-5")
-        check("never from Balanced or Fastest", Router.model(JobRoute(tier: 1), provider: .claude, current: "claude-sonnet-5") == nil)
-        check("never on a pay-per-use account", Router.model(JobRoute(tier: 1), provider: .openrouter, current: "anthropic/claude-opus-5.5") == nil)
+        let claude = Provider.claude.tiers.map(\.1)
+        check("steps down from Smartest only", Router.model(JobRoute(tier: 1), provider: .claude, current: claude[0]) == claude[1])
+        check(
+            "never from Balanced or Fastest", claude.dropFirst().allSatisfy { Router.model(JobRoute(tier: 1), provider: .claude, current: $0) == nil }
+        )
+        let paid = Provider.openrouter.tiers[0].1
+        check("never on a pay-per-use account", Router.model(JobRoute(tier: 1), provider: .openrouter, current: paid) == nil)
 
         print("what the helper gets")
         let note = Router.helperNote(b, index: idx)

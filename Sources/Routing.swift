@@ -200,7 +200,7 @@ enum Router {
     /// light jobs; never picks a model on a pay-per-use account (that would spend their money without a yes).
     static func model(_ r: JobRoute, provider: Provider, current: String) -> String? {
         let t = provider.tiers
-        guard r.tier == 1, provider != .openrouter, t.count > 1, current == t[0].1 else { return nil }
+        guard r.tier == 1, provider != .openrouter, t.count > 1, ModelLineup.tier(of: current, provider: provider) == 0 else { return nil }
         return t[1].1
     }
 }

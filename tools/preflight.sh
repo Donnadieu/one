@@ -218,6 +218,9 @@ part 3 "Other AIs and thinking levels: the engine's list, a key's check, each br
 mkdir -p "$T/oa"
 check "Other AIs keeps plain-key AIs only, groups never drop one, presets set Max/Medium/Low and step down, keys checked as each AI expects" bash -c "ONE_SUPPORT_DIR=$T/oa $TBIN --test-other-ais | tee $T/oa/out.txt | grep -q '^other ais ok'"
 grep -q "^other ais ok" "$T/oa/out.txt" 2>/dev/null || grep -v "^✓" "$T/oa/out.txt" 2>/dev/null | tail -6 | sed 's/^/    /'  # what failed, or where it stopped
+mkdir -p "$T/ml"
+check "each AI's Smartest/Balanced/Fastest are its newest models, none retired; a retired saved choice or routine pin moves to the maker's replacement" bash -c "ONE_SUPPORT_DIR=$T/ml $TBIN --test-model-lineup | tee $T/ml/out.txt | grep -q '^model lineup ok'"
+grep -q "^model lineup ok" "$T/ml/out.txt" 2>/dev/null || grep "✗" "$T/ml/out.txt" 2>/dev/null | sed 's/^/    /'
 
 part 3 "Blocked on a step only you can do: ask, never substitute"
 mkdir -p "$T/bl"

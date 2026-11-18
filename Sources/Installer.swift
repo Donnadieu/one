@@ -337,22 +337,23 @@ enum Provider: String, CaseIterable, Identifiable {
         }
     }
     var defaultModel: String { models[0] }
-    /// The three plain choices people see: Smartest, Balanced, Fastest.
+    /// The three plain choices people see: Smartest, Balanced, Fastest. Smartest is the maker's newest best model;
+    /// what each held before and the retired ids are in ModelLineup.swift (checked against each maker, Nov 18 2026).
     var tiers: [(String, String)] {
         switch self {
-        case .claude: [("Smartest", "claude-opus-5-5"), ("Balanced", "claude-sonnet-5"), ("Fastest", "claude-haiku-5-5")]
-        case .chatgpt: [("Smartest", "gpt-6.1-sol"), ("Balanced", "gpt-6-sol"), ("Fastest", "gpt-5.4-mini")]
-        case .grok: [("Smartest", "grok-4.6"), ("Balanced", "grok-4.20-0309-reasoning"), ("Fastest", "grok-4.20-0309-non-reasoning")]
+        case .claude: [("Smartest", "claude-fable-5-2"), ("Balanced", "claude-sonnet-5-5"), ("Fastest", "claude-haiku-5-5")]
+        case .chatgpt: [("Smartest", "gpt-6.2-astra"), ("Balanced", "gpt-6.2-sol"), ("Fastest", "gpt-6-luna")]
+        case .grok: [("Smartest", "grok-4.7"), ("Balanced", "grok-4.6"), ("Fastest", "grok-4.20-0309-non-reasoning")]
         case .openrouter:
-            [("Smartest", "anthropic/claude-opus-5.5"), ("Balanced", "anthropic/claude-sonnet-5.5"), ("Fastest", "google/gemini-3-flash-preview")]
+            [("Smartest", "anthropic/claude-fable-5.2"), ("Balanced", "anthropic/claude-sonnet-5.5"), ("Fastest", "google/gemini-3.8-flash")]
         }
     }
     /// Tried in order until one answers (plans don't all allow the same models).
     var models: [String] {
         switch self {
-        case .claude: ["claude-sonnet-5", "claude-opus-5", "claude-sonnet-4-6"]
-        case .chatgpt: ["gpt-6-sol", "gpt-5.6-sol", "gpt-6-luna", "gpt-5.6-terra"]
-        case .grok: ["grok-4.6", "grok-4.20-0309-reasoning"]
+        case .claude: ["claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6"]
+        case .chatgpt: ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol"]
+        case .grok: ["grok-4.6", "grok-4.7", "grok-4.20-0309-reasoning"]
         case .openrouter: ["openrouter/auto"]
         }
     }

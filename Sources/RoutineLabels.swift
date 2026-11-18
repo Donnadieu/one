@@ -60,14 +60,15 @@ enum RoutineLabels {
         let inTitle = RoomPrivacy.named(in: r.title, facts: rooms)
         if inTitle.count == 1 { return inTitle[0].title }
         if inTitle.count > 1 { return nil }
-        // In its instructions only the room's folder or its AI's name count: "the Personal, Work and Co-Founder rooms"
-        // is a routine that works across rooms (the assistant's own), not the Co-Founder room's.
-        let strict = rooms.map { f in
-            var g = f
-            g.title = f.url.lastPathComponent
-            return g
+        // In its instructions only the room's folder as a path ("personal-room/…") or its AI's name count: "the Personal,
+        // Work and Co-Founder rooms" is a routine that works across rooms (the assistant's own), not one room's.
+        let head = String(r.prompt.prefix(400))
+        let inPrompt = rooms.filter { f in
+            let folder = NSRegularExpression.escapedPattern(for: f.url.lastPathComponent)
+            if head.range(of: "(^|[\\s\"'/(])" + folder + "/", options: .regularExpression) != nil { return true }
+            guard let a = f.ai, a.count >= 3 else { return false }
+            return head.range(of: "\\b" + NSRegularExpression.escapedPattern(for: a) + "\\b", options: .regularExpression) != nil
         }
-        let inPrompt = RoomPrivacy.named(in: String(r.prompt.prefix(400)), facts: strict)
         return inPrompt.count == 1 ? inPrompt[0].title : nil
     }
 

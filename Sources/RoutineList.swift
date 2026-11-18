@@ -67,7 +67,8 @@ enum RoutineList {
         }
         out = out.enumerated().sorted { a, b in rank(a.element) != rank(b.element) ? rank(a.element) < rank(b.element) : a.offset < b.offset }.map(
             \.element)
-        for (id, title, r) in tail { add(id, title, r, clearable: true) }
+        for (id, title, r) in tail where id == leftoverID { add(id, title, r, clearable: true) }  // looks done, then finished
+        for (id, title, r) in tail where id == finishedID { add(id, title, r, clearable: true) }
         return out.map { g in
             var g = g
             g.rows.sort(by: order)

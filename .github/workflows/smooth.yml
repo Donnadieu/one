@@ -21,7 +21,7 @@ concurrency:
 jobs:
   smooth:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 40 }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }

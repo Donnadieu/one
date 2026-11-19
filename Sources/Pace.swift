@@ -126,6 +126,14 @@ import SwiftUI
         return t
     }
 
+    /// For `--test-idle`: what the shared timers are doing.
+    var state: String {
+        let t = PaceTicker.self
+        return String(
+            format: "home tick %.3f s (users %d, stars %d, words %d), orb tick %.3f s (users %d)", homeEvery, t.home.users, t.stars.users,
+            t.second.users, orbEvery, t.orb.users)
+    }
+
     /// One pass for the main window: every picture at rest, the stars every third tick, words once a second.
     private func homeTick() {
         let now = Date()

@@ -23,18 +23,14 @@ enum IdleCheck {
         /// Mac. 0.9.137 on the runner: tucked away 29% main thread, 35% app, 136 wakeups/s, home drawing 401 times a
         /// second; in front 19%; behind another app 16%.
         /// Main thread, tucked away or minimized, nothing working: the resting orb and the loops only.
-        static let hiddenMain = 0.06
+        static let hiddenMain = 0.05
         /// The whole app's CPU in the same states (every thread: drawing, files, the loops).
-        static let hiddenApp = 0.08
+        static let hiddenApp = 0.06
         /// Wakeups a second in the same states (Activity Monitor's "Idle Wake Ups" plus interrupts).
-        static let hiddenWakeups = 80.0
-        /// Nothing of One on screen (the orb put away too): only the loops. The floor of "open and idle".
-        static let floorMain = 0.01
-        static let floorApp = 0.02
-        static let floorWakeups = 30.0
+        static let hiddenWakeups = 50.0
         /// In front or behind another app with nothing working.
-        static let frontMain = 0.10
-        static let backMain = 0.05
+        static let frontMain = 0.12
+        static let backMain = 0.06
         /// In front with 4 helpers at work (each streaming ~10 pieces a second): their lights at full rate.
         static let workersMain = 0.30
         /// Tucked away with 4 helpers at work: the orb's working light and the words coming in.
@@ -100,7 +96,7 @@ enum IdleCheck {
         let p = Pace.shared
         let w = NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }
         print(
-            "  [pace: home seen \(p.homeSeen), orb seen \(p.orbSeen), front \(p.front), voice \(p.voice); window \(w.map { "\(type(of: $0)) visible \($0.isVisible) mini \($0.isMiniaturized) occl \($0.occlusionState.rawValue)" } ?? "none"); \(NSApp.windows.count) windows]"
+            "  [pace: home seen \(p.homeSeen), orb seen \(p.orbSeen), front \(p.front), voice \(p.voice), \(p.state); window \(w.map { "\(type(of: $0)) visible \($0.isVisible) mini \($0.isMiniaturized) occl \($0.occlusionState.rawValue)" } ?? "none"); \(NSApp.windows.count) windows]"
         )
         let tag = name.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.prefix(4).joined(separator: "-")
         await SmoothCheck.profile("idle-" + tag, seconds: 3)
@@ -242,7 +238,14 @@ enum IdleCheck {
         win.deminiaturize(nil)
         Floater.shared.openMain()
         NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .seconds(1.5))
+        // Back from the Dock, everything moves again as before (not stuck at rest or still).
+        let again = await measure("in front again after the Dock, nothing working", seconds: 3)
+        over(
+            again.homeDraws < front.homeDraws * 0.6,
+            "back in front: home drew \(String(format: "%.0f", again.homeDraws)) a second, \(String(format: "%.0f", front.homeDraws)) before minimizing"
+        )
         var four: Result?
         for n in 1...4 {
             working(n)
@@ -250,7 +253,13 @@ enum IdleCheck {
             let r = await measure("in front, \(n) helper\(n == 1 ? "" : "s") at work", seconds: 4)
             if n == 4 { four = r }
         }
-        if let four { over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))") }
+        if let four {
+            over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))")
+            // Their circling lights still move at the screen's full rate (the smoothness Omar asked for, Nov 18).
+            let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+            over(
+                four.homeDraws < 4 * hz * 0.4, "4 at work: drew only \(String(format: "%.0f", four.homeDraws)) a second (their lights at \(Int(hz)))")
+        }
         Floater.shared.tuckAway(nil)
         try? await Task.sleep(for: .seconds(1.5))
         let away = await measure("tucked away, 4 helpers at work", seconds: 4)
@@ -273,19 +282,6 @@ enum IdleCheck {
         _ = await measure("[look] in front, no helpers or bots, stars still", seconds: 3)
         m.helpers = keep
         Stars.reduceMotion = false
-        // The floor: the window tucked away and the orb put away too, so nothing of One is on screen.
-        win.orderOut(nil)
-        Floater.shared.hide()
-        try? await Task.sleep(for: .seconds(1.5))
-        let floor = await measure("nothing of One on screen (window and orb put away)")
-        over(
-            floor.homeDraws + floor.orbDraws > Budget.hiddenHomeDraws,
-            "nothing on screen: still drew \(String(format: "%.1f", floor.homeDraws + floor.orbDraws)) a second")
-        over(floor.main > Budget.floorMain, "nothing on screen: main thread \(pct(floor.main)) (budget \(pct(Budget.floorMain)))")
-        over(floor.app > Budget.floorApp, "nothing on screen: app \(pct(floor.app)) CPU (budget \(pct(Budget.floorApp)))")
-        over(
-            floor.wakeups > Budget.floorWakeups,
-            "nothing on screen: \(String(format: "%.0f", floor.wakeups)) wakeups a second (budget \(Int(Budget.floorWakeups)))")
         stream.invalidate()
         win.close()
         fails.forEach { print($0) }

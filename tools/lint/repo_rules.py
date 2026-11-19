@@ -231,11 +231,18 @@ RUNS_LINE = re.compile(r'^#\s*runs:\s*(?P<venue>[\w -]+?)\s*\((?P<how>[^)]+)\)\s
 # string "(jobs-check.sh)" inside a test-case label, and engine-check.sh read as reachable because a
 # workflow names goal-engine-check.sh (a basename that ends with it).
 INVOKED = re.compile(r'(?<![\w/.-])(?:\./)?tools/([\w./-]+\.(?:sh|py))')
-SIBLING = re.compile(r'\$\(dirname\s+"\$0"\)/([\w.-]+\.(?:sh|py))')
+SIBLING = re.compile(r'\$\((?:dirname|cd)[^)]*\)(?:/[\w.-]+)*/([\w.-]+\.(?:sh|py))')
+# In a workflow, only a `run:` body is a command. The rest of the YAML is configuration, and a path
+# there is not an invocation: `.github/workflows/smooth.yml` names tools/smooth-compare.sh in its
+# `paths:` filter, so deleting the step that actually runs it left it certified as "runs in CI".
+# In a shell script every non-comment line is a command, and the shells here put a command after an
+# env assignment, after a quoted description (preflight's `check "…" cmd`) and inside `bash -c "…"`,
+# so trying to pin the position there costs more accuracy than it buys.
+RUN_BODY = re.compile(r'(?:-\s+)?run:\s*(.*)$')
 # tools/preflight.sh guards its owner-only lines with `[ $CI = 0 ]`, and every venue runs it with
 # --ci, so a check named only on one of those lines runs nowhere. Counting such a line as an
 # invocation is how tools/browser-guard-engine-check.sh passed this rule while testing nothing.
-NEVER_IN_CI = re.compile(r'\[\s*\$\{?CI\}?\s*=\s*0\s*\]')
+NEVER_IN_CI = re.compile(r'\[\[?\s*"?\$\{?CI\}?"?\s*==?\s*"?0"?\s*\]\]?')
 COMMENT = re.compile(r'(?:^|(?<=\s))#.*$')
 _REACH = None
 _TARGETS = None
@@ -243,8 +250,19 @@ _TARGETS = None
 
 def commands(path):
     """The scripts this file really runs: comments stripped, dead-in-CI lines dropped."""
-    out = set()
+    out, in_yaml, run_at = set(), path.endswith((".yml", ".yaml")), None
     for line in read(path).split("\n"):
+        if in_yaml:   # only a `run:` body is a command; the rest of the YAML is configuration
+            stripped = line.lstrip()
+            indent = len(line) - len(stripped)
+            m = RUN_BODY.match(stripped)
+            if m:
+                run_at, line = indent, m.group(1)
+            elif run_at is not None and (not stripped or indent > run_at):
+                line = stripped
+            else:
+                run_at = None
+                continue
         line = COMMENT.sub("", line)
         if not line.strip() or NEVER_IN_CI.search(line):
             continue

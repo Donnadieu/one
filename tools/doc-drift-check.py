@@ -155,11 +155,14 @@ def check_area_retags(base, changed):
     out = []
     for name, was in old.items():
         now = new.get(name)
-        if now is None or judged(now) == judged(was):
+        if now is not None and judged(now) == judged(was):
             continue
         if any(c.endswith("/" + name) or c == name for c in changed):
             continue   # the file is in this diff too, so the retag is part of a real change
-        out.append((name, sorted(was), sorted(now)))
+        # A row that is gone counts as well. For Sources/*.swift `architecture-table` fails closed on
+        # it anyway, but nothing covered the other rows, and deleting a row is the same move as
+        # retagging one: it takes a file out of what the lint can judge.
+        out.append((name, sorted(was), sorted(now) if now is not None else ["(no row any more)"]))
     return out
 
 

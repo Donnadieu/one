@@ -1,7 +1,13 @@
 {
  "_allow-growth": {
-  "dependency-direction": "PER-33: the rule reads its file set from the table in docs/ARCHITECTURE.md instead of a hand-typed list of 32 names. That list had Helpers.swift in it (5 findings that were false positives: the table says service + ui, so its Views are fine) and did NOT have HumanStep.swift (6 real Model.shared calls from a service file, exempt only because nobody had added it). Net 13 -> 14. Follow-up: give HumanStep.swift's 6 call sites a closure or a return value instead of Model.shared, then delete this entry.",
-  "file-length": "PER-33: the 600-line cap covered Sources/*.swift only, so 4,500 lines of Python and 39 shell scripts were never measured. It now covers .py, .sh, .yml and .html too (the file-length-everywhere guardrail), which found four files already over: three engine overlay plugins and tools/overlay/tools/one_human_step.py at 1,236 lines. 0 -> 4, all grandfathered, none new. Follow-up: split them by area; one-lint: file-bloat makes sure they can only get shorter meanwhile."
+  "dependency-direction": {
+   "to": 14,
+   "why": "PER-33: the rule reads its file set from the table in docs/ARCHITECTURE.md instead of a hand-typed list of 32 names. That list had Helpers.swift in it (5 findings that were false positives: the table says service + ui, so its Views are fine) and did NOT have HumanStep.swift (6 real Model.shared calls from a service file, exempt only because nobody had added it). Net 13 -> 14. Follow-up: give HumanStep.swift's 6 call sites a closure or a return value instead of Model.shared, then delete this entry."
+  },
+  "file-length": {
+   "to": 4,
+   "why": "PER-33: the 600-line cap covered Sources/*.swift only, so 4,500 lines of Python and 39 shell scripts were never measured. It now covers .py, .sh, .yml and .html too (the file-length-everywhere guardrail), which found four files already over: three engine overlay plugins and tools/overlay/tools/one_human_step.py at 1,236 lines. 0 -> 4, all grandfathered, none new. Follow-up: split them by area; one-lint: file-bloat makes sure they can only get shorter meanwhile."
+  }
  },
  "dependency-direction|Sources/HumanStep.swift": 6,
  "dependency-direction|Sources/Pictures.swift": 4,

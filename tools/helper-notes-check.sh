@@ -4,5 +4,5 @@
 # (Connections › Browser / Passwords, never a Settings screen), with One's real engine in a throwaway home (three
 # short turns on the Claude subscription One already uses). A copy of the app with its own bundle id runs it, so the
 # person's chat, settings and running One are never touched. See Sources/HelperNotesCheck.swift.
-exec "$(dirname "$0")/engine-check.sh" --mode --test-helper-notes --timeout 420 \
+exec env ONE_CALLER="$(basename "$0")" "$(dirname "$0")/engine-check.sh" --mode --test-helper-notes --timeout 420 \
   --name helpernotes-test --test-engine "$@"

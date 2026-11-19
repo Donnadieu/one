@@ -328,12 +328,16 @@ def prove(verbose=False):
             bad.append(f"✗ {rid}: its canary passed. FIX: the rule stopped matching — fix the rule, or "
                        f"update tools/lint/canaries/{rid}.canary to today's shape of the mistake.")
             continue
+        # Exactly, not at least. With `>=` a canary carrying six shapes could report nine findings
+        # (three of its lines held two jargon words each) and three alternatives could then be
+        # deleted with the count still over the line — three findings of slack, invisible.
         want = int(meta.get("branches", 1))
-        if len(hits) < want:
-            bad.append(f"✗ {rid}: its canary has {want} shapes of the mistake in it but the rule reported "
-                       f"only {len(hits)}, so it no longer catches all of them. FIX: the rule was narrowed "
-                       f"— widen it back, or lower `branches:` in tools/lint/canaries/{rid}.canary and say "
-                       f"in the commit message which shape stopped being a mistake.")
+        if len(hits) != want:
+            how = "no longer catches all of them" if len(hits) < want else "reports more than that"
+            bad.append(f"✗ {rid}: its canary says `branches: {want}` but the rule reported {len(hits)}, "
+                       f"so it {how}. FIX: if the rule was narrowed, widen it back. If the count was "
+                       f"always wrong, set `branches: {len(hits)}` in tools/lint/canaries/{rid}.canary — "
+                       f"it has to be exact, or the slack hides an alternative going dead.")
             continue
         wrong = list(fn(path, allowed.rstrip("\n").split("\n"))) if allowed.strip() else []
         if wrong:
@@ -390,8 +394,16 @@ def main():
     seen = coverage()
     print("scope: " + ", ".join(f"{rid} judges {seen[rid]} files" for rid in FROM_DOCS if rid in seen)
           + " (from the table in docs/ARCHITECTURE.md)")
+    # Every rule's file count, not just those two: a selector narrowed from "every tracked file" to
+    # "*.py" keeps its canary's path selected and so passes --prove, and the only visible trace is
+    # the number here falling. A rule that selects nothing is a rule that is switched off.
+    print("       " + ", ".join(f"{rid}:{seen[rid]}" for rid in sorted(seen)))
+    empty = sorted(rid for rid, n in seen.items() if n == 0)
+    for rid in empty:
+        print(f"✗ {rid} judges 0 files, so it cannot report anything. FIX: widen the rule's files in "
+              f"RULES (tools/lint/one-lint.py), or delete the rule and its canary.")
     print(f"one-lint: {len(RULES)} rules, {sum(counts.values())} findings, {sum(base.values())} grandfathered, {len(bad)} new problems")
-    return 1 if bad or rotten else 0
+    return 1 if bad or rotten or empty else 0
 
 if __name__ == "__main__":
     sys.exit(main())

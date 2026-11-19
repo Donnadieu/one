@@ -364,6 +364,12 @@ check "the voice test left your mute setting alone" test "$VM_BEFORE" = "$(defau
 part 1 "Shipped skills"
 mkdir -p "$T/sk"
 check "fresh home gets them, edited copies are kept" bash -c "ONE_SUPPORT_DIR=$T/sk $TBIN --test-skills | tee $T/sk/out.txt | grep -q '^skills ok'"
+mkdir -p "$T/pn"
+check "one panel at a time (Model state: every panel goes through closeOtherPanels)" bash -c "ONE_SUPPORT_DIR=$T/pn $TBIN --test-panels | tee $T/pn/out.txt | grep -q '^panels ok'"
+grep "✗" "$T/pn/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/ss"
+check "Ready for you search: titles, the text inside a file, day grouping, the Older fold" bash -c "ONE_SUPPORT_DIR=$T/ss $TBIN --test-shelf-search | tee $T/ss/out.txt | grep -q '^ALL PASS'"
+grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 grep "✗" "$T/sk/out.txt" 2>/dev/null | sed 's/^/    /'
 
 part 1 "Home glass"

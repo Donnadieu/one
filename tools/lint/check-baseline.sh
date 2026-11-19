@@ -55,12 +55,24 @@ def rule(key):
 
 
 # A key starting with "_" is metadata. "_allow-growth" is the one and only way past the per-rule
-# check below: {"_allow-growth": {"<rule>": "<why, in words>"}}. It exists because a rule can get
-# MORE ACCURATE — reading the file set from docs/ARCHITECTURE.md instead of a hand-typed list stopped
-# exempting a file that had six real violations in it — and a total going up for that reason is not
-# the same as somebody adding debt. It has to carry a reason, it is printed loudly on every run, and
-# it has to be deleted when the debt is paid.
-ALLOW = {k: v for k, v in new_all.get("_allow-growth", {}).items() if str(v).strip()}
+# check below:
+#
+#   {"_allow-growth": {"<rule>": {"to": <the exact new total>, "why": "<in words>"}}}
+#
+# It exists because a rule can get MORE ACCURATE — reading the file set from docs/ARCHITECTURE.md
+# instead of a hand-typed list stopped exempting a file that had six real violations in it — and a
+# total going up for that reason is not the same as somebody adding debt.
+#
+# The CEILING is what makes it an allowance and not a blank cheque. With a reason alone, an entry
+# excused that rule's growth without limit for as long as it sat there, so the first entry turned the
+# per-rule check off for its rule — including after this branch merged and the growth it described
+# was already in main. `to` has to equal the new total exactly, so the entry stops applying the
+# moment anything else grows under that rule, and an entry whose number no longer matches is a
+# failure rather than a quiet pass.
+ALLOW = {}
+for _rid, _spec in new_all.get("_allow-growth", {}).items():
+    if isinstance(_spec, dict) and str(_spec.get("why", "")).strip() and isinstance(_spec.get("to"), int):
+        ALLOW[_rid] = _spec
 old = {k: v for k, v in old_all.items() if not k.startswith("_")}
 new = {k: v for k, v in new_all.items() if not k.startswith("_")}
 
@@ -81,10 +93,15 @@ for rid in sorted(seeded):
     now = sum(v for k, v in new.items() if rule(k) == rid)
     if now <= was:
         continue
-    if rid in ALLOW:
+    if rid in ALLOW and ALLOW[rid]["to"] == now:
         print(f"· {rid} in total: {was} -> {now}, allowed by _allow-growth in {path}:")
-        print(f"    {ALLOW[rid]}")
+        print(f"    {ALLOW[rid]['why']}")
         print("    This is the only way past the ratchet. Delete the entry when the debt is paid.")
+        continue
+    if rid in ALLOW:
+        bad.append(f"{rid} in total: {was} -> {now}, but _allow-growth allows exactly "
+                   f"{ALLOW[rid]['to']}. An allowance is for ONE known change, not a standing "
+                   f"exemption. FIX: fix the new finding; don't raise the number.")
         continue
     bad.append(f"{rid} in total: {was} -> {now} (a new file or a rename doesn't get a fresh allowance)")
 # An allowance that isn't excusing anything should go, because it would pre-authorise the NEXT bit

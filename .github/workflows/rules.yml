@@ -36,6 +36,7 @@ env:
   # version finds a different set and the counts would stop meaning what CI measures.
   RUFF_VERSION: 0.14.5
   SHELLCHECK_VERSION: 0.11.0
+  SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 
 jobs:
   rules:
@@ -47,10 +48,27 @@ jobs:
 
       # On a pull request: the commits it adds. On a push to main: the commits the push added. It used
       # to be pull-request-only, so a push straight to main was checked by nothing at all.
+      # A dispatch has no `github.event.before`, and a first push or a force-push sends all-zeros, so
+      # the fallback is the head commit's own parent rather than an empty left side (which git reads
+      # as HEAD and resolves to nothing — check-identity.sh refuses that range now, so this would be
+      # red rather than falsely green, but red on every dispatch is no better).
       - name: Only Donnadieu's identity (never donnadieu-andela)
         env:
-          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
-        run: tools/check-identity.sh --ci "$RANGE"
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            RANGE="$PR_BASE..$PR_HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] &&
+               git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            RANGE="$BEFORE..$HEAD_SHA"
+          else
+            RANGE="$HEAD_SHA~1..$HEAD_SHA"
+          fi
+          echo "checking $RANGE"
+          tools/check-identity.sh --ci "$RANGE"
 
       - name: One's own rules (tools/lint/one-lint.py)
         run: python3 tools/lint/one-lint.py
@@ -64,8 +82,14 @@ jobs:
           # Pinned, and not from apt: the image's shellcheck moves with the image, so an unrelated
           # pull request would go red (or quietly find less) the week the runner was rebuilt. The
           # apt install also had no `apt-get update`, which fails whenever the index is stale.
-          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz" \
-            | tar -xJ -C "$RUNNER_TEMP"
+          #
+          # By checksum, because a tag is not bytes: a release asset can be re-uploaded under the
+          # same tag, and `--version` only asks the binary what it thinks it is. This is the same
+          # reasoning as pinning an action to a commit rather than a tag (one-lint: action-pinned).
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJ -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/shellcheck.tar.xz"
           sudo install -m 0755 "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version | grep -q "$SHELLCHECK_VERSION"
 

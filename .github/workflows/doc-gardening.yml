@@ -16,6 +16,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # `gh workflow run` below needs this. An explicit permissions block zeroes every scope it doesn't
+  # name, so without it the dispatch 403s and the job goes red AFTER the pull request is open.
+  actions: write
 
 jobs:
   garden:

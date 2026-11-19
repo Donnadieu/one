@@ -1,16 +1,26 @@
 pretend: Sources/Canary.swift
-branches: 6
+branches: 13
 --
+# One line per word in JARGON, so the count below pins every alternative one for one: dropping any
+# single word from the list makes the rule report 12 and this canary fail by name.
 Text("Paste your API key here")
-Label("Sign in with OAuth", systemImage: "key")
-Button("Copy the token") {}
-Text("Open the terminal and run the CLI")
-Text("Edit the JSON config")
-Text("Set the webhook endpoint")
+Text("Sign in with OAuth")
+Text("Copy the token")
+Text("It runs in a sandbox")
+Text("Open the CLI")
+Text("Use the terminal")
+Text("Edit the JSON")
+Text("Change the config")
+Text("Speaks ACP")
+Text("Set the endpoint")
+Text("Pick a repo")
+Text("Add a webhook")
+Text("Runs on a cron")
 --allow--
 Text("Sign in")
 Text("Your files")
 Text("Settings")
-// API key, OAuth, token — a comment is not UI text
+Text("Open your folder")
+// API key, OAuth, token, config — a comment is not UI text
 let endpoint = "https://example.com"
 print("config loaded")

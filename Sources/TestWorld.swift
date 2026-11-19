@@ -94,11 +94,18 @@ enum TestWorld {
     static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
 
     /// A live check the owner asked for by name: its make target sets ONE_LIVE_CHECK to that check's own
-    /// file name, and tools/ci-only.sh is what checks the name matches and that the check says it may only
-    /// run here. Only for the checks that need One's installed engine and his own subscription, which CI
-    /// can't have. Any non-empty value counts here, because the shell side already did the naming: this
-    /// gate only answers "did the owner ask for a live check at all".
-    static var liveCheck: Bool { !(ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] ?? "").isEmpty }
+    /// file name, and tools/ci-only.sh is what checks the name matches a script that declares itself
+    /// owner-only. Only for the checks that need One's installed engine and his own subscription, which
+    /// CI can't have.
+    ///
+    /// The value has to BE a check's file name. Accepting any non-empty string would have let
+    /// `ONE_LIVE_CHECK=1` — the old, unscoped spelling, and the one most likely to be left in a shell —
+    /// open every test mode straight from a test copy with no script in the path at all, which is the
+    /// half of the hard rule about windows and focus rather than about files.
+    static var liveCheck: Bool {
+        let asked = ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] ?? ""
+        return asked.hasSuffix("-check.sh") || asked.hasSuffix("-qa.sh")
+    }
 
     /// The real One folder, for reading fixtures only (never written by a test).
     static var realSupport: URL {

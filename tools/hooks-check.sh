@@ -59,21 +59,49 @@ import sys
 # `one-lint.py --prove` are two gates and the same call written three ways is one.
 GATE = re.compile(r'(?:^|[\s"\'(])(?:\./)?((?:tools/)[\w./-]*?([\w.-]+\.(?:sh|py)))')
 FLAG = re.compile(r'\s(--[\w-]+)')
+# Only --ci is a dialect difference: CI has no copy of the GPG key, so it checks the same range
+# without the signature. --all and --range change WHAT IS CHECKED (every baseline, not one; the whole
+# commit range, not just the config), so they stay in the signature — dropping them meant deleting
+# `--all` from the hook, or `--range` from the Makefile, left the three sets still matching.
+DIALECT = {"--ci"}
 
 
-def gates(text, drop=()):
+def shell_gates(text):
+    """Gates in a shell script or a Makefile: every non-comment line is a command."""
     out = set()
     for line in text.split("\n"):
         line = re.sub(r'(?:^|(?<=\s))#.*$', "", line)
-        for whole, base in GATE.findall(line):
-            if base in drop:
-                continue
-            # --ci and --range are the same gate asked in each venue's own dialect (CI has no copy
-            # of the GPG key, so it checks the range without the signature); --all likewise.
-            flags = sorted(set(FLAG.findall(line)) - {"--ci", "--range", "--all"})
-            out.add(" ".join([base] + flags))
+        for _whole, base in GATE.findall(line):
+            out.add(" ".join([base] + sorted(set(FLAG.findall(line)) - DIALECT)))
     if re.search(r'swift-format\s+lint', text):
         out.add("swift-format lint")
+    return out
+
+
+def workflow_gates(text):
+    """Gates in a workflow: `run:` bodies only.
+
+    A step's `name:` is prose. Reading it as an invocation meant rules.yml could have every `run:`
+    line replaced with `echo` and this check still reported the three venues in agreement — the same
+    mention-read-as-wiring defect the orphan rule had.
+    """
+    out, run_at = set(), None
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        m = re.match(r'(?:-\s+)?run:\s*(.*)$', stripped)
+        if m:
+            run_at, body = indent, m.group(1)
+        elif run_at is not None and (not stripped or indent > run_at):
+            body = stripped
+        else:
+            run_at = None
+            continue
+        body = re.sub(r'(?:^|(?<=\s))#.*$', "", body)
+        for _whole, base in GATE.findall(body):
+            out.add(" ".join([base] + sorted(set(FLAG.findall(" " + body)) - DIALECT)))
+        if re.search(r'swift-format\s+lint', body):
+            out.add("swift-format lint")
     return out
 
 
@@ -85,58 +113,75 @@ def run(*cmd):
     return out.stdout
 
 
-hook = gates(open(".githooks/pre-commit", encoding="utf-8").read())
+hook = shell_gates(open(".githooks/pre-commit", encoding="utf-8").read())
 # `make -n check` prints the commands every target `check:` depends on would run, so the closure is
 # make's answer, not a list of target names typed here.
-gate = gates(run("make", "-n", "check"))
-ci = gates(open(".github/workflows/rules.yml", encoding="utf-8").read())
+gate = shell_gates(run("make", "-n", "check"))
+ci = workflow_gates(open(".github/workflows/rules.yml", encoding="utf-8").read())
 
 # Differences that are on purpose. Each needs a reason, because each is a rule that does NOT run
 # before a commit.
-HOOK_SKIPS = {
-    "doc-drift-check.py": "needs a diff against origin/main, which a commit-time hook shouldn't fetch",
-    "knowledge-base-check.sh": "reads every doc; too slow for every commit",
-    "hooks-check.sh": "it would be checking itself, and `make check` already runs it",
-}
-# The same, for a gate that runs locally but not in rules.yml. Only one belongs here: rules.yml runs
-# on a cheap Linux runner, and swift-format comes from xcrun.
-CI_SKIPS = {
-    "swift-format lint": "needs macOS (xcrun), so it runs in preflight.yml instead — see its matrix",
+found = {"the hook": hook, "make check": gate, "rules.yml": ci}
+
+# The contract, declared once: every gate this repo enforces, and which of the three venues has to
+# run it. Comparing the venues only against EACH OTHER could not see a gate deleted from all three
+# (the sets stayed equal), and a hardcoded list of bare names couldn't see a gate that was added.
+# This is both directions: a gate missing from a venue that needs it is a finding, and a gate found
+# in a venue but absent from this table is a finding too, so adding one means saying where it runs.
+#
+# A venue a gate skips needs a reason. A rule deliberately left out of one place is a decision, and
+# a decision with nothing written down is how a list like this rots.
+REQUIRED = {
+    "check-identity.sh": ({"the hook", "make check", "rules.yml"}, {}),
+    "check-identity.sh --range": ({"make check"}, {
+        "the hook": "the hook checks the config; a range needs a fetch, which a commit-time hook shouldn't do",
+        "rules.yml": "runs there as --ci: author and committer, but not the signature (CI has no copy of the key)",
+    }),
+    "swift-format lint": ({"the hook", "make check"}, {
+        "rules.yml": "needs macOS (xcrun), so it runs in preflight.yml part 1 instead",
+    }),
+    "one-lint.py": ({"the hook", "make check", "rules.yml"}, {}),
+    "one-lint.py --prove": ({"the hook", "make check", "rules.yml"}, {}),
+    "ext-lint.py": ({"the hook", "make check", "rules.yml"}, {}),
+    "check-baseline.sh --all": ({"the hook", "make check", "rules.yml"}, {}),
+    "doc-drift-check.py": ({"make check", "rules.yml"}, {
+        "the hook": "needs a diff against origin/main, which a commit-time hook shouldn't fetch",
+    }),
+    "knowledge-base-check.sh": ({"make check", "rules.yml"}, {
+        "the hook": "reads every doc; too slow for every commit",
+    }),
+    "hooks-check.sh": ({"make check", "rules.yml"}, {
+        "the hook": "it would be checking itself, and `make check` already runs it",
+    }),
 }
 
 problems = []
-for g in sorted(gate - hook):
-    if g.split(" ")[0] in HOOK_SKIPS or g in HOOK_SKIPS:
-        continue
-    problems.append(f"{g} is in 'make check' but not in .githooks/pre-commit. "
-                    f"FIX: add it to the hook, or add it to HOOK_SKIPS in tools/hooks-check.sh with the reason.")
-for g in sorted(hook - gate):
-    problems.append(f"{g} is in .githooks/pre-commit but 'make check' doesn't reach it. "
-                    f"FIX: add it to a target 'make check' depends on.")
-# rules.yml is the one that actually blocks a pull request, so every gate the hook runs has to be
-# there. It may do more (it builds nothing locally can, and it checks the commit range).
-for g in sorted(hook - ci):
-    if g in CI_SKIPS:
-        continue
-    problems.append(f"{g} runs in .githooks/pre-commit but no step of .github/workflows/rules.yml runs it, "
-                    f"so a commit made with --no-verify is never checked. FIX: add a step to rules.yml, "
-                    f"or add it to CI_SKIPS in tools/hooks-check.sh with the reason and where it does run.")
-# rules.yml must also carry every gate `make check` has that isn't in the hook, or a docs-only pull
-# request (which skips preflight.yml entirely) is checked by nothing.
-for g in sorted(gate - ci - set(CI_SKIPS)):
-    problems.append(f"{g} runs in 'make check' but no step of .github/workflows/rules.yml runs it, so "
-                    f"nothing checks it on a pull request. FIX: add a step to rules.yml, or add it to "
-                    f"CI_SKIPS in tools/hooks-check.sh with the reason and where it does run.")
+for g, (venues, why_not) in REQUIRED.items():
+    for v in sorted(venues):
+        if g not in found[v]:
+            problems.append(f"{g} should run in {v} and doesn't. FIX: put it back, or move {v} into "
+                            f"that gate's reasons in REQUIRED (tools/hooks-check.sh) and say where it runs instead.")
+    for v in sorted(set(found) - venues):
+        if g in found[v]:
+            problems.append(f"{g} runs in {v}, which REQUIRED says it doesn't "
+                            f"({why_not.get(v, 'no reason recorded')}). FIX: add {v} to its venues in "
+                            f"tools/hooks-check.sh, or take the call out.")
+        elif v not in why_not:
+            problems.append(f"REQUIRED says {g} doesn't run in {v}, with no reason. FIX: write one in "
+                            f"tools/hooks-check.sh — a gate that skips a venue on purpose is a decision.")
+for v, gs in sorted(found.items()):
+    for g in sorted(gs - set(REQUIRED)):
+        problems.append(f"{v} runs {g}, which isn't in REQUIRED in tools/hooks-check.sh. FIX: add it "
+                        f"there with the venues that must run it, so the next reader — and the other "
+                        f"two venues — know it exists.")
 
 for p in problems:
     print(f"✗ {p}")
 if not problems:
-    print(f"✓ the same {len(hook)} gates run in all three places "
-          f"({len(gate - hook)} more in 'make check' and rules.yml, on purpose)")
-    for g, why in sorted(HOOK_SKIPS.items()):
-        print(f"    · not in the hook: {g} — {why}")
-    for g, why in sorted(CI_SKIPS.items()):
-        print(f"    · not in rules.yml: {g} — {why}")
+    print(f"✓ all {len(REQUIRED)} gates run in the venues REQUIRED names, and nowhere unaccounted for")
+    for g, (venues, why_not) in sorted(REQUIRED.items()):
+        for v, why in sorted(why_not.items()):
+            print(f"    · {g} is not in {v}: {why}")
 sys.exit(1 if problems else 0)
 PY
 

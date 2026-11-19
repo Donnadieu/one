@@ -23,9 +23,17 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ME=$(basename "$0")
 WANT="${ONE_LIVE_CHECK:-}"
 # tools/engine-check.sh is the shared wrapper the thin live checks `exec`, so by the time this runs
-# $0 is the wrapper, not the check that asked for it. It carries no header of its own; the check it
-# is standing in for is the one that has to be owner-only.
-[ "$ME" = engine-check.sh ] && ME="$WANT"
+# $0 is the wrapper, not the check that asked for it. The wrapper carries no owner-only header of its
+# own; the check standing behind it is the one that has to.
+#
+# ONE_CALLER, not ONE_LIVE_CHECK, is what names that check. Taking the name from the same variable
+# the gate is checking made the match vacuous — "is what you asked for what you asked for" — so one
+# stale export of any owner-only name let the wrapper run ANY test mode, and unlocked the CI-only
+# checks that exec it as well. Each wrapper sets ONE_CALLER to its own basename, which the wrapper
+# itself cannot forge, so running engine-check.sh by hand has no caller and is refused.
+if [ "$ME" = engine-check.sh ] && [ -n "${ONE_CALLER:-}" ]; then
+  ME="$ONE_CALLER"
+fi
 
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
   :   # CI: every check on a pull request runs here

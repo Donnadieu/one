@@ -4,4 +4,4 @@
 # release's own diff touching helpers persistence. A copy of the app with its own bundle id runs this, so the
 # person's real settings are never touched. No engine and no money: it runs in CI on every pull request.
 # See Sources/ResetCheck.swift.
-exec "$(dirname "$0")/engine-check.sh" --mode --test-reset --timeout 60 --name reset-test "$@"
+exec env ONE_CALLER="$(basename "$0")" "$(dirname "$0")/engine-check.sh" --mode --test-reset --timeout 60 --name reset-test "$@"

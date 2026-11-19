@@ -33,6 +33,21 @@
   `App.swift`, `BotsManage.swift`, `ModelLearning.swift`, `Helpers.swift` — because that is the shape
   the 0.9.74 "reset onboarding" incident had. The other eight are files with no row in the
   ARCHITECTURE.md table yet, so they'll resolve with the row.
+- Nine `--test-*` modes are reached straight from `App.swift` and run in no venue:
+  `--test-folders-fit`, `--test-message-click`, `--test-message-history`, `--test-message-typing`,
+  `--test-select`, `--test-shared`, `--test-shelf-copy` (PER-33 wired `--test-panels` and
+  `--test-shelf-search` into preflight, which is how the rest were counted). `no-orphan-check`
+  enforces reachability for `tools/*-check.*` scripts but nothing does the same for a mode, which is
+  the same class of hole one layer in. Worth a rule: every `--test-` string in `Sources/` must be
+  named by a venue, with the same `# runs:`-style escape for one that needs this Mac.
+- `one-lint: file-length`'s canary pins the 13 words in `JARGON` one per line, so deleting any one of
+  them fails `--prove`. Adding a 14th leaves the count at 13 and passes, after which that word could
+  be deleted unnoticed. Asserting `len(JARGON) == branches` (or generating the canary from the list)
+  would close it; left for now because a rule gaining an alternative is a reviewed change.
+- `TestWorld.liveCheck` checks only that `ONE_LIVE_CHECK` looks like a check's file name, not that the
+  named check exists and declares itself owner-only — `tools/ci-only.sh` is what verifies that, and
+  the Swift side is the second layer. Reading the name from a file the app can check would make both
+  layers equally strict.
 - The ten live checks that only Omar can run (`make jobs`, `make learning`, the five helper ones,
   `make routinglive`, `make humanwindow`, `make handoffqa`) are *reachable* but not *covered*: they
   need his own Claude subscription, so no runner can have them, and nothing records when one last

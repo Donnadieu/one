@@ -71,7 +71,10 @@ def rule(key):
 # failure rather than a quiet pass.
 ALLOW = {}
 for _rid, _spec in new_all.get("_allow-growth", {}).items():
-    if isinstance(_spec, dict) and str(_spec.get("why", "")).strip() and isinstance(_spec.get("to"), int):
+    _to = _spec.get("to") if isinstance(_spec, dict) else None
+    # not isinstance(bool): True is an int in Python, so {"to": true} would have validated and then
+    # matched any rule whose new total is exactly 1.
+    if isinstance(_to, int) and not isinstance(_to, bool) and str(_spec.get("why", "")).strip():
         ALLOW[_rid] = _spec
 old = {k: v for k, v in old_all.items() if not k.startswith("_")}
 new = {k: v for k, v in new_all.items() if not k.startswith("_")}

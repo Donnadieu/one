@@ -71,6 +71,11 @@ jobs:
         with:
           commit-message: "doc-gardening: automated fixes"
           title: "doc-gardening: automated fixes"
+          # Otherwise the action commits as github-actions[bot], which tools/check-identity.sh
+          # rejects: every commit here is the Donnadieu account (AGENTS.md), and a squash of this
+          # pull request would carry the bot's author onto main.
+          author: "Donnadieu <donnadieu.86@gmail.com>"
+          committer: "Donnadieu <donnadieu.86@gmail.com>"
           body-path: /tmp/doc-gardening-report.txt
           branch: doc-gardening/automated-fixes
           delete-branch: true

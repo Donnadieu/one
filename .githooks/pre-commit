@@ -1,8 +1,9 @@
 #!/bin/bash
 # Fast guard before every commit: identity, formatting, One's own rules and their canaries, both
 # baselines, and ruff/shellcheck. The full gate is `make check` (which adds doc drift, the knowledge
-# base and tools/hooks-check.sh). tools/hooks-check.sh --ci compares this list, `make check` and
-# .github/workflows/rules.yml as sets and fails if any of the three drifts from the others.
+# base and tools/hooks-check.sh). tools/hooks-check.sh --ci holds this list, `make check` and
+# .github/workflows/rules.yml to the REQUIRED table it carries, and fails if any of the three drops a
+# gate it should run or runs one nothing declared.
 #
 # This lints the working tree, not the staged index, so a half-staged file is judged as it is on
 # disk. Being exact would mean a `git stash -k` or a throwaway worktree on every commit; the check

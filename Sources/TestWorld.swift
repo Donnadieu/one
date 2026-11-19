@@ -53,7 +53,8 @@ enum TestWorld {
         // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac by accident. They open
         // windows, take the focus and stop him working. They run in CI (GitHub), or — for a live check that
         // needs One's installed engine and the owner's own subscription, which no runner has — when he asks
-        // for it by name and the make target sets ONE_LIVE_CHECK=1 (tools/ci-only.sh says the rest). The two
+        // for it by name and the make target sets ONE_LIVE_CHECK to that check's file name (tools/ci-only.sh
+        // says the rest). The two
         // refusals below are not relaxed by it: never the real One, never the real One folder.
         guard inCI || liveCheck else {
             print("refusing: \(mode) is a test, and tests run in CI (GitHub), never on this Mac.")

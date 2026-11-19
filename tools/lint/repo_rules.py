@@ -257,6 +257,10 @@ def commands(path):
             indent = len(line) - len(stripped)
             m = RUN_BODY.match(stripped)
             if m:
+                # `- run:` puts the key two columns right of the dash, and the step's other keys
+                # (env:, if:) sit at that same depth — deeper than the dash. Measuring from the dash
+                # read them as command text, which is the mention-as-wiring hole one shape along.
+                indent += 2 if stripped.startswith("-") else 0
                 run_at, line = indent, m.group(1)
             elif run_at is not None and (not stripped or indent > run_at):
                 line = stripped

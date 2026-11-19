@@ -10,11 +10,16 @@
 #   tools/hooks-check.sh        on the Mac: hooks installed, identity pinned, the three venues agree
 #   tools/hooks-check.sh --ci   in CI: there are no hooks to install, so only the drift half runs
 #
-# The drift half reads all THREE venues and compares them as sets. It used to grep two of them for
-# three hardcoded names — so `ext-lint.py` and `--prove` could be deleted from the hook, and any step
-# at all from rules.yml, while this script said "clean" and five documents said it had proved they
-# agree. Nothing is enumerated here now: the gates come out of the files, and the only hand-written
-# list is HOOK_SKIPS, the differences that are on purpose.
+# Adding a gate means adding a row to REQUIRED with the venues that must run it. A venue a gate
+# skips needs a reason there, because a gate left out of one place on purpose is a decision.
+#
+# The drift half reads all THREE venues and checks them BOTH WAYS against the REQUIRED table below:
+# every gate must run in the venues that table names, and a gate found in a venue the table doesn't
+# name is a finding too. It used to grep two of the three for three hardcoded names — so `ext-lint.py`
+# and `--prove` could be deleted from the hook, and any step at all from rules.yml, while this script
+# said "clean" and five documents said it had proved they agree. Comparing the venues only against
+# each other wasn't enough either: that can't see a gate deleted from all three, because the sets
+# stay equal. The gates themselves come out of the files; REQUIRED is the contract they're held to.
 #
 # Exit 0 = fine. Exit 1 = a finding, with the fix.
 set -u
@@ -91,6 +96,7 @@ def workflow_gates(text):
         indent = len(line) - len(stripped)
         m = re.match(r'(?:-\s+)?run:\s*(.*)$', stripped)
         if m:
+            indent += 2 if stripped.startswith("-") else 0
             run_at, body = indent, m.group(1)
         elif run_at is not None and (not stripped or indent > run_at):
             body = stripped

@@ -9,8 +9,9 @@ name: rules
 # fast rule that stays in preflight.yml, because swift-format needs macOS.
 #
 # Everything here is also what `make check` runs on the Mac and what .githooks/pre-commit runs before
-# a commit. tools/hooks-check.sh --ci reads all three files and compares them as SETS, so a step
-# deleted from any one of them turns this job red.
+# a commit. tools/hooks-check.sh --ci reads all three files and holds them to the REQUIRED table it
+# carries, both ways round, so a step deleted from any one of them — or from all three — turns this
+# job red, and so does a step that appears in one venue without being declared.
 #
 # `rules` is the check to require on main in the repository's branch protection: it is the only
 # workflow with no paths-ignore, so it is the only one that reports on every pull request. A required

@@ -31,7 +31,7 @@
 #   engine_run 900 --test-helper-stop # one run in the clean environment; output on stdout
 #   engine_cleanup                    # kill strays, forget the copy's settings
 set -u
-. "$(dirname "${BASH_SOURCE[0]}")/ci-only.sh"  # CI, or a live check the owner asked for (ONE_LIVE_CHECK=1)
+. "$(dirname "${BASH_SOURCE[0]}")/ci-only.sh"  # CI, or the check named in ONE_LIVE_CHECK (ONE_CALLER says who asked)
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 ENGINE_LINK=0        # 1 = copy the installed engine into the test One folder

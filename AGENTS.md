@@ -47,7 +47,7 @@ target asks for by name (`make jobs`, `make helperdone`, …) and which no runne
 ## Rules that bite
 - **A test never runs on the person's Mac by accident.** It opens windows and takes the focus.
   Checks run in CI (GitHub). The exception is a *live* check that needs One's installed engine and
-  the owner's own subscription: its make target sets `ONE_LIVE_CHECK=1` (`make jobs`, `make learning`,
+  the owner's own subscription: its make target sets `ONE_LIVE_CHECK=<that check's file name>` (`make jobs`, `make learning`,
   `make helperdone`, …) and the script says so in a `# runs:` header. `make check` runs no test.
 - **Every check script must be runnable from somewhere.** A `tools/*-check.*` is in `tools/preflight.sh`
   or a workflow, or carries `# runs: owner-only (make <target>) — <why>` and has that target

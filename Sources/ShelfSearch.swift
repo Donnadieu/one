@@ -45,6 +45,26 @@ enum ShelfDay: String, CaseIterable {
     case week = "This week"
     case older = "Older"
 
+    /// Where today, yesterday and this week start, worked out once: a card's day is then two date comparisons (the
+    /// same answer as `of`, which asks the calendar for every card).
+    struct Bounds {
+        let tomorrow: Date
+        let today: Date
+        let yesterday: Date
+        let week: Date
+        init(_ now: Date, calendar c: Calendar = .current) {
+            today = c.startOfDay(for: now)
+            tomorrow = c.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86400)
+            yesterday = c.date(byAdding: .day, value: -1, to: today) ?? today.addingTimeInterval(-86400)
+            week = c.date(byAdding: .day, value: -6, to: today) ?? today.addingTimeInterval(-6 * 86400)
+        }
+        func day(_ made: Date) -> ShelfDay {
+            if made >= today && made < tomorrow { return .today }
+            if made >= yesterday && made < today { return .yesterday }
+            return made >= week ? .week : .older  // later than tomorrow counts as this week, as before
+        }
+    }
+
     /// Which day `made` falls in, with `today` = the start of today in `c` (worked out once for a whole shelf).
     static func of(_ made: Date, calendar c: Calendar, today: Date) -> ShelfDay {
         let start = c.startOfDay(for: made)
@@ -68,10 +88,9 @@ enum ShelfGroups {
     /// Each card's day is worked out once (Omar's shelf holds over a thousand cards and this runs on every redraw).
     static func grouped(_ items: [ShelfItem]) -> [(ShelfDay, [ShelfItem])] {
         let sorted = items.sorted { $0.made > $1.made }
-        let c = Calendar.current
-        let today = c.startOfDay(for: Date())
+        let b = ShelfDay.Bounds(Date())
         var by: [ShelfDay: [ShelfItem]] = [:]
-        for it in sorted { by[ShelfDay.of(it.made, calendar: c, today: today), default: []].append(it) }
+        for it in sorted { by[b.day(it.made), default: []].append(it) }
         return ShelfDay.allCases.compactMap { day in by[day].map { (day, $0) } }
     }
 }

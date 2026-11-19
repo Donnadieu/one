@@ -5,20 +5,24 @@ import AppKit
 // The engine streams a helper's reply in small pieces, often dozens a second across several helpers. Each piece used to
 // change `helpers` on its own: every view on the home screen redrew and all helpers (their whole logs, ~100 KB on Omar's
 // Mac) were written to the settings again, on the main thread, for every piece. Typing and the orbs stuttered while
-// helpers worked (Nov 18 2026). Now the pieces are gathered and put in together every `every` seconds, which looks the
-// same, and the settings are written once things settle (`saveLater`) or at the next real change of a helper.
+// helpers worked (Nov 18 2026). Now the pieces are gathered and put in together, 8 times a second for the helper whose
+// chat is open and twice a second for the rest (their words only show as a line under an orb), which looks the same;
+// the settings are written once things settle (`saveLater`) or at the next real change of a helper.
 
 @MainActor
 extension Model {
     static let streamEvery = 0.12
+    static let streamQuiet = 0.5
     static let saveAfter = 2.0
 
     /// A piece of a working helper's reply, as the engine streams it (`--test-smooth` sends these too).
     func helperStreamed(_ id: UUID, _ s: String) {
         streamed[id, default: ""] += s
         guard streamFlush == nil else { return }
+        // The helper whose chat is open shows its words as they come; the others are only a line under an orb.
+        let every = openHelper.map { streamed[$0] != nil } == true ? Model.streamEvery : Model.streamQuiet
         streamFlush = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(Model.streamEvery))
+            try? await Task.sleep(for: .seconds(every))
             self.flushStreamed()
         }
     }

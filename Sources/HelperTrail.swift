@@ -15,7 +15,7 @@ enum HelperTrail {
     private static var lastWrite: [UUID: Date] = [:]
 
     /// The trail file: job, start time, steps so far and the latest reply.
-    static func text(_ h: Helper) -> String {
+    nonisolated static func text(_ h: Helper) -> String {
         let when = DateFormatter.localizedString(from: h.started ?? Date(), dateStyle: .medium, timeStyle: .short)
         var out = "# \(h.title)\n\nStarted: \(when)\n"
         if let sid = h.sid { out += "Conversation: \(sid)\n" }  // read back if it has to be brought back (RestartWait.swift)
@@ -36,9 +36,16 @@ enum HelperTrail {
         let now = Date()
         if !force, let last = lastWrite[h.id], now.timeIntervalSince(last) < 2 { return }
         lastWrite[h.id] = now
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? text(h).write(to: url(h.id), atomically: true, encoding: .utf8)
+        let (dir, file) = (folder, url(h.id))
+        // Written on a queue of its own, in order: the streaming saves never hold up the screen, and a forced save
+        // waits for the ones before it so the newest always lands last.
+        let write = { @Sendable in
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? text(h).write(to: file, atomically: true, encoding: .utf8)
+        }
+        if force { writes.sync(execute: write) } else { writes.async(execute: write) }
     }
+    nonisolated static let writes = DispatchQueue(label: "one.helper-trail")
 
     /// Add one plain-words step (repeats of the same step in a row are kept once).
     static func add(_ step: String, to h: inout Helper) {

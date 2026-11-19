@@ -71,6 +71,9 @@ enum BrowserCheck {
         expect(
             !MyChrome.tend(mine, alive: false) && MyChrome.lastSync == nil,
             "the copy that went down starts again on its own saved sign-ins; Chrome is copied only when someone asks")
+        expect(
+            MyChrome.attended(idle: 20) && !MyChrome.attended(idle: 3600) && MyChrome.rule.contains("A routine never runs it"),
+            "nobody at the Mac (a routine at 1 PM): no copy of their Chrome, the keychain box would get no answer")
         let none = MyChrome.note(nil)
         expect(
             none.contains("--connect-chrome") && none.contains("Connecting your Chrome now.") && none.contains("Never send them to Connections")

@@ -167,7 +167,9 @@ extension RoutinesPanel {
         if HomeView.still || Stars.reduceMotion {
             draw(Stars.stillT)
         } else {
-            TimelineView(.animation(minimumInterval: 1 / 20)) { tl in draw(tl.date.timeIntervalSince(WorldLook.start)) }
+            TimelineView(pace.every(pace.front ? 1 / 20 : Pace.calmBack)) { tl in
+                draw(tl.date.timeIntervalSince(WorldLook.start))
+            }
         }
     }
 

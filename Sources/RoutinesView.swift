@@ -8,6 +8,7 @@ import SwiftUI
 
 struct RoutinesPanel: View {
     @ObservedObject var m: Model
+    @ObservedObject var pace = Pace.shared
     var fixed: RoutinesSnapshot? = nil  // renders: a made-up snapshot, nothing read from disk
     @State var snap = RoutinesSnapshot()
     @State var sel: String?  // a routine id, or "skill:<path>"
@@ -111,7 +112,7 @@ struct RoutinesPanel: View {
             if HomeView.still {
                 Presence(t: 30, lean: .zero, voice: 0, energy: 0)
             } else {
-                TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
+                TimelineView(pace.every(pace.front ? 1 / 30 : Pace.calmBack)) { tl in
                     Presence(t: tl.date.timeIntervalSince(WorldLook.start), lean: .zero, voice: 0, energy: 0)
                 }
             }
@@ -143,7 +144,9 @@ struct RoutinesPanel: View {
         if HomeView.still {
             draw(0)
         } else {
-            TimelineView(.animation(minimumInterval: 1 / 20)) { tl in draw(tl.date.timeIntervalSince(WorldLook.start)) }
+            TimelineView(pace.every(pace.front ? 1 / 20 : Pace.calmBack)) { tl in
+                draw(tl.date.timeIntervalSince(WorldLook.start))
+            }
         }
     }
 

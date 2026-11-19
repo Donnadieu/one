@@ -126,7 +126,8 @@ enum HiddenBrowser {
         if (Env.selfTest || Env.commandLine) && !testing { return }
         watch()
         serveStarts()
-        for app in running() {
+        let apps = running()
+        for app in apps {
             let pid = app.processIdentifier
             if app.isActive { cameForward(pid) }
             guard app.activationPolicy == .regular else { continue }
@@ -138,6 +139,9 @@ enum HiddenBrowser {
                         + (isOurs(pid) ? ", it starts again fresh as soon as nothing is using it" : ", not One's, left running"))
             }
         }
+        // Pages left open with nothing at work go back to one blank tab after a while (HiddenTabs.swift).
+        let ours = apps.map(\.processIdentifier).filter { isOurs($0) }
+        HiddenTabs.tend(idle: idle && HumanCheck.active == nil, ports: ours.compactMap { HiddenBrowser.port(HiddenBrowser.args($0)) })
         // Close one politely (it saves its cookies): BrowserKeeper, or the next start request, brings it back hidden.
         guard idle, HumanCheck.active == nil, let (pid, _) = stuck.first(where: { isOurs($0.key) }) else { return }
         guard Routines.inFlight().isEmpty else { return }

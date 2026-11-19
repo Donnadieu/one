@@ -39,6 +39,20 @@ enum HiddenBrowserCheck {
         check(!HiddenBrowser.isHeadless([chrome, "--user-data-dir=/p"]), "their own Chrome (a window) is never touched")
         check(!HiddenBrowser.isHeadless([chrome + " Helper", "--type=renderer", "--headless"]), "Chrome's helper processes are skipped")
         check(HiddenBrowser.port([chrome, "--remote-debugging-port=9333"]) == 9333, "reads a hidden browser's port")
+        // Pages left open with nothing at work (HiddenTabs.swift): closed only after 10 quiet minutes, unchanged all along.
+        let video = [BlockedAsk.Page(target: "A", url: "https://player.vimeo.com/video/1", title: "")]
+        let t0 = Date()
+        let then = (pages: HiddenTabs.signature(video), since: t0)
+        check(HiddenTabs.decide(pages: video, before: nil, now: t0) == nil, "a page left open: first seen, kept")
+        check(HiddenTabs.decide(pages: video, before: then, now: t0 + 9 * 60) == nil, "kept for 10 quiet minutes")
+        let act = HiddenTabs.decide(pages: video, before: then, now: t0 + 11 * 60)
+        check(act?.close == ["A"] && act?.blank == true, "then closed, with one blank tab opened first")
+        let moved = [BlockedAsk.Page(target: "A", url: "https://example.com/next", title: "")]
+        check(HiddenTabs.decide(pages: moved, before: then, now: t0 + 11 * 60) == nil, "a page that moved on is in use: kept")
+        let blank = [BlockedAsk.Page(target: "B", url: "about:blank", title: "")]
+        check(
+            HiddenTabs.decide(pages: blank, before: (HiddenTabs.signature(blank), t0), now: t0 + 60 * 60) == nil,
+            "a blank tab alone is left alone")
 
         let approved = FileManager.default.temporaryDirectory.appendingPathComponent("one-hb-approved-\(getpid())").path
         Access.override = [approved]

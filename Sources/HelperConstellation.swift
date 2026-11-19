@@ -178,12 +178,12 @@ struct HelperConstellation: View {
             m.focusHelper(h.id)
         } label: {
             // Its words once a second: the real step, its time, or "No progress for 6 min" (HelperProgress.swift).
-            TimelineView(.periodic(from: .now, by: 1)) { slow in
-                let now = HelperProgress.now(slow.date)
+            PaceRest(ticker: .second) { date in
+                let now = HelperProgress.now(date)
                 let tag = HelperTag(
                     title: h.title, line: sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true), look: look, warm: warm,
                     opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now))
-                HelperMotion(calm: calm, seed: Double(i)) { t in
+                HelperMotion(calm: calm, quick: h.state == "working", seed: Double(i)) { t in
                     HelperFace(
                         state: state, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened, tag: tag,
                         sleeping: sleeping, fill: fill)
@@ -217,18 +217,28 @@ struct HelperConstellation: View {
 /// screen shows (120 a second on ProMotion). `--test-smooth --fps N` compares a cap; nothing else sets it.
 enum Motion {
     nonisolated(unsafe) static var every: Double? = nil
+    /// How many moving pictures were drawn so far (orbs, bot moons, the stars, helpers drifting): `--test-idle` reads it.
+    nonisolated(unsafe) static var drawn = 0
+    nonisolated(unsafe) static var orbDrawn = 0  // of those, the floating orb's
+    @discardableResult static func drew() -> Int {
+        drawn += 1
+        return drawn
+    }
 }
 
 struct HelperMotion<Content: View>: View {
     let calm: Bool
+    /// It's at work: its circling light moves at full rate. Otherwise it only drifts (Pace.calmFront).
+    var quick = false
     let seed: Double
     @ViewBuilder let content: (Double) -> Content
     var body: some View {
         if calm {
             content(21.7)
         } else {
-            TimelineView(.animation(minimumInterval: Motion.every)) { tl in
-                let t = tl.date.timeIntervalSince(WorldLook.start)
+            PaceClock(quick: quick, slow: true) { date in
+                let t = date.timeIntervalSince(WorldLook.start)
+                let _ = Motion.drew()
                 content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)
             }
         }

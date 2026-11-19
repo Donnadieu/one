@@ -94,7 +94,12 @@ extension Model {
         guard onboarded || Env.selfTest else { return }
         routeTend()
         Improve.tend()  // the score, once a day (Improve.swift)
-        Task.detached(priority: .background) { ImproveNightRun.tendShelf() }  // no morning brief: a Ready for you card
+        // No morning brief: a Ready for you card. Once a minute is plenty (it read and decoded last night's record
+        // twice every 3 s, Nov 19 2026).
+        if Date().timeIntervalSince(Model.lastNightShelf) >= 60 {
+            Model.lastNightShelf = Date()
+            Task.detached(priority: .background) { ImproveNightRun.tendShelf() }
+        }
         tendNightAsk()  // last night's one question, in the chat and on the phone (ModelNightAsk.swift)
         var changed = false
         if !learning.started, !FileManager.default.fileExists(atPath: Learning.ledger.path) {

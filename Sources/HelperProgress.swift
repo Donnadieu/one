@@ -240,8 +240,8 @@ struct HelperProgressView: View {
     @ObservedObject var m: Model
     let h: Helper
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { tl in
-            let now = HelperProgress.now(tl.date)
+        PaceRest(ticker: .second) { date in
+            let now = HelperProgress.now(date)
             if let p = m.pulses[h.id] {
                 content(p, now: now)
             } else {

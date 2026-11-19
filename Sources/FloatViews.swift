@@ -17,8 +17,8 @@ struct Orb: View {
     var active = false
     @State private var ease = WorkEase()
     var body: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSince(WorldLook.start)
+        PaceClock(quick: active) { date in
+            let t = date.timeIntervalSince(WorldLook.start)
             let heard = Speaker.shared.heard()
             let work = ease.step(active && !heard.live ? 1 : 0, t: t)
             Presence(t: t, lean: .zero, voice: 0, energy: 0, wave: heard, work: work)
@@ -71,11 +71,12 @@ struct FloatingOrb: View {
         if let t = fixedT {
             face(t)
         } else {
-            TimelineView(.animation) { tl in face(tl.date.timeIntervalSince(WorldLook.start)) }
+            PaceClock(quick: state != .idle, orb: true) { date in face(date.timeIntervalSince(WorldLook.start)) }
         }
     }
 
     private func face(_ t: Double) -> some View {
+        Motion.orbDrawn += 1
         let listening = state == .listening
         let working = state == .working
         let voice: Double = listening ? 0.45 + 0.4 * abs(sin(t * 4.1) * sin(t * 2.3 + 0.7)) : 0

@@ -31,7 +31,15 @@ check_config() {
 }
 
 check_range() { # $1 = range, $2 = 1 to check signatures
-  local h an ae cn ce g k
+  local h an ae cn ce g k log
+  # git's exit status, not just its output. A range git can't resolve (a force-pushed base, a shallow
+  # fetch, a re-run after the base branch moved) printed `fatal:` to stderr, ran the loop body zero
+  # times and returned 0 — so CI's only identity gate reported success without reading one commit.
+  if ! log=$(git log --format='%H|%an|%ae|%cn|%ce|%G?|%GK' "$1" -- 2>&1); then
+    say "can't resolve the range '$1', so no commit was checked: ${log##*fatal: }"
+    echo "       FIX: fetch what it needs first (git fetch origin main), or pass a range that exists here." >&2
+    return
+  fi
   while IFS='|' read -r h an ae cn ce g k; do
     [ -n "$h" ] || continue
     if printf '%s %s %s %s' "$an" "$ae" "$cn" "$ce" | grep -qi 'andela'; then
@@ -45,7 +53,7 @@ check_range() { # $1 = range, $2 = 1 to check signatures
     if [ "$2" = 1 ]; then
       [ "$g" = "G" ] && [ "${k: -16}" = "$KEY" ] || say "${h:0:9} is not signed by $KEY (status '$g', key '$k')"
     fi
-  done < <(git log --format='%H|%an|%ae|%cn|%ce|%G?|%GK' "$1" --)
+  done <<< "$log"
 }
 
 case "${1:-}" in

@@ -9,7 +9,12 @@ name: rules
 # fast rule that stays in preflight.yml, because swift-format needs macOS.
 #
 # Everything here is also what `make check` runs on the Mac and what .githooks/pre-commit runs before
-# a commit, so the three places can't drift (tools/hooks-check.sh --ci proves that).
+# a commit. tools/hooks-check.sh --ci reads all three files and compares them as SETS, so a step
+# deleted from any one of them turns this job red.
+#
+# `rules` is the check to require on main in the repository's branch protection: it is the only
+# workflow with no paths-ignore, so it is the only one that reports on every pull request. A required
+# check that a docs-only pull request skips never reports at all, and the pull request waits forever.
 on:
   push:
     branches: [main]
@@ -21,7 +26,16 @@ permissions:
 
 concurrency:
   group: rules-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only for a pull request: on main, two merges in quick succession would cancel the first and
+  # leave a commit on main with no rules result at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The versions tools/lint/ext-lint.py pins (PINNED there), and the ones its baseline was measured
+  # with. ext-lint refuses to seed or shrink its baseline on any other version, because a different
+  # version finds a different set and the counts would stop meaning what CI measures.
+  RUFF_VERSION: 0.14.5
+  SHELLCHECK_VERSION: 0.11.0
 
 jobs:
   rules:
@@ -31,36 +45,47 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # the identity, baseline and doc-drift checks all compare with the base
 
+      # On a pull request: the commits it adds. On a push to main: the commits the push added. It used
+      # to be pull-request-only, so a push straight to main was checked by nothing at all.
       - name: Only Donnadieu's identity (never donnadieu-andela)
-        if: github.event_name == 'pull_request'
-        run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: tools/check-identity.sh --ci "$RANGE"
 
       - name: One's own rules (tools/lint/one-lint.py)
         run: python3 tools/lint/one-lint.py
 
-      - name: Every rule still blocks (one canary per rule)
+      - name: Every rule still blocks, and lets its allow block through (one canary per rule)
         run: python3 tools/lint/one-lint.py --prove
-
-      - name: Lint baseline only shrinks
-        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
 
       - name: Install ruff and shellcheck
         run: |
-          python3 -m pip install --quiet --disable-pip-version-check 'ruff==0.14.5'
-          sudo apt-get install -y --no-install-recommends shellcheck > /dev/null
+          python3 -m pip install --quiet --disable-pip-version-check "ruff==$RUFF_VERSION"
+          # Pinned, and not from apt: the image's shellcheck moves with the image, so an unrelated
+          # pull request would go red (or quietly find less) the week the runner was rebuilt. The
+          # apt install also had no `apt-get update`, which fails whenever the index is stale.
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP"
+          sudo install -m 0755 "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version | grep -q "$SHELLCHECK_VERSION"
 
       - name: Python and shell lint (ruff, shellcheck; their own baseline only shrinks)
         run: python3 tools/lint/ext-lint.py
 
-      - name: Ext-lint baseline only shrinks
-        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }} tools/lint/ext-baseline.json
+      - name: Every baseline only shrinks
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+        run: tools/lint/check-baseline.sh --all "$BASE"
 
-      - name: The git hooks and make check haven't drifted apart
+      - name: The hook, make check and this workflow haven't drifted apart
         run: tools/hooks-check.sh --ci
 
       - name: Doc drift (sensitive code changed without its matching doc)
         if: github.event_name == 'pull_request'
-        run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/doc-drift-check.py "$BASE" "$HEAD"
 
       - name: Knowledge base (mandated docs, no broken or orphaned docs/INDEX.md entries)
         run: tools/knowledge-base-check.sh

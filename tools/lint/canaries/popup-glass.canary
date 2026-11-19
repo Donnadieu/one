@@ -1,3 +1,13 @@
 pretend: Sources/Canary.swift
+branches: 6
 --
 .sheet(isPresented: $shown) { Text("hello") }
+.popover(isPresented: $shown) { Text("hello") }
+.alert("Careful", isPresented: $shown) {}
+.confirmationDialog("Sure?", isPresented: $shown) {}
+.fullScreenCover(isPresented: $shown) { Text("hello") }
+let a = NSAlert()
+--allow--
+PopupStage(close: close) { size in Text("hello") }
+.onePopup(shown, close: close) { size in Text("hello") }
+// a .sheet in a comment is not a call

@@ -2,7 +2,10 @@
 # Sets up One's voice (Kokoro) next to One's engine. Usage: install_voice.sh <support dir>
 set -e
 S="$1"; V="$S/voice"; T="$S/hermes/tools"
-UV=$(ls -d "$T"/uv-*/uv 2>/dev/null | head -1); PY=$(ls -d "$T"/python-3*/bin/python3 2>/dev/null | head -1)
+# shellcheck disable=SC2012  # the newest model by name order is the point, and find's order is unspecified
+UV=$(ls -d "$T"/uv-*/uv 2>/dev/null | head -1)
+# shellcheck disable=SC2012  # the newest python by name order is the point, and find's order is unspecified
+PY=$(ls -d "$T"/python-3*/bin/python3 2>/dev/null | head -1)
 [ -x "$UV" ] && [ -x "$PY" ] || { echo "✗ engine tools missing"; exit 1; }
 mkdir -p "$V"
 echo "→ Getting my voice ready"

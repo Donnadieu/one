@@ -41,8 +41,10 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
+          # A tag name may contain a double quote, so it goes through env: and never into the run line.
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release download "${{ github.event.release.tag_name }}" -p One.zip -D "$RUNNER_TEMP/rel"
+          gh release download "$TAG" -p One.zip -D "$RUNNER_TEMP/rel"
           mkdir -p build/app.noindex
           ditto -x -k "$RUNNER_TEMP/rel/One.zip" build/app.noindex
           test -d build/app.noindex/One.app/Contents/Resources/brain-starter
@@ -54,6 +56,13 @@ jobs:
           cd "$RUNNER_TEMP/fresh"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" ONE_INSTALL_ONLY=1 perl -e 'alarm 1200; exec @ARGV' "$APP/Contents/MacOS/One" --install-test | tee install.txt
           grep -q "^install: ok" install.txt
+          # The four assertions that used to sit in a `[ $CI = 0 ] && [ $FULL = 1 ]` block in
+          # tools/preflight.sh, which no venue could reach: it installed into the empty folder and
+          # nothing checked WHAT it installed.
+          grep -q "hermes: $RUNNER_TEMP/fresh" install.txt
+          test "$(git -C "$RUNNER_TEMP/fresh/engine" rev-parse HEAD)" = "$(cat "$APP/Contents/Resources/hermes-commit.txt")"
+          grep -q KeePassLoginBackend "$RUNNER_TEMP/fresh/engine/agent/vault_backends/base.py"
+          test -x "$RUNNER_TEMP/fresh/tools-venv/bin/python"
       - name: The real engine loads the learning cap and holds the review's 6th edit
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
       - name: Standing goals through the real engine (stand-in model)
@@ -63,6 +72,10 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/handoff-check.sh --no-build
       - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
+      # Was named only on a `[ $CI = 0 ]` line in tools/preflight.sh, which every venue runs with
+      # --ci: so the plugin-level check passed while nothing proved the real engine LOADS the guard.
+      - name: The real engine loads the browser guard and blocks a visible browser
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/browser-guard-engine-check.sh
       - name: The real engine's Telegram adapter turns a reply's choices line into tap buttons (one-phone-tags)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/phone-choices-engine-check.sh
       - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)

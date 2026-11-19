@@ -1,0 +1,10 @@
+pretend: .github/workflows/canary.yml
+--
+      - run: tools/soak-check.sh "${{ inputs.soak_mode }}"
+--allow--
+      - env:
+          MODE: ${{ inputs.soak_mode }}
+        run: tools/soak-check.sh "$MODE"
+      - run: tools/x.sh ${{ matrix.part }} ${{ github.event.pull_request.base.sha }}
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.anything }}' }

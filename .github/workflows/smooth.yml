@@ -7,9 +7,9 @@ name: smooth
 on:
   push:
     branches: [main]
-    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+    paths: ['Sources/**', 'build.sh', 'tools/test-copy.sh', 'tools/smooth-compare.sh', '.github/workflows/smooth.yml']
   pull_request:
-    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+    paths: ['Sources/**', 'build.sh', 'tools/test-copy.sh', 'tools/smooth-compare.sh', '.github/workflows/smooth.yml']
   workflow_dispatch:
     inputs:
       compare:
@@ -77,4 +77,9 @@ jobs:
         with: { name: smooth-samples, path: '${{ runner.temp }}/smooth-samples', if-no-files-found: ignore }
       - name: The same measurement on older releases
         if: always() && github.event_name == 'workflow_dispatch' && inputs.compare != ''
-        run: tools/smooth-compare.sh ${{ inputs.compare }}
+        env:
+          # Through env:, never straight into the run line: a ${{ }} is pasted in as text before
+          # bash parses it. $COMPARE is left unquoted on purpose, so a space-separated list of tags
+          # still splits into arguments.
+          COMPARE: ${{ inputs.compare }}
+        run: tools/smooth-compare.sh $COMPARE

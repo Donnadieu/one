@@ -1,8 +1,12 @@
 name: check
 # Goal: a pull request's check is green (or red) within 3 minutes of the push.
-#  - Every pull request, push to main, release tag and every night: every check in tools/preflight.sh --ci, nothing
-#    skipped, split into 4 parts that run side by side on their own runners (the matrix below; the split is in
-#    preflight.sh, `part N` lines).
+#  - Every pull request that touches code, every push to main, every release tag and every night: every
+#    check in tools/preflight.sh, split into 4 parts that run side by side on their own runners (the
+#    matrix below; the split is in preflight.sh, `part N` lines).
+#  - NOT nothing-skipped, and this file used to claim it was: a docs-only pull request skips this
+#    workflow entirely (paths-ignore below). That is why `rules` and not `check` is the required
+#    status check on main — a required check that a pull request skips never reports, and the pull
+#    request then waits for a status that will never arrive.
 #  - Each part builds the app itself, unoptimized and incremental (ONE_BUILD_CACHE): the compiled files of an earlier
 #    run come back from the cache, so only the files a change touched compile again.
 #  - Formatting runs in part 1 (it needs macOS). Every other fast rule runs in rules.yml instead, on
@@ -11,10 +15,14 @@ name: check
 #  - A newer push to the same pull request or branch cancels the older run, so stale runs never hold a runner.
 #  - Every check has its own time limit and each part stops at 10 minutes: a stuck check can't block the line for hours.
 on:
+  # No path filter on a push: a merge into main and a release tag both get the full check. A tag is
+  # the last moment to catch a regression before fresh-install.yml publishes, and path filtering a
+  # newly created tag has no before/after to diff against, so what it would do is unspecified.
+  # The filter stays on pull_request, which is where the waste was (building One four ways to read a
+  # changed paragraph).
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore: ['*.md', 'docs/**', 'LICENSE', '.agents/**']
   pull_request:
     paths-ignore: ['*.md', 'docs/**', 'LICENSE', '.agents/**']
   schedule:
@@ -24,7 +32,9 @@ permissions:
   contents: read
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only for a pull request: on main, two merges in quick succession would cancel the first and
+  # leave a commit on main with no check result at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     name: check (part ${{ matrix.part }})

@@ -1,0 +1,10 @@
+# Pinning a third-party action to a commit (enforced: one-lint action-pinned) means it never gets a
+# security fix unless somebody remembers to move the pin. This is the somebody.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "actions"

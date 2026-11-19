@@ -17,28 +17,24 @@ it to RULES with an id, a one-line why, a FIX an agent can follow and the files 
 canary in tools/lint/canaries/<id>.canary so `--prove` can show it still blocks. A repeated mistake
 in review means a new rule here.
 """
-import json
 import os
 import re
 import sys
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import repo_rules  # noqa: E402  (same folder; sys.path is set above)
+import ratchet  # noqa: E402  (same folder; sys.path is set above)
+import repo_rules  # noqa: E402
 
 ROOT = repo_rules.ROOT
 BASELINE = os.path.join(ROOT, "tools", "lint", "baseline.json")
 CANARIES = os.path.join(ROOT, "tools", "lint", "canaries")
 MAX_LINES = 600
 
-# Which files a rule looks at. Everything skips old/, the vendored engine copies under
-# tests/fixtures/ and the canaries (see repo_rules.SKIP_DIRS).
-SWIFT = lambda p: p.startswith("Sources/") and p.endswith(".swift")  # noqa: E731
-SHELL = lambda p: p.endswith(".sh") and os.path.basename(p) != "test-copy.sh"  # noqa: E731
-# One's own source, whatever the language: the 600-line cap used to hold Swift alone while 4,500
-# lines of Python and 37 shell scripts grew unchecked.
-CODE = lambda p: p.endswith((".swift", ".py", ".sh", ".yml", ".yaml", ".html", ".m", ".h"))  # noqa: E731
-ANY = lambda p: True  # noqa: E731
+# Which files a rule looks at, from the layer that owns the file list (repo_rules): a rule in either
+# file picks from the same four names instead of retyping the predicate. Everything skips old/, the
+# vendored engine copies under tests/fixtures/ and the canaries (see repo_rules.SKIP_DIRS).
+SWIFT, SHELL, CODE, ANY = repo_rules.SWIFT, repo_rules.SHELL, repo_rules.CODE, repo_rules.ANY
 
 
 def strings(line):
@@ -55,6 +51,16 @@ JARGON = ["API key", "OAuth", "token", "sandbox", "CLI", "terminal", "JSON", "co
 def r_file_length(path, lines):
     if len(lines) > MAX_LINES:
         yield 1, f"{len(lines)} lines (max {MAX_LINES})"
+
+# file-length answers "is it over the cap at all", one finding per file — and four files are
+# grandfathered at exactly that, so one of them could have grown from 601 lines to 10,000 with the
+# ratchet still green. This is the other half: one finding per 100 lines over the cap, so the count
+# tracks the size. Its own id, because changing how file-length counts would have churned a baseline
+# that may only shrink; together they mean a file already over the cap can only get shorter.
+def r_file_bloat(path, lines):
+    over = len(lines) - MAX_LINES
+    for step in range(100, over + 1, 100):
+        yield 1, f"{len(lines)} lines, {step} over the {MAX_LINES}-line cap and still counting"
 
 def r_hardcoded_name(path, lines):
     if path.endswith("Previews.swift"): return   # render-only scenes, never shown to a user
@@ -101,9 +107,15 @@ def r_process_outside(path, lines):
         if re.search(r'\bProcess\(\)', l) and not (owner and PROCESS_OK.search(owner)):
             yield i, f"Process() in {owner or 'top level'}"
 
+# Both spellings of the receiver: `args.contains(…)` matched 28 hooks and
+# `CommandLine.arguments.contains(…)` — the majority, 45 of them — was invisible, which is how
+# --test-panels, --test-shelf-search and --test-window-guard reached a real window with no gate.
+TEST_HOOK = re.compile(r'(?:CommandLine\.arguments|args)\.(?:contains|firstIndex)\((?:of: )?"(--test-[\w-]+)"\)')
+
+
 def r_test_hook_selftest(path, lines):
     for i, l in enumerate(lines, 1):
-        m = re.search(r'args\.(?:contains|firstIndex)\((?:of: )?"(--test-[\w-]+)"\)', l)
+        m = TEST_HOOK.search(l)
         if m and not any("TestWorld.enter()" in x for x in lines[i - 1:i + 6]):
             yield i, f"{m.group(1)} doesn't call TestWorld.enter() first"
         if "selfTest = true" in l.split("//", 1)[0] and not path.endswith("TestWorld.swift"):
@@ -167,12 +179,21 @@ def r_live_view_show(path, lines):
 # hand-typed list had 32 names in it and had already missed HumanStep.swift, so a new service file
 # escaped this rule until somebody remembered to edit the lint. A file the table also tags UI (say
 # `service + UI`) may declare a View; it still may not call Model.shared.
+#
+# A file with no row FAILS CLOSED, under this rule's own id. It used to return quietly, on the
+# grounds that architecture-table reports the missing row — but those rows are grandfathered, so 44
+# Swift files sat outside this rule while the output said "0 new problems". Its sibling
+# destructive-fs-area already failed closed on the same condition; two rules reading one table now
+# answer it the same way, and paying down a row re-arms both.
 REVERSE_UI = re.compile(r':\s*View\b')
 def r_dependency_direction(path, lines):
     t = repo_rules.tags(path)
-    if t is None or not (t & {"foundation", "service"}):
-        return   # not a lower layer, or no row yet (architecture-table reports that)
-    may_have_views = bool(t & {"ui", "view", "state", "chat", "entry", "model", "bridge"})
+    if t is None:
+        yield 1, "no row in the docs/ARCHITECTURE.md table, so this rule can't tell which layer it is"
+        return
+    if not (t & repo_rules.LOWER_LAYERS):
+        return   # not a lower layer, so it may call anything
+    may_have_views = bool(t & repo_rules.MAY_HAVE_VIEWS)
     for i, l in enumerate(lines, 1):
         code = l.split("//", 1)[0]
         if "Model.shared" in code:
@@ -183,6 +204,9 @@ def r_dependency_direction(path, lines):
 RULES = {
     "file-length":   (r_file_length,   "Big files are hard to read and to edit safely.",
                       "Move whole declarations into a new file for that area (see docs/ARCHITECTURE.md).", CODE),
+    "file-bloat":    (r_file_bloat,    "A file already over the cap must get shorter, never longer.",
+                      "Split it by area (see docs/ARCHITECTURE.md). Its count here is how far over the cap it is, "
+                      "so the baseline only lets it shrink.", CODE),
     "assistant-name":(r_hardcoded_name,"People name their assistant; a fixed name in the UI is a bug.",
                       "Use m.name (views) or Shelf.who / Model.assistantName (elsewhere).", SWIFT),
     "ui-jargon":     (r_jargon,        "One is for people who have never opened a terminal.",
@@ -211,6 +235,17 @@ RULES = {
 RULES.update(repo_rules.RULES)
 
 
+def body(path):
+    """A file's lines, or [] when there is nothing to read.
+
+    [] and not None, because two rules judge a file by its NAME: secret-file used to be skipped for
+    every binary file, which is every format in the list it names (.p12, .jks, .kdbx) and an empty
+    .env too — the public-repo backstop was blind exactly where it was the backstop.
+    """
+    text = repo_rules.read(path)
+    return text.split("\n") if text else []
+
+
 def scan():
     found = []
     files = [p for p in repo_rules.tracked() if repo_rules.ours(p)]
@@ -220,52 +255,114 @@ def scan():
             if not picks(path):
                 continue
             if path not in cache:
-                text = repo_rules.read(path)
-                cache[path] = text.split("\n") if text else None
-            lines = cache[path]
-            if lines is None:   # unreadable or binary: nothing to look at
-                continue
-            for line, msg in fn(path, lines):
+                cache[path] = body(path)
+            for line, msg in fn(path, cache[path]):
                 found.append((rid, path, line, msg))
     return found
 
 
-def prove():
+def coverage():
+    """How many files each rule actually judges, so narrowing a rule's scope shows up as a number.
+
+    The two rules that take their scope from docs/ARCHITECTURE.md can be switched off for a file by
+    editing one word in a doc, and the ratchet reads that as debt paid down. Printing the scope means
+    a shrinking denominator is visible in the diff of any run.
+    """
+    files = [p for p in repo_rules.tracked() if repo_rules.ours(p)]
+    return {rid: sum(1 for p in files if picks(p)) for rid, (_, _, _, picks) in RULES.items()}
+
+
+ALLOW_MARK = "\n--allow--\n"
+
+
+def prove(verbose=False):
     """Every rule still fires on its canary, so a refactor can't quietly neuter one.
 
     A canary is tools/lint/canaries/<rule id>.canary: a header of `pretend: <path>` (the path the
     rule should judge it as) and an optional `repeat: <n>`, then `--`, then the snippet that breaks
     the rule. Nothing compiles it; the rule only ever sees its lines.
+
+    After the snippet, an optional `--allow--` separator and lines the rule must NOT report. Without
+    that half a rule can be narrowed to its canary and nothing notices: cutting JARGON down to just
+    "API key", or SECRETS down to one alternative, left --prove at 20/20 while real mistakes shipped.
+
+    `branches: <n>` is the other half of that: the rule must report at least n findings on the
+    snippet, one per shape of the mistake it claims to catch. A rule with five alternatives and one
+    canary line is proved by its own narrowest case; with `branches: 5` it has to still catch all of
+    them. Keep the snippet's lines in the same order as the rule's alternatives so a failure reads.
+
+    And the rule's own selector is asserted, not just its matcher. --prove used to call the rule
+    function directly, so a rule wired to zero files still reported "proved to block": narrowing
+    no-secrets back to Sources/*.swift (the very regression this change exists to undo) stayed green.
     """
     bad = []
-    for rid, (fn, _, fix, _) in RULES.items():
+    for rid, (fn, _, fix, picks) in RULES.items():
         canary = os.path.join(CANARIES, rid + ".canary")
         if not os.path.exists(canary):
             bad.append(f"✗ {rid}: no canary. FIX: add tools/lint/canaries/{rid}.canary breaking this rule.")
             continue
-        head, _, body = open(canary, encoding="utf-8").read().partition("\n--\n")
+        head, sep, rest = open(canary, encoding="utf-8").read().partition("\n--\n")
+        if not sep:
+            bad.append(f"✗ {rid}: malformed canary. FIX: tools/lint/canaries/{rid}.canary needs a "
+                       f"`pretend: <path>` header, then a line with just `--`, then the snippet.")
+            continue
         meta = dict(re.findall(r'^(\w+):\s*(.+)$', head, re.M))
         path = meta.get("pretend", "Sources/Canary.swift")
-        lines = body.rstrip("\n").split("\n") * int(meta.get("repeat", 1))
-        hits = list(fn(path, lines))
-        if hits:
-            print(f"✓ {rid} blocks: {path}:{hits[0][0]}  {hits[0][1]}")
-            print(f"    FIX: {fix}")
-        else:
+        breaks, _, allowed = rest.partition(ALLOW_MARK)
+        try:
+            times = int(meta.get("repeat", 1))
+        except ValueError:
+            bad.append(f"✗ {rid}: its canary's `repeat:` is not a number. FIX: `repeat: <n>`, or drop the line.")
+            continue
+        if not picks(path):
+            bad.append(f"✗ {rid}: its canary pretends to be {path}, but the rule's selector never looks at "
+                       f"that path, so the rule judges nothing. FIX: widen the rule's files in RULES, or "
+                       f"point `pretend:` at a path it does judge.")
+            continue
+        if not repo_rules.ours(path):
+            bad.append(f"✗ {rid}: its canary pretends to be {path}, which repo_rules.SKIP_DIRS excludes from "
+                       f"every rule. FIX: point `pretend:` at a path the lint actually reads.")
+            continue
+        hits = list(fn(path, breaks.rstrip("\n").split("\n") * times))
+        if not hits:
             bad.append(f"✗ {rid}: its canary passed. FIX: the rule stopped matching — fix the rule, or "
                        f"update tools/lint/canaries/{rid}.canary to today's shape of the mistake.")
+            continue
+        want = int(meta.get("branches", 1))
+        if len(hits) < want:
+            bad.append(f"✗ {rid}: its canary has {want} shapes of the mistake in it but the rule reported "
+                       f"only {len(hits)}, so it no longer catches all of them. FIX: the rule was narrowed "
+                       f"— widen it back, or lower `branches:` in tools/lint/canaries/{rid}.canary and say "
+                       f"in the commit message which shape stopped being a mistake.")
+            continue
+        wrong = list(fn(path, allowed.rstrip("\n").split("\n"))) if allowed.strip() else []
+        if wrong:
+            bad.append(f"✗ {rid}: it reported line {wrong[0][0]} of its own `--allow--` block "
+                       f"({wrong[0][1]}). FIX: the rule now fires on code it is supposed to let through — "
+                       f"narrow the rule, or move that line out of the allow block if it really is a mistake.")
+            continue
+        if verbose:
+            print(f"✓ {rid} blocks: {path}:{hits[0][0]}  {hits[0][1]}"
+                  f"{'  (and lets its allow block through)' if allowed.strip() else ''}")
+            print(f"    FIX: {fix}")
     for b in bad:
         print(b)
-    print(f"one-lint --prove: {len(RULES) - len(bad)}/{len(RULES)} rules proved to block")
-    return 1 if bad else 0
+    # Every canary file must belong to a rule, so deleting a rule from RULES can't go unnoticed.
+    orphans = sorted(f[:-7] for f in os.listdir(CANARIES) if f.endswith(".canary") and f[:-7] not in RULES)
+    for o in orphans:
+        print(f"✗ {o}: a canary for a rule that no longer exists. FIX: put the rule back in RULES, or "
+              f"delete tools/lint/canaries/{o}.canary with the reason in the commit message.")
+    print(f"one-lint --prove: {len(RULES) - len(bad)}/{len(RULES)} rules proved to block"
+          f"{f', {len(orphans)} canary without a rule' if orphans else ''}")
+    return 1 if bad or orphans else 0
 
 
-def load_baseline():
-    return json.load(open(BASELINE)) if os.path.exists(BASELINE) else {}
+RATCHET = ratchet.Ratchet(BASELINE, "one-lint")
 
-def save_baseline(b):
-    json.dump(dict(sorted(b.items())), open(BASELINE, "w"), indent=1)
-    open(BASELINE, "a").write("\n")
+# The two rules that read docs/ARCHITECTURE.md: their scope is printed on every run, because a
+# one-word edit to that doc can take a file out of them and the ratchet reads that as debt paid.
+FROM_DOCS = ("dependency-direction", "destructive-fs-area")
+
 
 def main():
     args = sys.argv[1:]
@@ -273,16 +370,15 @@ def main():
         for rid, (_, why, fix, _) in RULES.items(): print(f"{rid}: {why}\n    FIX: {fix}")
         return 0
     if "--prove" in args:
-        return prove()
+        return prove("--verbose" in args or "-v" in args)
     found = scan()
     counts = Counter(f"{r}|{p}" for r, p, _, _ in found)
     if "--init" in args:
-        save_baseline(dict(counts)); print(f"Seeded baseline: {sum(counts.values())} grandfathered in {len(counts)} entries"); return 0
-    base = load_baseline()
+        return RATCHET.seed(counts)
     if "--update" in args:
-        new = {k: min(v, counts.get(k, 0)) for k, v in base.items() if counts.get(k, 0) > 0}
-        save_baseline(new); print(f"Baseline: {sum(base.values())} -> {sum(new.values())}"); return 0
-    bad = [k for k, n in counts.items() if n > base.get(k, 0)]
+        return RATCHET.shrink(counts)
+    bad, paid, stale = RATCHET.gate(counts)
+    base = ratchet.findings(RATCHET.load())
     for k in bad:
         rid, path = k.split("|", 1)
         _, why, fix, _ = RULES[rid]
@@ -290,10 +386,12 @@ def main():
         for r, p, line, msg in found:
             if r == rid and p == path: print(f"    {path}:{line}  {msg}")
         print(f"    FIX: {fix}")
-    paid = sum(base.values()) - sum(min(v, counts.get(k, 0)) for k, v in base.items())
-    if paid: print(f"Debt paid down: {paid}. Run tools/lint/one-lint.py --update to lock it in.")
+    rotten = RATCHET.report(counts, paid, stale)
+    seen = coverage()
+    print("scope: " + ", ".join(f"{rid} judges {seen[rid]} files" for rid in FROM_DOCS if rid in seen)
+          + " (from the table in docs/ARCHITECTURE.md)")
     print(f"one-lint: {len(RULES)} rules, {sum(counts.values())} findings, {sum(base.values())} grandfathered, {len(bad)} new problems")
-    return 1 if bad else 0
+    return 1 if bad or rotten else 0
 
 if __name__ == "__main__":
     sys.exit(main())

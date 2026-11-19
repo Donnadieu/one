@@ -7,9 +7,10 @@
   `plugins/one-phone-tags/__init__.py` (835), `plugins/one-main-queue/__init__.py` (710).
 - Hermes patch (KeePass) until upstreamed to NousResearch/hermes-agent.
 - **44 Swift files have no row in the docs/ARCHITECTURE.md table** (`one-lint: architecture-table` in
-  `tools/lint/baseline.json`). This is the one worth paying down first: the table is where
-  `dependency-direction` and `destructive-fs-area` read a file's layer from, so a file missing from it
-  is invisible to both. Pay it down a few rows at a time — the lint names them.
+  `tools/lint/baseline.json`). **Paid down in PER-33**: all 44 rows were written, so the table now
+  names every `Sources/*.swift` file and both doc-derived rules judge all 284 of them (every run
+  prints that count). Keep it that way — `one-lint: architecture-table` fails on a file with no row,
+  and `one-lint: dependency-direction` now fails closed on one too, rather than skipping it quietly.
 
 ## Medium
 - Old dead code: `GoogleSignIn` (dev-only), kept until Google sign-in is decided for good.
@@ -22,12 +23,32 @@
   (PER-33 note: `Helpers.swift` left this list for free. The rule now reads the layers from the
   ARCHITECTURE.md table, which tags that file `service + UI`, so its five `: View` declarations were
   never a violation; `HumanStep.swift` arrived on it for the same reason — the hand-typed list of 32
-  file names had never included it.)
+  file names had never included it. That is a net +1 on the rule's total, which the ratchet is right
+  to stop, so it is recorded as the single `_allow-growth` entry in `tools/lint/baseline.json` with
+  the reason in words. **Delete that entry when `HumanStep.swift`'s six call sites are paid down** —
+  an allowance nobody needs is one nobody reviews, and `check-baseline.sh` fails if it outlives the
+  growth it excuses.)
 - Deleting files outside an area that owns a folder (`one-lint: destructive-fs-area`, 12 files /
   15 sites in `tools/lint/baseline.json`). The ones worth a look first are the four in UI or state —
   `App.swift`, `BotsManage.swift`, `ModelLearning.swift`, `Helpers.swift` — because that is the shape
   the 0.9.74 "reset onboarding" incident had. The other eight are files with no row in the
   ARCHITECTURE.md table yet, so they'll resolve with the row.
+- The ten live checks that only Omar can run (`make jobs`, `make learning`, the five helper ones,
+  `make routinglive`, `make humanwindow`, `make handoffqa`) are *reachable* but not *covered*: they
+  need his own Claude subscription, so no runner can have them, and nothing records when one last
+  ran green. Worth a small tracked log (date, commit, verdict) that a check can read, so an
+  owner-only check whose last green is many commits old says so. Until then, run them by hand before
+  a release that touches helpers or routing. Deliberately not a tracked file that every local run
+  dirties, which is why this is a follow-up rather than part of PER-33.
+- `tools/engine-check.sh`'s library half is exercised on a pull request only through
+  `tools/reset-check.sh` (plain exec mode). `--engine-link`, `--test-engine`, `--env`, `--keep`,
+  `--expect` and the whole `. engine-check.sh --lib` path are only hit by the owner-only checks above,
+  so a typo in one of those branches is found by hand rather than by CI. A `--selftest` that composes
+  the `env -i` vector with `/usr/bin/env` standing in for One would cover it in preflight for free.
+- The baselines count findings per file, not fingerprints, so swapping one violation for a different
+  one in the same file passes. That is on purpose — fingerprints churn on every reformat — and the
+  stale-row check is the other half of it (a row kept after its finding went is a failure now). Worth
+  revisiting only if a swap is ever seen in review.
 - ruff findings in One's Python (`tools/lint/ext-baseline.json`, 16 in 11 files): unused imports,
   unused locals, f-strings with no placeholder. Check each unused import before deleting it — in the
   engine's overlay files an import can be there to register a plugin.

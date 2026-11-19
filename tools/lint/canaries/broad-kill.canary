@@ -1,3 +1,8 @@
 pretend: Sources/Canary.swift
+branches: 2
 --
-let cmd = "pkill -f hermes"
+let a = "pkill -f hermes"
+let b = "killall Google Chrome"
+--allow--
+        pkill -f "\(Env.engineDir.path)" 2>/dev/null
+        pkill -f "\(Env.support.path)/voice" 2>/dev/null

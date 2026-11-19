@@ -126,15 +126,37 @@ exactly that. Three things stand between a test and production, and PER-33
 changed only the first of them:
 
 1. **Who may start a test at all.** `TestWorld.enter()` and `tools/ci-only.sh`
-   allow CI (`GITHUB_ACTIONS=true`), or `ONE_LIVE_CHECK=1` for a *live* check
-   the owner asked for by name — one that needs One's installed engine and his
-   own subscription, which no runner can have. Only a `make` target sets that
-   variable (`make jobs`, `make learning`, `make helperdone`, …), and the check
-   must declare `# runs: owner-only (make <target>) — <why>` in its header
-   (enforced: `one-lint: no-orphan-check`). Before this, those fourteen checks
-   refused on the Mac *and* had no workflow, so they tested nothing anywhere —
-   and `tools/handoff-qa.sh` got around it by claiming `GITHUB_ACTIONS=true`,
-   an undocumented bypass with nothing naming it. It now uses the opt-in.
+   allow CI (`GITHUB_ACTIONS=true`), or `ONE_LIVE_CHECK=<the check's own file
+   name>` for a *live* check the owner asked for by name — one that needs One's
+   installed engine and his own subscription, which no runner can have. The
+   name is the whole point. `ONE_LIVE_CHECK=1` unlocked **every** script that
+   sources `ci-only.sh` — twenty of them, `tools/preflight.sh` among them,
+   which writes inside the person's real One folder, touches `~/.ssh` and
+   drives real windows for minutes. One stale `export` in a shell, or an agent
+   setting it once, was the hard rule gone. Now `ci-only.sh` requires that the
+   variable name the script it is unlocking **and** that the script declare
+   `# runs: owner-only (make <target>) — <why>` in its header, so preflight and
+   the nightly soak and sanitizer checks keep refusing whatever is exported.
+   The target is `$(call live,<script>)` in the Makefile, which derives the
+   variable from the script it runs so the two can't drift; that a target exists
+   and does this is enforced by `one-lint: no-orphan-check`, and two preflight
+   checks assert that `ONE_LIVE_CHECK=1` and another check's name both still
+   refuse `tools/preflight.sh`.
+
+   Before this, those fourteen checks refused on the Mac *and* had no workflow,
+   so they tested nothing anywhere — and `tools/handoff-qa.sh` got around it by
+   claiming `GITHUB_ACTIONS=true`, an undocumented bypass with nothing naming
+   it. It now sources `ci-only.sh` like every other check, with `make handoffqa`
+   as its target.
+
+   Reachable is not the same as covered, and the difference is worth stating:
+   of the fourteen, **two** (`reset-check.sh`, `window-guard-check.sh`) run on
+   every pull request in preflight, **two** (`sanitizer-check.sh`,
+   `soak-check.sh`) run nightly in `deep-checks.yml`, and the other **ten** run
+   only when Omar types their target. Those ten are free of CI not because
+   nobody wired them up but because no runner has his Claude subscription.
+   Follow-up work in
+   [docs/exec-plans/tech-debt-tracker.md](exec-plans/tech-debt-tracker.md).
 2. **Never as the real One.** `TestWorld.gate()` is the first line of `main()`
    and refuses any `--test-…`/`--render…` under the real bundle id
    (`ai.forjado.one`) before anything is built or read. `ONE_LIVE_CHECK` does
@@ -142,10 +164,22 @@ changed only the first of them:
    the copy its own bundle id and so its own settings.
 3. **Never the real One folder.** `TestWorld.enter()` refuses when
    `Env.support` is the person's real folder, and `tools/engine-check.sh` — the
-   one wrapper every live check goes through — always points
+   wrapper the live *engine* checks go through — always points
    `ONE_SUPPORT_DIR` at a throwaway folder. Ten hand-copied versions of that
    setup had drifted on exactly this setting, which is why there is one now
    (enforced: `one-lint: engine-check-wrapper`).
+
+   Two details this used to get wrong. `--engine-link` **symlinked** the
+   person's real `engine` folder into the test world, and `isProduction()`
+   cannot see through that — it resolves `"$S/sup"`, which really is scratch —
+   so anything the engine wrote under its own engine directory landed in their
+   real folder and the refusal never fired. It copies now (`cp -c`, a clone on
+   APFS), so no byte can travel back. And the two checks that start a test copy
+   through Launch Services rather than `env -i`
+   (`tools/handoff-qa.sh`, `tools/human-window-check.sh`) are a different
+   family that `engine-check-wrapper` cannot see, because they have no
+   `env -i`; they share `engine_launch_env` from the same file instead, which is
+   where the settings baked into a copy's `Info.plist` now live.
 
 ## Trust boundaries for the agent/tool-execution surface
 

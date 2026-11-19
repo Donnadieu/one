@@ -30,9 +30,20 @@ enum TestWorld {
         exit(2)
     }
     /// The flag that makes this run a render or test under the real bundle id, or nil when it may run.
+    /// `--qa-` counts too, and so does ONE_TEST_MODE: the hand-off QA and the live human check pick their
+    /// mode from that variable rather than from a `--test-` flag, so this gate couldn't see them at all.
+    /// Both do call `enter()`, so the refusal held — but it was one layer deep instead of two.
     static func refused(_ args: [String], bundle: String?) -> String? {
         guard bundle == productionID else { return nil }
-        return args.dropFirst().first { $0.hasPrefix("--render") || $0.hasPrefix("--test-") }
+        if let flag = args.dropFirst().first(where: {
+            $0.hasPrefix("--render") || $0.hasPrefix("--test-") || $0.hasPrefix("--qa-")
+        }) {
+            return flag
+        }
+        if let mode = ProcessInfo.processInfo.environment["ONE_TEST_MODE"], !mode.isEmpty {
+            return "ONE_TEST_MODE=\(mode)"
+        }
+        return nil
     }
 
     /// The first line of every test mode.
@@ -82,9 +93,12 @@ enum TestWorld {
     /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), where every check on a pull request runs.
     static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
 
-    /// A live check the owner asked for by name: its make target sets ONE_LIVE_CHECK=1 (tools/ci-only.sh).
-    /// Only for the checks that need One's installed engine and his own subscription, which CI can't have.
-    static var liveCheck: Bool { ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] == "1" }
+    /// A live check the owner asked for by name: its make target sets ONE_LIVE_CHECK to that check's own
+    /// file name, and tools/ci-only.sh is what checks the name matches and that the check says it may only
+    /// run here. Only for the checks that need One's installed engine and his own subscription, which CI
+    /// can't have. Any non-empty value counts here, because the shell side already did the naming: this
+    /// gate only answers "did the owner ask for a live check at all".
+    static var liveCheck: Bool { !(ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] ?? "").isEmpty }
 
     /// The real One folder, for reading fixtures only (never written by a test).
     static var realSupport: URL {

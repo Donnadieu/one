@@ -1,3 +1,5 @@
 pretend: Sources/Canary.swift
+branches: 2
 --
-let app = "WhatsApp"
+let a = "WhatsApp"
+let b = "Telegram"

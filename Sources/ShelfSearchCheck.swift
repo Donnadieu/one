@@ -6,6 +6,7 @@ import Foundation
 enum ShelfSearchCheck {
     static func launch() -> Bool {
         guard CommandLine.arguments.contains("--test-shelf-search") else { return false }
+        TestWorld.enter()
         Task { exit(await run()) }  // pure; touches nothing real
         return true
     }

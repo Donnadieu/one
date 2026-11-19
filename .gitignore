@@ -15,6 +15,8 @@ venv/
 # Credentials, keys and tokens: never in this tree, ever
 .env
 .env.*
+!.env.example
+!.env.sample
 .netrc
 *.pem
 *.key
@@ -25,6 +27,7 @@ venv/
 *.kdbx
 *.ovpn
 *.asc
+!*.pub.asc
 *.gpg
 id_rsa*
 id_dsa*
@@ -36,6 +39,15 @@ secret.yaml
 secret.yml
 secrets.yaml
 secrets.yml
+
+# An agent's own config, which is where a token lands without anyone deciding to put it there.
+# These were ignored only by .git/info/exclude, which is untracked: it existed in one working copy
+# and in no other clone, no other workspace and no CI checkout.
+.mcp.json
+.claude/settings.local.json
+.claude/settings.local.*
+.forge/
+.forge-ready
 
 # Scratch: notes, logs, shots and reviews a check or an agent leaves behind
 tmp/

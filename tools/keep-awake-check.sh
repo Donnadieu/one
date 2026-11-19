@@ -16,19 +16,19 @@ wait_line() { for _ in $(seq 1 100); do grep -q "^$1" "$2" 2>/dev/null && return
 
 ONE_SUPPORT_DIR="$T" ONE_HOLD_SECS=4 "$BIN" --test-keep-awake-hold > "$T/hold.txt" 2>&1 & P=$!
 if wait_line holding "$T/hold.txt"; then
-  has $P && ok "during: pmset shows \"$(sed -n 's/^holding [0-9]* //p' "$T/hold.txt")\" for the test copy" || bad "during: pmset doesn't show it"
-  pmset -g assertions | grep -E "pid $P\(One\)" | grep -q DisplaySleep && bad "it keeps the screen on" || ok "the screen can still sleep"
-  [ "$(pmset -g assertions | grep -cE "pid $P\(One\)")" = 1 ] && ok "exactly one" || bad "more than one"
+  if has $P; then ok "during: pmset shows \"$(sed -n 's/^holding [0-9]* //p' "$T/hold.txt")\" for the test copy"; else bad "during: pmset doesn't show it"; fi
+  if pmset -g assertions | grep -E "pid $P\(One\)" | grep -q DisplaySleep; then bad "it keeps the screen on"; else ok "the screen can still sleep"; fi
+  if [ "$(pmset -g assertions | grep -cE "pid $P\(One\)")" = 1 ]; then ok "exactly one"; else bad "more than one"; fi
 else bad "the test copy never held"; fi
 if wait_line released "$T/hold.txt"; then
-  kill -0 $P 2>/dev/null && ! has $P && ok "after: gone while One is still running" || bad "after: still held (or One quit early)"
+  if kill -0 $P 2>/dev/null && ! has $P; then ok "after: gone while One is still running"; else bad "after: still held (or One quit early)"; fi
 else bad "never let go"; fi
 kill $P 2>/dev/null; wait $P 2>/dev/null
 
 ONE_SUPPORT_DIR="$T" ONE_HOLD_SECS=60 "$BIN" --test-keep-awake-hold > "$T/crash.txt" 2>&1 & P=$!
 if wait_line holding "$T/crash.txt" && has $P; then
   kill -9 $P; wait $P 2>/dev/null; sleep 1
-  has $P && bad "crash: still held after the process died" || ok "crash: gone with the process"
+  if has $P; then bad "crash: still held after the process died"; else ok "crash: gone with the process"; fi
 else bad "crash test never held"; kill -9 $P 2>/dev/null; fi
 [ $fails = 0 ] && echo "keep awake pmset ok"
 [ $fails = 0 ]

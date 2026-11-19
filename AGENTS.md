@@ -14,10 +14,14 @@ Swift 6 toolchain (language mode 5) / SwiftUI + AppKit / macOS 14+, Apple Silico
     make format        # format Sources/ (swift-format, config in .swift-format)
     make lint          # One's own rules + their canaries + ruff/shellcheck; every baseline may only shrink
     make check         # the one local gate: format, identity, lint, doc drift, docs map, hooks. Before every commit.
-    make full          # check + a fresh install into an empty folder: before every release
+    make full          # check, then where the rest of the release gate runs: before every release
     make hooks         # once per clone: turn on the pre-commit hook (`make check` fails until you do)
     make prove         # just the canaries: every lint rule still fires on a snippet that breaks it
-    make -s help 2>/dev/null || grep '##' Makefile   # every target, with what it costs
+    make help          # every target, with what it costs
+
+No `make` target runs a test. Tests open windows and take the focus, so they run in CI; the
+exception is a live check that needs One's installed engine and Omar's own subscription, which its
+target asks for by name (`make jobs`, `make helperdone`, …) and which no runner can ever have.
 
 ## Map
 - [docs/INDEX.md](docs/INDEX.md): every doc

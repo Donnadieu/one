@@ -56,4 +56,9 @@ jobs:
           sudo xcode-select -s "$X"
       # ONE_SOAK_ROUTE stays 0: switching the speakers' format is for the owner's Mac, where a real
       # One may be open to hear it.
-      - run: tools/soak-check.sh "${{ inputs.soak_minutes || '10' }}" "${{ inputs.soak_mode || 'guard' }}"
+      # Through env:, never straight into the run line. GitHub substitutes a ${{ }} before bash
+      # parses it, so the quotes around it here would not contain a value carrying its own quote.
+      - env:
+          SOAK_MINUTES: ${{ inputs.soak_minutes || '10' }}
+          SOAK_MODE: ${{ inputs.soak_mode || 'guard' }}
+        run: tools/soak-check.sh "$SOAK_MINUTES" "$SOAK_MODE"

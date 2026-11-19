@@ -10,10 +10,13 @@ permissions:
   id-token: write
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Never cancel a deploy half-done: GitHub's own Pages starter workflow says the same, because a
+  # cancelled deploy-pages can leave the Pages environment mid-publish.
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

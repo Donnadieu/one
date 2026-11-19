@@ -39,6 +39,7 @@ if "struct BotInfo" not in src:
     c.write_text(t)
 PY
   ( cd "$W" && ./build.sh > "$OUT/$TAG-build.txt" 2>&1 )
+  # shellcheck disable=SC2012  # release names sorted by version are the point, and find's order is unspecified
   APP_SRC=$(ls -d "$W/build/app.noindex/One.app" "$W/build/One.app" 2>/dev/null | head -1)
   if [ -z "$APP_SRC" ] || ! [ -x "$APP_SRC/Contents/MacOS/One" ]; then
     echo "$TAG: didn't build with the check:"; grep " error:" "$OUT/$TAG-build.txt" | head -5; continue

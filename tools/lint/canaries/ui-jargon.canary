@@ -1,3 +1,16 @@
 pretend: Sources/Canary.swift
+branches: 6
 --
 Text("Paste your API key here")
+Label("Sign in with OAuth", systemImage: "key")
+Button("Copy the token") {}
+Text("Open the terminal and run the CLI")
+Text("Edit the JSON config")
+Text("Set the webhook endpoint")
+--allow--
+Text("Sign in")
+Text("Your files")
+Text("Settings")
+// API key, OAuth, token — a comment is not UI text
+let endpoint = "https://example.com"
+print("config loaded")

@@ -20,6 +20,7 @@ permissions:
 jobs:
   garden:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -31,14 +32,32 @@ jobs:
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/doc-gardening-report.txt
+          # The step used to end on `cat`, so its exit status was always 0: a SyntaxError, a missing
+          # import or any traceback was indistinguishable from "found judgment-call issues", and the
+          # workflow went green every Monday while opening no PR. 0 = clean, 1 = findings; anything
+          # above that is the script itself being broken.
+          if [ "$code" -gt 1 ]; then
+            echo "✗ tools/doc-gardening.py exited $code, which is not a finding — it didn't run."
+            exit "$code"
+          fi
 
       - name: Check whether anything changed
         id: diff
+        # Scoped to the same paths the PR step stages. `git status --porcelain` with no paths said
+        # "changed" for any dirty file, so a fix that only touched something outside add-paths set
+        # changed=true, create-pull-request found nothing to commit, exited 0, opened no PR — and the
+        # workflow was green with the fix silently discarded.
         run: |
-          if git status --porcelain | grep -q .; then
+          if git status --porcelain -- docs AGENTS.md README.md | grep -q .; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if git status --porcelain | grep -qv -e '^.. docs/' -e '^.. AGENTS.md' -e '^.. README.md'; then
+            echo "✗ --fix changed a file outside docs/, AGENTS.md and README.md, which the PR step won't stage:"
+            git status --porcelain | grep -v -e '^.. docs/' -e '^.. AGENTS.md' -e '^.. README.md'
+            echo "    FIX: either --fix shouldn't touch it, or add it to add-paths below."
+            exit 1
           fi
 
       - name: Open a PR with the mechanical fixes
@@ -57,8 +76,20 @@ jobs:
             AGENTS.md
             README.md
 
+      # GitHub raises no workflow_run for an event made with GITHUB_TOKEN, so the PR above arrived
+      # with no checks at all: "same as any other PR" minus the gate. Run the rules on the branch the
+      # bot just pushed, so the branch is red before Omar reads it rather than after it lands.
+      - name: Run the rules on the branch the bot pushed
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run rules.yml --ref doc-gardening/automated-fixes
+
       - name: Report findings left for a human, even with no file changes
         if: steps.diff.outputs.changed == 'false' && steps.fix.outputs.exit_code != '0'
         run: |
           echo "doc-gardening found judgment-call issues that need a human look (no mechanical fix was possible — nothing to open a PR for):"
           cat /tmp/doc-gardening-report.txt
+          # Red, not green: a scheduled run whose findings nobody can see in the Actions list is a
+          # run nobody reads. The finding is in the log above.
+          exit 1

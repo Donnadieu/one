@@ -6,6 +6,7 @@ enum PanelRun {
     /// `--test-panels`: pure Model-state checks, no scratch brain needed.
     static func launch() -> Bool {
         guard CommandLine.arguments.contains("--test-panels") else { return false }
+        TestWorld.enter()
         MainActor.assumeIsolated { exit(run()) }
         return true
     }

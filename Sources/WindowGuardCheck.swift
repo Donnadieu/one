@@ -8,6 +8,7 @@ import AppKit
 enum WindowGuardCheck {
     @MainActor static func launch() -> Bool {
         guard CommandLine.arguments.contains("--test-window-guard") else { return false }
+        TestWorld.enter()
         exit(run())
     }
 

@@ -109,7 +109,7 @@ import SwiftUI
     /// Starts, stops or re-times the shared timers: each runs only while its window is seen and something uses it.
     func retime() {
         let t = PaceTicker.self
-        let moving = t.home.users + t.stars.users > 0
+        let moving = t.home.users + t.slow.users + t.stars.users > 0
         let h = !homeSeen ? 0 : moving ? max(front ? Pace.calmFront : Pace.calmBack, Motion.every ?? 0) : t.second.users > 0 ? 1 : 0
         let o = orbSeen && t.orb.users > 0 ? max(t.orb.quick > 0 || voice ? Pace.orbQuick : Pace.orbRest, Motion.every ?? 0) : 0
         if h != homeEvery {
@@ -160,16 +160,18 @@ import SwiftUI
     var state: String {
         let t = PaceTicker.self
         return String(
-            format: "home tick %.3f s (users %d, stars %d, words %d), orb tick %.3f s (users %d)", homeEvery, t.home.users, t.stars.users,
-            t.second.users, orbEvery, t.orb.users)
+            format: "home tick %.3f s (users %d, slow %d, stars %d, words %d), orb tick %.3f s (users %d)", homeEvery, t.home.users,
+            t.slow.users, t.stars.users, t.second.users, orbEvery, t.orb.users)
     }
 
-    /// One pass for the main window: every picture at rest, the stars every third tick, words once a second.
+    /// One pass for the main window: the orb at rest every tick, the small slow things every second one, the stars
+    /// every third, words once a second.
     private func homeTick() {
         let now = Date()
         ticks += 1
         PaceTicker.home.tick(now)
-        if ticks % 3 == 0 { PaceTicker.stars.tick(now) }  // 10 a second in front, 3 behind another app
+        if ticks % 2 == 0 { PaceTicker.slow.tick(now) }
+        if ticks % 3 == 1 { PaceTicker.stars.tick(now) }  // 10 a second in front, 3 behind another app
         if Int(now.timeIntervalSince1970) != Int(PaceTicker.second.now.timeIntervalSince1970) { PaceTicker.second.tick(now) }
     }
 }
@@ -178,6 +180,7 @@ import SwiftUI
 /// once a second (`second`). Views count themselves in while on screen, so a timer runs only while something uses it.
 @MainActor final class PaceTicker: ObservableObject {
     static let home = PaceTicker()
+    static let slow = PaceTicker()  // every second tick: the small slow things (bots' moons, helpers drifting)
     static let stars = PaceTicker()
     static let second = PaceTicker()
     static let orb = PaceTicker()
@@ -216,6 +219,8 @@ struct PaceRest<Content: View>: View {
 struct PaceClock<Content: View>: View {
     var quick = false
     var orb = false
+    /// Small and slow at rest (a bot's moon, a helper drifting): every second tick is plenty.
+    var slow = false
     @ViewBuilder let content: (Date) -> Content
     @ObservedObject private var pace = Pace.shared
     var body: some View {
@@ -226,7 +231,7 @@ struct PaceClock<Content: View>: View {
             if quick {  // at work behind another app: its own clock, a little slower
                 TimelineView(.animation(minimumInterval: s, paused: !seen)) { tl in content(tl.date) }
             } else {
-                PaceRest(ticker: orb ? .orb : .home, content: content)
+                PaceRest(ticker: slow ? .slow : .home, content: content)
             }
         } else {
             TimelineView(.animation(minimumInterval: Motion.every, paused: !seen)) { tl in content(tl.date) }

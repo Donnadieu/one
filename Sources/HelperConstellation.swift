@@ -236,7 +236,7 @@ struct HelperMotion<Content: View>: View {
         if calm {
             content(21.7)
         } else {
-            PaceClock(quick: quick) { date in
+            PaceClock(quick: quick, slow: true) { date in
                 let t = date.timeIntervalSince(WorldLook.start)
                 let _ = Motion.drew()
                 content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)

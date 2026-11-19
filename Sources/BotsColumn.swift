@@ -29,7 +29,7 @@ struct BotMoon: View {
     var body: some View {
         Group {
             if live && !HomeView.still {
-                PaceClock { date in
+                PaceClock(slow: true) { date in
                     Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: date.timeIntervalSince(WorldLook.start) + t) }
                 }
             } else {

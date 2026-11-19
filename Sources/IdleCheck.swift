@@ -86,6 +86,13 @@ enum IdleCheck {
     }
 
     @MainActor static func measure(_ name: String, seconds: Double = 5) async -> Result {
+        let p = Pace.shared
+        let w = NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }
+        print(
+            "  [pace: home seen \(p.homeSeen), orb seen \(p.orbSeen), front \(p.front), voice \(p.voice); window \(w.map { "\(type(of: $0)) visible \($0.isVisible) mini \($0.isMiniaturized) occl \($0.occlusionState.rawValue)" } ?? "none"); \(NSApp.windows.count) windows]"
+        )
+        let tag = name.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.prefix(4).joined(separator: "-")
+        await SmoothCheck.profile("idle-" + tag, seconds: 3)
         let a = Usage()
         try? await Task.sleep(for: .seconds(seconds))
         let b = Usage()

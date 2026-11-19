@@ -93,13 +93,13 @@ import SwiftUI
         .animation(minimumInterval: quick || voice ? Motion.every : Pace.orbRest, paused: !orbSeen)
     }
     /// A slow periodic clock in the main window (words once a second, the stars): one still moment while unseen.
-    func every(_ seconds: Double, from start: Date = .now) -> PaceEvery { PaceEvery(start: start, seconds: seconds, on: homeSeen) }
+    func every(_ seconds: Double, from start: Date = WorldLook.start) -> PaceEvery { PaceEvery(start: start, seconds: seconds, on: homeSeen) }
     /// The stars twinkle 12 times a second in front, 4 behind another app.
     var starsEvery: Double { front ? 1 / Stars.fps : 1 / 4 }
 }
 
 /// `.periodic` that stops when `on` is false (TimelineView's own periodic clock can't be paused).
-struct PaceEvery: TimelineSchedule {
+struct PaceEvery: TimelineSchedule, Equatable {
     let start: Date
     let seconds: Double
     let on: Bool

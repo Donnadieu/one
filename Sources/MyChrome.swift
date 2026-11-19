@@ -7,8 +7,10 @@ import Foundation
 /// read One's code rightly said "using your Chrome isn't built". Connect now copies the sign-ins of
 /// the person's own Chrome (One runs outside the folder lock, so it can read Chrome's folder) into
 /// One's folder and points the hidden browser at that copy: same port, always headless, never a
-/// window. Their Chrome keeps running and is never touched. The copy is refreshed every time One
-/// starts the hidden browser, on Connect, and when the assistant leaves `browser/resync`.
+/// window. Their Chrome keeps running and is never touched. The copy is refreshed on Connect and when the
+/// assistant leaves `browser/resync`, never on a plain restart: sign-ins made in the hidden browser itself
+/// (X, through One's window) live only there, and copying Chrome over them signed X out twice on Nov 18 2026.
+/// A copy keeps those sign-ins (one_my_chrome.py merges them back), and a failed one leaves them untouched.
 enum MyChrome {
     static var copyDir: URL { Env.support.appendingPathComponent("browser/my-chrome") }
     static var resyncFile: URL { Env.support.appendingPathComponent("browser/resync") }
@@ -82,6 +84,20 @@ enum MyChrome {
         return ChromeCheck.plain(why)
     }
 
+    /// The copy's cookies from before the last copy (one_my_chrome.py), for `putBack()`.
+    static var keptDir: URL { Env.support.appendingPathComponent("browser/my-chrome-before") }
+
+    /// The Mac's keychain said no to a fresh copy: put the hidden browser's cookies from before it back.
+    static func putBack() async {
+        busy = true
+        defer { busy = false }
+        guard stopCopy() else { return BrowserKeeper.log("couldn't put the sign-ins back: the hidden browser didn't stop") }
+        let (code, out) = await hermesRun(["--run-module", "tools.one_my_chrome", "restore", copyDir.path], timeout: 60)
+        BrowserKeeper.log(code == 0 ? "put the hidden browser's sign-ins from before the copy back" : "nothing to put back: \(out.suffix(120))")
+        BrowserKeeper.lastStart = nil
+        if let p = BrowserKeeper.plan, !BrowserKeeper.alive(p.port) { BrowserKeeper.start(p) }
+    }
+
     /// Stop the hidden browser only when it runs on the copy (never their own Chrome, never another profile).
     static func stopCopy() -> Bool {
         guard let pid = BrowserKeeper.pidOn(port) else { return true }
@@ -142,24 +158,30 @@ enum MyChrome {
         _ = stopCopy()
         try? FileManager.default.removeItem(at: BrowserKeeper.settingsFile)
         try? FileManager.default.removeItem(at: copyDir)
+        try? FileManager.default.removeItem(at: keptDir)
         _ = await hermesRun(["config", "set", "browser.cdp_url", ""])
         UserDefaults.standard.removeObject(forKey: "browserWith")
         BrowserKeeper.log("disconnected their Chrome: copy deleted")
     }
 
-    /// From `BrowserKeeper.tend()`: before starting the copy again, refresh it (the browser is down,
-    /// so it's safe), and honour the assistant's request in `browser/resync`. True = tend should wait.
+    /// Someone used this Mac in the last few minutes, so a keychain box about \u{201C}Chrome Safe Storage\u{201D}
+    /// can get its answer. With nobody there it waits, and the copy came up reading no sign-ins (Nov 18 2026).
+    static func attended(idle: Double) -> Bool { idle < PhoneHandoff.awayAfter }
+    static var attended: Bool { attended(idle: PhoneHandoff.idleSeconds) }
+
+    /// From `BrowserKeeper.tend()`: honour the assistant's request in `browser/resync`, only while someone is
+    /// at the Mac. A copy that just went down starts again on its own saved sign-ins. True = tend should wait.
     static func tend(_ p: BrowserKeeper.Plan, alive: Bool) -> Bool {
         if busy { return true }
-        guard isCopy(p) else { return false }
-        let asked = FileManager.default.fileExists(atPath: resyncFile.path)
-        if alive && !asked { return false }
-        // Down and just refreshed (or the refresh failed): let the keeper start it on what's there.
-        if !alive && !asked, let t = lastSync, Date().timeIntervalSince(t) < 120 { return false }
+        guard isCopy(p), FileManager.default.fileExists(atPath: resyncFile.path) else { return false }
+        guard attended else {
+            BrowserKeeper.log("a fresh copy of their Chrome waits until someone is at the Mac (the keychain may ask)")
+            return false
+        }
         busy = true
         lastSync = Date()
         Task.detached {
-            if asked { try? FileManager.default.removeItem(at: resyncFile) }
+            try? FileManager.default.removeItem(at: resyncFile)
             if !alive || stopCopy() { _ = await sync() }
             lastSync = Date()
             BrowserKeeper.lastStart = nil
@@ -176,7 +198,7 @@ enum MyChrome {
             return head + state + rule + ")"
         }
         return head
-            + "the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)). Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, run `\(Bridge.exe) --connect-chrome` again: it copies their Chrome again (it restarts that hidden browser, so not while another helper is mid-task in it). If they say a site doesn't work there, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words. "
+            + "the hidden browser on port \(p.port) is a copy of their own Chrome's sign-ins (\(copiedLine)). Sites they're signed in to in Chrome are signed in there too. If a site they signed in to in Chrome since then still shows signed out, run `\(Bridge.exe) --connect-chrome` again: it copies their Chrome again and keeps the sign-ins made in the hidden browser itself (it restarts that hidden browser, so not while another helper is mid-task in it, and never from a routine or while they're away from the Mac). If they say a site doesn't work there, run `\(Bridge.exe) --chrome-check` and tell them what it says, in its own plain words. "
             + rule + ")"
     }
 

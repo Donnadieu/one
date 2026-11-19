@@ -64,6 +64,16 @@ enum BrowserCheck {
         expect(ma.contains("--headless=new") && ma.contains("--disable-sync"), "the copy runs hidden and never syncs back into their Google account")
         expect(ma.last == "about:blank" && !a.contains("--disable-sync"), "other hidden browsers keep their settings")
         expect(!MyChrome.tend(q!, alive: true), "a hidden browser that isn't the copy is left alone")
+        // Nov 18 2026: One closed the copy (it showed in the Dock), copied their Chrome over it on the way back up,
+        // and X, signed in only in the hidden browser, went signed out twice. Down and nobody asked = no copy.
+        MyChrome.lastSync = nil
+        try? FileManager.default.removeItem(at: MyChrome.resyncFile)
+        expect(
+            !MyChrome.tend(mine, alive: false) && MyChrome.lastSync == nil,
+            "the copy that went down starts again on its own saved sign-ins; Chrome is copied only when someone asks")
+        expect(
+            MyChrome.attended(idle: 20) && !MyChrome.attended(idle: 3600) && MyChrome.rule.contains("A routine never runs it"),
+            "nobody at the Mac (a routine at 1 PM): no copy of their Chrome, the keychain box would get no answer")
         let none = MyChrome.note(nil)
         expect(
             none.contains("--connect-chrome") && none.contains("Connecting your Chrome now.") && none.contains("Never send them to Connections")

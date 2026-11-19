@@ -24,6 +24,7 @@ extension MyChrome {
         case otherBrowser = 4
         case unverified = 5
         case keychain = 6
+        case away = 7
     }
 
     // MARK: Which Chrome profile
@@ -148,6 +149,13 @@ extension MyChrome {
         guard let state = FileManager.default.contents(atPath: chromeData + "/Local State") else {
             return (.failed, "Chrome hasn't been used on this Mac yet. Open it once and sign in to your sites, then ask me again.")
         }
+        // Nobody at the Mac (a routine, a helper while they're away): the keychain box would get no answer.
+        guard attended else {
+            return (
+                .away,
+                "AWAY: nobody has used this Mac for a few minutes, so I didn't copy your Chrome (your Mac may ask about its saved logins, and nobody is there to answer). The hidden browser's sign-ins are as they were. Ask me again when you're at the Mac."
+            )
+        }
         let (last, all) = profiles(localState: state)
         let profile: Profile
         switch pick(asked, last: last, all: all, pinned: asked == nil ? pinned : nil) {
@@ -179,9 +187,10 @@ extension MyChrome {
             check = await ChromeCheck.current()
         }
         if !check.ok && check.lines.joined().contains("Chrome Safe Storage") {
+            await putBack()  // the hidden browser's sign-ins from before this copy, untouched
             return (
                 .keychain,
-                "KEYCHAIN: your Mac didn't let Chrome's saved logins be read, so the hidden browser isn't signed in to anything. If a box asked about \"Chrome Safe Storage\" and you tapped Deny, I can try again: this time tap Always Allow."
+                "KEYCHAIN: your Mac didn't let Chrome's saved logins be read, so I put the hidden browser's sign-ins back as they were before. If a box asked about \"Chrome Safe Storage\" and you tapped Deny, I can try again: this time tap Always Allow."
             )
         }
         for s in candidates(cookies) {
@@ -323,7 +332,7 @@ extension MyChrome {
     /// The "use my Chrome" rule, in SOUL and in every prompt (main chat, helpers, follow-ups, resumes).
     static var rule: String {
         """
-        USE THEIR CHROME: when they say anything like "use my Chrome", "use my browser", "connect my Chrome", "use the sites I'm signed in to", do it right away yourself: say one line, "Connecting your Chrome now.", and run `\(Bridge.exe) --connect-chrome` (add a profile name only if they named one). It copies the sign-ins from their own Chrome into your hidden browser (always hidden, their Chrome untouched, stays connected for every helper and routine) and checks one site. Then tell them its result in plain words. Exit 3 = it lists their Chrome profiles: ask which one with the choices it gives, then run it again with that name. Exit 6 (a line starting KEYCHAIN) = their Mac didn't let Chrome's saved logins be read: say once "Your Mac will ask if One can read Chrome's saved logins. Tap Always Allow." and run it again; if it fails the same way again, explain once that without that yes you can't use their Chrome sign-ins, and offer to try again ([choices: Try again | Not now]). If it or a site they need doesn't work, run `\(Bridge.exe) --chrome-check` and tell them what it says in its own plain words. Helpers run it the same way as the main chat. Never send them to Connections or any menu or setting for this, never say it isn't built. Arc, Safari and other browsers: only Chrome's sign-ins can be copied so far; say so in one line and offer Chrome or saving a login for one site at a time.
+        USE THEIR CHROME: when they say anything like "use my Chrome", "use my browser", "connect my Chrome", "use the sites I'm signed in to", do it right away yourself: say one line, "Connecting your Chrome now.", and run `\(Bridge.exe) --connect-chrome` (add a profile name only if they named one). It copies the sign-ins from their own Chrome into your hidden browser (always hidden, their Chrome untouched, stays connected for every helper and routine) and checks one site. Then tell them its result in plain words. Exit 3 = it lists their Chrome profiles: ask which one with the choices it gives, then run it again with that name. Exit 6 (a line starting KEYCHAIN) = their Mac didn't let Chrome's saved logins be read: say once "Your Mac will ask if One can read Chrome's saved logins. Tap Always Allow." and run it again; if it fails the same way again, explain once that without that yes you can't use their Chrome sign-ins, and offer to try again ([choices: Try again | Not now]). Exit 7 (a line starting AWAY) = nobody is at the Mac: copy nothing, say it in one line and go on. A routine never runs it. If it or a site they need doesn't work, run `\(Bridge.exe) --chrome-check` and tell them what it says in its own plain words. Helpers run it the same way as the main chat. Never send them to Connections or any menu or setting for this, never say it isn't built. Arc, Safari and other browsers: only Chrome's sign-ins can be copied so far; say so in one line and offer Chrome or saving a login for one site at a time.
         """
     }
 }

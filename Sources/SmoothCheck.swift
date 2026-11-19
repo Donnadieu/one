@@ -30,6 +30,7 @@ enum SmoothCheck {
     }
 
     nonisolated static func main(_ args: [String]) {
+        if let k = args.firstIndex(of: "--render-smooth-cost") { MainActor.assumeIsolated { cost(args, k) } }
         guard args.contains("--test-smooth") else { return }
         TestWorld.enter()
         guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
@@ -44,6 +45,49 @@ enum SmoothCheck {
             Task { @MainActor in exit(await run(bots: counts)) }
         }
         NSApplication.shared.run()
+    }
+
+    /// `--render-smooth-cost [n] [bots]` (a test copy, ONE_SUPPORT_DIR set): what one model change costs the home screen,
+    /// with no window at all: the real home view in a hosting view that is never shown, the model changed `n` times
+    /// (a streamed word, as a helper sends them), each change's update and layout timed on the main thread's CPU.
+    @MainActor static func cost(_ args: [String], _ k: Int) {
+        guard TestWorld.enterRender() else { exit(2) }
+        let n = k + 1 < args.count ? Int(args[k + 1]) ?? 200 : 200
+        let bots = k + 2 < args.count ? Int(args[k + 2]) ?? 8 : 8
+        UserDefaults.standard.set(false, forKey: "botsCollapsed")
+        let m = Model.shared
+        m.assistantName = "Ava"
+        m.userName = "Omar"
+        world(bots: bots)
+        let env = ProcessInfo.processInfo.environment
+        if env["ONE_COST_SHELF"] == "0" { m.shelf = [] }  // what each part costs: the same run without it
+        UserDefaults.standard.set(env["ONE_COST_SHELF"] == "folded", forKey: "shelfCollapsed")
+        if env["ONE_COST_SHELF"] == "older" {
+            m.shelf = m.shelf.map {
+                var i = $0
+                i.made = i.made.addingTimeInterval(-30 * 86400)
+                return i
+            }
+        }
+        if env["ONE_COST_CHAT"] == "0" { m.bubbles = [] }
+        let host = NSHostingView(
+            rootView: HomeView(m: m).frame(width: 1180, height: 760).foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
+        host.frame = NSRect(x: 0, y: 0, width: 1180, height: 760)
+        host.layoutSubtreeIfNeeded()
+        let working = m.helpers.filter { $0.state == "working" && !isBot($0) }.map(\.id)
+        var each: [Double] = []
+        for i in 0..<n {
+            let c = threadCPU()
+            if let id = working.isEmpty ? nil : working[i % working.count] { m.update(id) { $0.reply += "word " } }
+            host.layoutSubtreeIfNeeded()
+            each.append((threadCPU() - c) * 1000)
+        }
+        let s = each.sorted()
+        print(
+            String(
+                format: "one model change, home with %d bots and %d cards: p50 %.2f ms, p95 %.2f ms, max %.2f ms", bots, m.shelf.count,
+                s[s.count / 2], s[Int(Double(s.count) * 0.95)], s.last ?? 0))
+        exit(0)
     }
 
     // MARK: What is recorded

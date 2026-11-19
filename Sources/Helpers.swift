@@ -349,15 +349,20 @@ struct ShelfCardView: View {
     }
 }
 
-struct ShelfPanel: View {
-    @ObservedObject var m: Model
+/// Ready for you. It doesn't watch the model: HomeView hands it the cards (`shown`) and it redraws only when they change
+/// (`key`, plus the minute for "just now"). Watching the model redrew over a thousand cards on every change of any
+/// helper (Nov 18 2026: 10 of the 16 ms each change cost home, `One --render-smooth-cost`).
+struct ShelfPanel: View, Equatable {
+    let m: Model  // for what a tap does, never read to draw
+    let shown: [ShelfItem]
+    var key: Int = 0
     @AppStorage(Glass.key) var solid = Glass.standard
     var collapse: () -> Void = {}
+    nonisolated static func == (a: ShelfPanel, b: ShelfPanel) -> Bool { a.key == b.key }
     @State private var query = ""
     @State private var matched: Set<UUID>?
     @State private var olderOpen = false
     var body: some View {
-        let shown = m.shelfShown  // worked out once per redraw: the shelf can hold over a thousand cards
         let fresh = shown.filter(\.fresh).count
         VStack(alignment: .leading, spacing: 10) {
             ShelfHeader(fresh: fresh, markAll: { m.markShelfRead() }, collapse: collapse).padding(.horizontal, 4)
@@ -376,15 +381,18 @@ struct ShelfPanel: View {
         .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
         .animation(.spring(response: 0.6, dampingFraction: 0.8), value: shown.map(\.id))
     }
+    /// Only the cards in view are built (a week of cards was over a hundred, each laid out again on every change).
     @ViewBuilder private func cards(_ shown: [ShelfItem]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        if HomeView.still {
+            VStack(alignment: .leading, spacing: 8) { list(shown) }  // renders draw a lazy stack blank
+        } else {
+            LazyVStack(alignment: .leading, spacing: 8) { list(shown) }
+        }
+    }
+    @ViewBuilder private func list(_ shown: [ShelfItem]) -> some View {
+        Group {
             if query.isEmpty {
-                // Redrawn only when the cards change (or a minute passes, for "just now"), never for the rest of
-                // the model: over a thousand cards were laid out again on every change of any helper.
-                ShelfDays(key: ShelfGroups.key(shown, olderOpen: olderOpen), groups: ShelfGroups.grouped(shown), olderOpen: $olderOpen) {
-                    card($0)
-                }
-                .equatable()
+                ShelfDays(groups: ShelfGroups.grouped(shown), olderOpen: $olderOpen) { card($0) }
             } else if let matched {
                 let results = shown.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
                 if results.isEmpty {
@@ -413,7 +421,7 @@ struct ShelfPanel: View {
             matched = nil
             return
         }
-        let items = m.shelfShown
+        let items = shown
         Task {
             let r = await ShelfTextIndex.shared.matches(items, query: q)
             if query == q { matched = r }

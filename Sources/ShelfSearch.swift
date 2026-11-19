@@ -80,11 +80,23 @@ extension ShelfItem {
 }
 
 enum ShelfGroups {
-    /// Everything a card shows, plus the minute (its "just now") and whether Older is open (`ShelfDays`).
-    static func key(_ items: [ShelfItem], olderOpen: Bool, now: Date = Date()) -> [String] {
-        ["\(Int(now.timeIntervalSince1970 / 60)) \(olderOpen)"] + items.map { "\($0.id) \($0.fresh) \($0.title) \($0.detail) \($0.from) \($0.path)" }
+    /// Everything a card shows, plus the minute (its "just now"): Ready for you redraws only when this changes.
+    static func key(_ items: [ShelfItem], now: Date = Date()) -> Int {
+        var h = Hasher()
+        h.combine(Int(now.timeIntervalSince1970 / 60))
+        h.combine(items.count)
+        for it in items {
+            h.combine(it.id)
+            h.combine(it.fresh)
+            h.combine(it.title)
+            h.combine(it.detail)
+            h.combine(it.from)
+            h.combine(it.path)
+            h.combine(it.made)
+            h.combine(it.bot)
+        }
+        return h.finalize()
     }
-    /// Cards grouped by day, newest group and newest card first; empty groups are dropped.
     /// Each card's day is worked out once (Omar's shelf holds over a thousand cards and this runs on every redraw).
     static func grouped(_ items: [ShelfItem]) -> [(ShelfDay, [ShelfItem])] {
         let sorted = items.sorted { $0.made > $1.made }
@@ -186,13 +198,11 @@ enum ShelfSearchRender {
     }
 }
 
-/// Ready for you's cards by day (the Older ones folded until opened). Equatable on what the cards show.
-struct ShelfDays<Card: View>: View, Equatable {
-    let key: [String]
+/// Ready for you's cards by day (the Older ones folded until opened).
+struct ShelfDays<Card: View>: View {
     let groups: [(ShelfDay, [ShelfItem])]
     @Binding var olderOpen: Bool
     @ViewBuilder let card: (ShelfItem) -> Card
-    nonisolated static func == (a: ShelfDays, b: ShelfDays) -> Bool { a.key == b.key }
     var body: some View {
         ForEach(groups, id: \.0) { day, items in
             if day == .older {

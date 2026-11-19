@@ -268,9 +268,11 @@ struct HomeView: View {
                         }.foregroundStyle(.secondary).frame(width: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
                     }.buttonStyle(.plain).starCalm(pad: 0, feather: 18).help("Show Ready for you").transition(.move(edge: .trailing))
                 } else {
-                    ShelfPanel(m: m) {
+                    let shown = m.shelfShown
+                    ShelfPanel(m: m, shown: shown, key: ShelfGroups.key(shown)) {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { shelfCollapsed = true }
                     }
+                    .equatable()
                     .starCalm(pad: 0, feather: 18)
                     .transition(.move(edge: .trailing))
                 }

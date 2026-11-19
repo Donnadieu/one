@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 
 // MARK: - Pace: how often One's moving pictures draw
@@ -15,7 +16,7 @@ import SwiftUI
 // - with another app in front, things at rest draw `calmBack` a second and the rest `quickBack`;
 // - the floating orb at rest draws `orbRest` a second, at full rate only while it works or listens.
 // Everything here changes on events (window, app and voice notices), never on a timer.
-@MainActor final class Pace: ObservableObject {
+@MainActor final class Pace: NSObject, ObservableObject {
     static let shared = Pace()
     /// One's main window is on screen: open, not minimized, not tucked away or covered, One not hidden.
     @Published private(set) var homeSeen = true
@@ -35,7 +36,8 @@ import SwiftUI
     private weak var home: NSWindow?
     private var watching: [NSObjectProtocol] = []
 
-    private init() {
+    override private init() {
+        super.init()
         let nc = NotificationCenter.default
         let names: [Notification.Name] = [
             NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification, NSApplication.didHideNotification,
@@ -97,6 +99,8 @@ import SwiftUI
 
     private var homeTimer: Timer?
     private var orbTimer: Timer?
+    private var homeLink: CADisplayLink?
+    private var orbLink: CADisplayLink?
     private var homeEvery = 0.0
     private var orbEvery = 0.0
     private var ticks = 0
@@ -110,14 +114,39 @@ import SwiftUI
         if h != homeEvery {
             homeEvery = h
             homeTimer?.invalidate()
-            homeTimer = h > 0 ? timer(h) { Pace.shared.homeTick() } : nil
+            homeLink?.invalidate()
+            homeTimer = nil
+            homeLink = nil
+            // In step with the screen (its own drawing pass, so a keystroke never carries a tick's work), at `h`;
+            // words alone once a second on a plain timer.
+            if h > 0 && h < 1, let l = link(h, #selector(homeLinked)) {
+                homeLink = l
+            } else if h > 0 {
+                homeTimer = timer(h) { Pace.shared.homeTick() }
+            }
         }
         if o != orbEvery {
             orbEvery = o
             orbTimer?.invalidate()
-            orbTimer = o > 0 ? timer(o) { PaceTicker.orb.tick(Date()) } : nil
+            orbLink?.invalidate()
+            orbTimer = nil
+            orbLink = nil
+            if o > 0 { orbLink = link(o, #selector(orbLinked)) }
+            if o > 0 && orbLink == nil { orbTimer = timer(o) { PaceTicker.orb.tick(Date()) } }
         }
     }
+
+    /// The screen's clock asked for `every` seconds between calls (it calls no more often than that).
+    private func link(_ every: Double, _ sel: Selector) -> CADisplayLink? {
+        guard #available(macOS 14.0, *), let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+        let l = screen.displayLink(target: self, selector: sel)
+        let fps = Float(1 / every)
+        l.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 8), maximum: fps, preferred: fps)
+        l.add(to: .main, forMode: .common)
+        return l
+    }
+    @objc private func homeLinked() { homeTick() }
+    @objc private func orbLinked() { PaceTicker.orb.tick(Date()) }
 
     private func timer(_ every: Double, _ f: @escaping @MainActor () -> Void) -> Timer {
         let t = Timer(timeInterval: every, repeats: true) { _ in MainActor.assumeIsolated { f() } }

@@ -200,6 +200,22 @@ enum IdleCheck {
 
         let front = await measure("in front, nothing working")
         over(front.main > Budget.frontMain, "in front: main thread \(pct(front.main)) (budget \(pct(Budget.frontMain)))")
+        var four: Result?
+        for n in 1...4 {
+            working(n)
+            try? await Task.sleep(for: .seconds(1))
+            let r = await measure("in front, \(n) helper\(n == 1 ? "" : "s") at work", seconds: 4)
+            if n == 4 { four = r }
+        }
+        if let four {
+            over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))")
+            // Their circling lights still move at the screen's full rate (the smoothness Omar asked for, Nov 18).
+            let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+            over(
+                four.homeDraws < 4 * hz * 0.4, "4 at work: drew only \(String(format: "%.0f", four.homeDraws)) a second (their lights at \(Int(hz)))")
+        }
+        working(0)
+        try? await Task.sleep(for: .seconds(1))
 
         // Another app in front: Finder, the way a click on the desktop does it.
         if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
@@ -241,25 +257,14 @@ enum IdleCheck {
         win.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .seconds(1.5))
         // Back from the Dock, everything moves again as before (not stuck at rest or still).
-        let again = await measure("in front again after the Dock, nothing working", seconds: 3)
+        _ = await measure("in front again after the Dock, nothing working", seconds: 3)
+        try? await Task.sleep(for: .seconds(3))
+        let again = await measure("in front again after the Dock, 5 s later", seconds: 3)
         over(
             again.homeDraws < front.homeDraws * 0.6,
             "back in front: home drew \(String(format: "%.0f", again.homeDraws)) a second, \(String(format: "%.0f", front.homeDraws)) before minimizing"
         )
-        var four: Result?
-        for n in 1...4 {
-            working(n)
-            try? await Task.sleep(for: .seconds(1))
-            let r = await measure("in front, \(n) helper\(n == 1 ? "" : "s") at work", seconds: 4)
-            if n == 4 { four = r }
-        }
-        if let four {
-            over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))")
-            // Their circling lights still move at the screen's full rate (the smoothness Omar asked for, Nov 18).
-            let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
-            over(
-                four.homeDraws < 4 * hz * 0.4, "4 at work: drew only \(String(format: "%.0f", four.homeDraws)) a second (their lights at \(Int(hz)))")
-        }
+        working(4)
         Floater.shared.tuckAway(nil)
         try? await Task.sleep(for: .seconds(1.5))
         let away = await measure("tucked away, 4 helpers at work", seconds: 4)

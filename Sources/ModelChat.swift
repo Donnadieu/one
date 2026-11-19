@@ -137,6 +137,13 @@ extension Model {
     }
 
     func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
+    /// A piece of a working helper's reply, as the engine streams it (`--test-smooth` sends these too).
+    func helperStreamed(_ id: UUID, _ s: String) {
+        helperUnderway(id)
+        update(id) { $0.reply += s }
+        pulseText(id, s)
+        saveTrail(id, force: false)
+    }
     func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
     func focusHelper(_ id: UUID) {
         if let h = helpers.first(where: { $0.id == id }), asleep(h) || !isReady { return }  // not back yet: can't be opened
@@ -204,14 +211,7 @@ extension Model {
         let body = text.replacingOccurrences(of: Helpers.helperNote, with: "")  // its first brief carries it already
         let stop = await Engine.shared.promptSession(
             sid, body + NoteCache.pack(sid, rules: rules), images: images,
-            onText: { s in
-                Task { @MainActor in
-                    self.helperUnderway(id)
-                    self.update(id) { $0.reply += s }
-                    self.pulseText(id, s)
-                    self.saveTrail(id, force: false)
-                }
-            },
+            onText: { s in Task { @MainActor in self.helperStreamed(id, s) } },
             onTool: { s in
                 Task { @MainActor in
                     guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line

@@ -1,0 +1,301 @@
+import AppKit
+import Combine
+import SwiftUI
+
+// MARK: - Check: Home stays smooth (`One --test-smooth`)
+//
+// Omar, Nov 18 2026: "the animation and transitions, as well as typing, lag. Every time I type, the ball of light from
+// the bots lags too, and the helpers' light going around seems to lag as well." His Mac then: 4 bots, several helpers,
+// the glass at 87%. This opens the real home screen in a window on the CI runner's screen with 0, 4 and 8 bots and
+// several helpers (4 of them streaming words the way a working helper does), and measures, for each:
+// - idle: the main thread's share of one core while everything animates, the longest time it was busy at once, how
+//   many frames came, how many were late (a hitch: more than 1.5 frames apart), and how often the model told every
+//   view to redraw;
+// - typing: 30 real keystrokes into the "Or say it your way…" box, each timed from the key to the drawn window;
+// - transitions: a bot's chat, Routines and Rooms opened and closed, the longest frame gap in each.
+// Budgets at the end (`Budget`); a run over any budget fails. Test copy only, its own settings and scratch folder.
+enum SmoothCheck {
+    /// The budgets: typing never drops a frame at 120 Hz, the main thread mostly free while the orbs move.
+    enum Budget {
+        static let keyP95 = 8.3  // ms from a keystroke to the drawn window, 95th percentile (one 120 Hz frame)
+        static let keyMax = 16.7  // ms, the slowest keystroke (one 60 Hz frame)
+        static let idleBusy = 0.30  // the main thread's share of one core while 8 bots and the helpers animate
+        static let hitches = 0.03  // late frames, of all frames, idle and while typing
+        static let publishes = 12.0  // model changes a second while helpers stream words
+        static let transition = 50.0  // ms, the longest frame gap while a screen opens or closes
+    }
+
+    nonisolated static func main(_ args: [String]) {
+        guard args.contains("--test-smooth") else { return }
+        TestWorld.enter()
+        guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+            print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+            exit(2)
+        }
+        let bots = args.firstIndex(of: "--bots").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
+        let counts = bots.map { $0.split(separator: ",").compactMap { Int($0) } } ?? [0, 4, 8]
+        MainActor.assumeIsolated {
+            NSApplication.shared.setActivationPolicy(.regular)
+            Task { @MainActor in exit(await run(bots: counts)) }
+        }
+        NSApplication.shared.run()
+    }
+
+    // MARK: What is recorded
+
+    @MainActor static var frames: [CFTimeInterval] = []
+    @MainActor static var beats: [CFTimeInterval] = []
+    @MainActor static var publishes = 0
+    @MainActor static var recording = false
+    @MainActor static var cancel: AnyCancellable?
+
+    struct Window {
+        var frames: [Double]  // ms between frames
+        var longestBusy: Double  // ms
+        var busy: Double  // main-thread CPU ÷ wall time
+        var publishes: Double  // a second
+        var period: Double  // ms per frame on this screen
+        var late: Int { frames.filter { $0 > period * 1.5 }.count }
+        var lateShare: Double { frames.isEmpty ? 1 : Double(late) / Double(frames.count) }
+        var fps: Double { frames.isEmpty ? 0 : 1000 / (frames.reduce(0, +) / Double(frames.count)) }
+        var longestFrame: Double { frames.max() ?? 999 }
+    }
+
+    /// CPU time the calling (main) thread has used so far, in seconds.
+    nonisolated static func threadCPU() -> Double {
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let port = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, port) }
+        let r = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(port, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+        }
+        guard r == KERN_SUCCESS else { return 0 }
+        let u = Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1e6
+        let s = Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1e6
+        return u + s
+    }
+
+    @MainActor static func record(_ seconds: Double) async -> Window {
+        frames = []
+        beats = []
+        publishes = 0
+        let cpu0 = threadCPU()
+        let t0 = CACurrentMediaTime()
+        recording = true
+        try? await Task.sleep(for: .seconds(seconds))
+        recording = false
+        let wall = CACurrentMediaTime() - t0
+        let busy = (threadCPU() - cpu0) / max(wall, 0.001)
+        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
+        let blocks = zip(beats.dropFirst(), beats).map { ($0 - $1) * 1000 }
+        let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+        return Window(frames: gaps, longestBusy: blocks.max() ?? 999, busy: busy, publishes: Double(publishes) / wall, period: 1000 / max(hz, 1))
+    }
+
+    // MARK: The made-up home
+
+    @MainActor static func world(bots: Int) {
+        let m = Model.shared
+        let room = Env.support.appendingPathComponent("rooms/co-founder-room", isDirectory: true)
+        try? FileManager.default.createDirectory(at: room, withIntermediateDirectories: true)
+        try? "title: Co-Founder\nprivate: false\n".write(to: room.appendingPathComponent("room.yaml"), atomically: true, encoding: .utf8)
+        var hs: [Helper] = []
+        for i in 0..<bots { if let b = bot(i, room: room) { hs.append(b) } }
+        let jobs = ["Flight to Quebec", "Opus missing from Brain", "Smooth One", "Hotel search", "Read pasted text", "Score ideas"]
+        for (i, j) in jobs.enumerated() {
+            var h = Helper(title: j, task: j, state: i < 4 ? "working" : "done", line: i < 4 ? "Searching the web" : "Done")
+            h.started = Date().addingTimeInterval(-Double(60 * (i + 1)))
+            h.seen = i < 4 ? nil : true
+            hs.append(h)
+        }
+        m.openHelper = nil
+        m.routinesOpen = false
+        m.helpers = hs
+        m.gate = .ready
+        m.bubbles = (0..<40).map { i in
+            Bubble(
+                fromMe: i % 2 == 0,
+                text: i % 2 == 0
+                    ? "Can you check turn \(i) for me, in a bit more detail than usual?"
+                    : "Here's turn \(i): a reply long enough to need real text layout, with **bold** words and a [link](https://example.com).")
+        }
+    }
+
+    // BOTS-START (tools/smooth-compare.sh swaps this part out for releases made before bots)
+    static let botNames = [
+        "Part-time Work Finder", "Business Picker", "AI Office Venture", "Ascend", "Lead Finder", "Weekly Update", "Inbox", "Prices",
+    ]
+    static func isBot(_ h: Helper) -> Bool { h.bot != nil }
+    static func bot(_ i: Int, room: URL) -> Helper? {
+        let name = botNames[i % botNames.count]
+        var h = Helper(title: name, task: "a bot", state: i % 2 == 0 ? "working" : "done", line: "Reading the latest posts")
+        h.bot = BotInfo(
+            name: name, color: Bots.colors[i % Bots.colors.count].name, room: "Co-Founder", roomPath: room.path, job: "Find new customers")
+        h.log = (0..<6).map { "**You:** check in \($0)\n\nDone: found \($0 + 2) new leads, notes saved." }
+        return h
+    }
+    // BOTS-END
+
+    @MainActor static func window() -> NSWindow {
+        let view = HomeView(m: Model.shared).frame(minWidth: 1180, minHeight: 760)
+            .overlay(TimelineView(.animation) { tl in Color.clear.onChange(of: tl.date) { if recording { frames.append(CACurrentMediaTime()) } } })
+            .foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark)
+        let w = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 1180, height: 760), styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: view)
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return w
+    }
+
+    static func textView(in v: NSView) -> NSTextView? {
+        if let t = v as? NSTextView, t.isEditable { return t }
+        for s in v.subviews { if let t = textView(in: s) { return t } }
+        return nil
+    }
+
+    // MARK: The run
+
+    @MainActor static func run(bots: [Int]) async -> Int32 {
+        UserDefaults.standard.set(true, forKey: "voiceMuted")
+        UserDefaults.standard.set(0.87, forKey: Glass.key)  // Omar's See-through
+        UserDefaults.standard.set(false, forKey: "botsCollapsed")
+        let m = Model.shared
+        m.assistantName = "Ava"
+        m.userName = "Omar"
+        cancel = m.objectWillChange.sink { _ in MainActor.assumeIsolated { if recording { publishes += 1 } } }
+        // A fast heartbeat: a long gap between beats = the main thread was busy that long.
+        let beat = Timer(timeInterval: 0.001, repeats: true) { _ in MainActor.assumeIsolated { if recording { beats.append(CACurrentMediaTime()) } } }
+        RunLoop.main.add(beat, forMode: .common)
+        // Working helpers stream words the way the engine sends them: 4 helpers, about 10 pieces a second each.
+        var k = 0
+        let stream = Timer(timeInterval: 0.025, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let working = Model.shared.helpers.filter { $0.state == "working" && !isBot($0) }
+                guard !working.isEmpty else { return }
+                k += 1
+                Model.shared.helperStreamed(working[k % working.count].id, "word\(k % 97) ")
+            }
+        }
+        RunLoop.main.add(stream, forMode: .common)
+        world(bots: bots.first ?? 0)
+        let win = window()
+        try? await Task.sleep(for: .seconds(2))
+        var ok = true
+        var lines: [String] = []
+        func over(_ bad: Bool, _ what: String) {
+            if bad {
+                ok = false
+                lines.append("FAIL \(what)")
+            }
+        }
+        for n in bots {
+            world(bots: n)
+            try? await Task.sleep(for: .seconds(1.5))
+            let idle = await record(3)
+            print(
+                String(
+                    format:
+                        "bots %d, idle: main thread %.0f%% busy, %.0f fps, %d of %d frames late, longest frame %.1f ms, busy up to %.1f ms, %.1f model changes/s",
+                    n, idle.busy * 100, idle.fps, idle.late, idle.frames.count, idle.longestFrame, idle.longestBusy, idle.publishes))
+            let keys = await typing(win)
+            print(
+                String(
+                    format: "bots %d, typing: key to drawn p50 %.1f ms, p95 %.1f ms, max %.1f ms; %d of %d frames late, busy up to %.1f ms",
+                    n, keys.p50, keys.p95, keys.max, keys.window.late, keys.window.frames.count, keys.window.longestBusy))
+            over(keys.p95 > Budget.keyP95, String(format: "bots %d: typing p95 %.1f ms (budget %.1f)", n, keys.p95, Budget.keyP95))
+            over(keys.max > Budget.keyMax, String(format: "bots %d: slowest keystroke %.1f ms (budget %.1f)", n, keys.max, Budget.keyMax))
+            over(
+                idle.lateShare > Budget.hitches,
+                String(format: "bots %d: %.0f%% of idle frames late (budget %.0f%%)", n, idle.lateShare * 100, Budget.hitches * 100))
+            over(
+                keys.window.lateShare > Budget.hitches,
+                String(format: "bots %d: %.0f%% of frames late while typing (budget %.0f%%)", n, keys.window.lateShare * 100, Budget.hitches * 100))
+            over(
+                idle.publishes > Budget.publishes,
+                String(format: "bots %d: %.0f model changes a second (budget %.0f)", n, idle.publishes, Budget.publishes))
+            if n == bots.max() {
+                over(
+                    idle.busy > Budget.idleBusy,
+                    String(format: "bots %d: main thread %.0f%% busy while idle (budget %.0f%%)", n, idle.busy * 100, Budget.idleBusy * 100))
+            }
+        }
+        // Screen changes, with the most bots.
+        world(bots: bots.max() ?? 0)
+        try? await Task.sleep(for: .seconds(1))
+        let bot = m.helpers.first { isBot($0) }?.id
+        let steps: [(String, @MainActor () -> Void)] = [
+            ("a bot's chat opens", { if let bot { m.focusHelper(bot) } }), ("back home", { m.openHelper = nil }),
+            ("a helper's chat opens", { if let h = m.helpers.first(where: { !isBot($0) })?.id { m.focusHelper(h) } }),
+            ("back home", { m.openHelper = nil }),
+            ("Routines opens", { m.routinesOpen = true }), ("Routines closes", { m.routinesOpen = false }),
+            ("Rooms opens", { RoomsWindow.show(m) }), ("Rooms closes", { RoomsWindow.panel?.close() }),
+        ]
+        for (what, act) in steps {
+            frames = []
+            beats = []
+            recording = true
+            withAnimation(.easeOut(duration: 0.3)) { act() }
+            let w = await record(0.8)
+            print(
+                String(
+                    format: "%@: longest frame %.1f ms, %d of %d frames late, busy up to %.1f ms", what, w.longestFrame, w.late, w.frames.count,
+                    w.longestBusy))
+            over(w.longestFrame > Budget.transition, String(format: "%@: a %.0f ms frame (budget %.0f)", what, w.longestFrame, Budget.transition))
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        win.close()
+        lines.forEach { print($0) }
+        print(ok ? "smooth ok" : "smooth: over budget")
+        return ok ? 0 : 1
+    }
+
+    struct Keys {
+        var p50: Double
+        var p95: Double
+        var max: Double
+        var window: Window
+    }
+
+    /// 30 keystrokes into the ask box at about 12 a second, each timed from the key to the window drawn with it.
+    @MainActor static func typing(_ win: NSWindow) async -> Keys {
+        guard let root = win.contentView, let tv = textView(in: root) else {
+            print("FAIL no ask box on the home screen")
+            return Keys(p50: 999, p95: 999, max: 999, window: Window(frames: [], longestBusy: 999, busy: 1, publishes: 0, period: 16.7))
+        }
+        win.makeFirstResponder(tv)
+        try? await Task.sleep(for: .milliseconds(300))
+        var times: [Double] = []
+        frames = []
+        beats = []
+        publishes = 0
+        let cpu0 = threadCPU()
+        let t0 = CACurrentMediaTime()
+        recording = true
+        for ch in "the quick brown fox jumps over" {
+            let a = CACurrentMediaTime()
+            tv.insertText(String(ch), replacementRange: tv.selectedRange())
+            root.layoutSubtreeIfNeeded()
+            win.displayIfNeeded()
+            CATransaction.flush()
+            times.append((CACurrentMediaTime() - a) * 1000)
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        recording = false
+        let wall = CACurrentMediaTime() - t0
+        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
+        let blocks = zip(beats.dropFirst(), beats).map { ($0 - $1) * 1000 }
+        let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+        let w = Window(
+            frames: gaps, longestBusy: blocks.max() ?? 999, busy: (threadCPU() - cpu0) / wall, publishes: Double(publishes) / wall, period: 1000 / hz)
+        tv.string = ""
+        tv.didChangeText()
+        let s = times.sorted()
+        return Keys(p50: s[s.count / 2], p95: s[min(s.count - 1, Int(Double(s.count) * 0.95))], max: s.last ?? 999, window: w)
+    }
+}

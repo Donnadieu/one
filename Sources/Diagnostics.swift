@@ -6,6 +6,7 @@ enum Diagnostics {
         GlassCheck.main(args)  // `--test-glass`: home's glass lets the desktop through like the design
         VoiceStress.main(args)  // `--test-voice-stress`: the real audio line under load (sanitizer builds)
         SoakCheck.main(args)  // `--test-soak`: the whole app under load for minutes (tools/soak-check.sh)
+        SmoothCheck.main(args)  // `--test-smooth`: home stays smooth while typing, with bots and helpers at work
         JobTreeCheck.main(args)  // `--test-stop-tree` (JobTree.swift)
         BudgetCheck.main(args)  // `--test-budgets` (Budget.swift)
         HealthCheck.main(args)  // `--test-health` (HealthCheck.swift)

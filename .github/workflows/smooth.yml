@@ -1,0 +1,43 @@
+name: smooth
+# Home stays smooth: `One --test-smooth` on an optimized build (the speed people really get), with 0, 4 and 8 bots and
+# several helpers at work: typing, idle frames and screen changes against the budgets in Sources/SmoothCheck.swift.
+#  - Every pull request that touches Sources/ and every push to main.
+#  - By hand (workflow_dispatch) with `compare`: the same measurement on older releases, to see which one got slower.
+#    The check is copied into each old tag (with the one hook line it needs), so every version is measured the same way.
+on:
+  push:
+    branches: [main]
+    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+  pull_request:
+    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+  workflow_dispatch:
+    inputs:
+      compare:
+        description: 'Older tags to measure too (space separated), e.g. v0.9.122 v0.9.123 v0.9.134'
+        default: ''
+concurrency:
+  group: smooth-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  smooth:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Use the newest Xcode on the runner
+        run: |
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+          swiftc --version
+      - name: Build (optimized, like a release)
+        run: ./build.sh 2>&1 | grep -E " error:|compiled in" ; test -x build/app.noindex/One.app/Contents/MacOS/One -o -x build/One.app/Contents/MacOS/One
+      - name: Home stays smooth (this branch)
+        run: |
+          APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth | tee "$RUNNER_TEMP/smooth.txt"
+          grep -q '^smooth ok' "$RUNNER_TEMP/smooth.txt"
+      - name: The same measurement on older releases
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.compare != ''
+        run: tools/smooth-compare.sh ${{ inputs.compare }}

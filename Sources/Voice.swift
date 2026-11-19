@@ -249,6 +249,7 @@ final class Speaker: @unchecked Sendable {
         guard AudioGate.attempt("queueing a sentence", { node.scheduleBuffer(b, completionHandler: nil) }) else { return 0 }
         track.add(b, at: starts)
         endsAt = starts.addingTimeInterval(d)
+        NotificationCenter.default.post(name: Pace.voiceQueued, object: nil, userInfo: ["until": endsAt])  // the orbs follow it
         return d
     }
     /// Main thread. Silences now but keeps the line awake.

@@ -84,6 +84,7 @@ struct Presence: View {
         _ ctx: inout GraphicsContext, _ size: CGSize, t: Double, lean: CGPoint, voice: Double, energy: Double, line: CGFloat,
         wave: VoiceWave = .still, work wk: Double = 0
     ) {
+        Motion.drawn += 1
         let c = CGPoint(x: size.width / 2, y: size.height / 2)
         let b = Breath(t: t, work: wk)
         let lvl: Double = wave.live ? wave.now : voice * 0.6

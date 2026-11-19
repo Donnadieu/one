@@ -29,8 +29,8 @@ struct BotMoon: View {
     var body: some View {
         Group {
             if live && !HomeView.still {
-                TimelineView(.animation(minimumInterval: Motion.every)) { tl in
-                    Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: tl.date.timeIntervalSince(WorldLook.start) + t) }
+                PaceClock(slow: true) { date in
+                    Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: date.timeIntervalSince(WorldLook.start) + t) }
                 }
             } else {
                 Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: t) }
@@ -49,6 +49,7 @@ struct BotMoon: View {
         }
     }
     static func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, hex: UInt32, t: Double) {
+        Motion.drawn += 1
         let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
         let r = min(sz.width, sz.height) / 2
         let col = Color(hex: hex)
@@ -289,8 +290,8 @@ struct BotThreads: View {
             // The travelling light moves at the screen's full rate; only this canvas redraws for it.
             let open = !UserDefaults.standard.bool(forKey: "botsCollapsed")
             let lines = working.compactMap { h in points[h.id.uuidString].flatMap { p in h.bot.map { (p, Bots.hex($0.color)) } } }
-            TimelineView(.animation(minimumInterval: Motion.every, paused: HomeView.still)) { tl in
-                let t = HomeView.still ? 0.62 : tl.date.timeIntervalSince(WorldLook.start)
+            PaceClock(quick: true) { date in
+                let t = HomeView.still ? 0.62 : date.timeIntervalSince(WorldLook.start)
                 Canvas { ctx, _ in
                     for (p, hex) in lines { BotThreads.thread(&ctx, from: p, to: orb, hex: hex, t: t, open: open) }
                 }

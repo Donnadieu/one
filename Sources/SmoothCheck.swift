@@ -22,7 +22,8 @@ enum SmoothCheck {
     /// graphics chip and shares its cores: they're set to catch the main thread going back to being full (0.9.134 sat
     /// at 97% busy there, with 120-180 ms keystrokes and 170-230 ms bursts; after the fix 20%, 7-9 ms keystrokes, bursts
     /// under 100 ms). The one model change (`change`, no window, `--render-smooth-cost`) is pure main-thread work and
-    /// is held to one frame: 0.9.134 took 85-91 ms on an M-series Mac with a full Ready for you, the fix 4-6 ms.
+    /// is held to one frame on a Mac: 0.9.134 took 85-91 ms on an M-series Mac with a full Ready for you, the fix 4-6 ms.
+    /// A CI runner shares its cores and swings 11-30 ms for the same fix, so there it is held to 45 ms (0.9.134: ~4x that).
     enum Budget {
         static let keyP95 = 40.0  // ms of main-thread work for a keystroke, to the screen updated, 95th percentile
         static let keyMax = 60.0  // ms, the slowest keystroke
@@ -31,7 +32,7 @@ enum SmoothCheck {
         static let hitches = 0.08  // beats late by more than a frame because the main thread was working
         static let publishes = 12.0  // redraws a second the model asks for while helpers stream words
         static let transition = 120.0  // ms, the longest main-thread burst while a screen opens or closes
-        static let change = 16.7  // ms, one model change on home with 8 bots and 1,300 cards, 95th percentile
+        static let change = TestWorld.inCI ? 45.0 : 16.7  // ms, one model change on home, 8 bots, 1,300 cards, p95
     }
 
     nonisolated static func main(_ args: [String]) {

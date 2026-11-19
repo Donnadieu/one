@@ -57,7 +57,6 @@ engine_launch_env() {
   done
 }
 
-# Build, make the test copy, and set $S (scratch), $ID (its bundle id) and "$S/sup" (its One folder).
 engine_world() {
   local name="$1" build="${2:-build}"
   case "$name" in *[!a-z0-9-]* | "") echo "engine-check: --name takes a-z, 0-9 and - only" >&2; exit 2 ;; esac
@@ -103,7 +102,6 @@ engine_run() {
   env -i "${e[@]}" perl -e 'alarm shift; exec @ARGV' "$timeout" "$S/One.app/Contents/MacOS/One" "$@"
 }
 
-# Kill anything the engine left running in the throwaway home, and forget the copy's settings.
 engine_cleanup() {
   for p in $(pgrep -f "$S/One.app"); do kill "$p" 2>/dev/null; done
   defaults delete "$ID" >/dev/null 2>&1

@@ -363,8 +363,6 @@ def prove(verbose=False):
 
 RATCHET = ratchet.Ratchet(BASELINE, "one-lint")
 
-# The two rules that read docs/ARCHITECTURE.md: their scope is printed on every run, because a
-# one-word edit to that doc can take a file out of them and the ratchet reads that as debt paid.
 FROM_DOCS = ("dependency-direction", "destructive-fs-area")
 
 

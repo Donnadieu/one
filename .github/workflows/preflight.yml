@@ -55,12 +55,12 @@ jobs:
           swiftc --version
           echo "key=$ImageOS-$(basename "$X" .app)-$(swiftc --version 2>&1 | head -1 | md5 | cut -c1-8)" >> "$GITHUB_OUTPUT"
       - name: Apple's framework modules from the last run
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/swift-module-cache
           key: swift-modules-${{ steps.xcode.outputs.key }}
       - name: One's compiled files from an earlier run (only changed files compile again)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/one-build-cache
           key: one-build-${{ steps.xcode.outputs.key }}-${{ github.sha }}
@@ -85,7 +85,7 @@ jobs:
       - name: Keep the compiled files for the next run
         if: always() && matrix.part == 1
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/one-build-cache
           key: one-build-${{ steps.xcode.outputs.key }}-${{ github.sha }}

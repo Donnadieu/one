@@ -17,6 +17,7 @@ extension Model {
 
     /// A piece of a working helper's reply, as the engine streams it (`--test-smooth` sends these too).
     func helperStreamed(_ id: UUID, _ s: String) {
+        helperUnderway(id)  // at once, as before: a message waiting for this helper can go into its turn now
         streamed[id, default: ""] += s
         guard streamFlush == nil else { return }
         // The helper whose chat is open shows its words as they come; the others are only a line under an orb.
@@ -38,7 +39,6 @@ extension Model {
         var hs = helpers
         var ps = pulses
         for (id, s) in all {
-            helperUnderway(id)
             if let k = hs.firstIndex(where: { $0.id == id }) { hs[k].reply += s }
             if var p = ps[id] {
                 HelperPulse.add(s, to: &p)

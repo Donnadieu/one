@@ -389,6 +389,13 @@ mkdir -p "$T/cp"
 check "earlier messages load 20 at a time and keep your place, the chat is kept by day all the way back, Find and day jumps land on the message, folded messages lay out only their first lines" bash -c "ONE_SUPPORT_DIR=$T/cp perl -e 'alarm 120; exec @ARGV' $TBIN --test-chat-pages | tee $T/cp/out.txt | grep -q '^chat pages: all checks passed'"
 grep "✗" "$T/cp/out.txt" 2>/dev/null | sed 's/^/    /'
 
+part 2 "Star path chat"
+if true; then  # a real window on the CI runner's own screen
+  mkdir -p "$T/sc"
+  check "who's speaking (your words right in a capsule, the speaker's left in its colour, its name once a run) for a bot, the assistant and a helper; earlier days fold to one star, long replies to 3 lines, the summary card to one line and opened it pushes the chat down; search finds without case or accents, lights matches and opens their day; a bot's whole chat kept in its file; 400 messages open fast" bash -c "ONE_SUPPORT_DIR=$T/sc perl -e 'alarm 150; exec @ARGV' $TBIN --test-star-chat > $T/sc/out.txt 2>&1; grep -q '^star chat: all checks passed' $T/sc/out.txt || { grep -E '✗|refusing' $T/sc/out.txt; tail -3 $T/sc/out.txt; exit 1; }"
+  grep "✗" "$T/sc/out.txt" 2>/dev/null | sed 's/^/    /'
+fi
+
 part 3 "Folder lock"
 "$BIN" --print-profile > "$T/one.sb"
 SUP="$HOME/Library/Application Support/One"; mkdir -p "$SUP"

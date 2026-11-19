@@ -55,6 +55,51 @@ enum ModelLineup {
         .openrouter: [["anthropic/claude-opus-5.5"], [], ["google/gemini-3-flash-preview"]],
     ]
 
+    /// Models still offered that no pill holds, shown under More options as (plain name, id): every model that held a
+    /// pill before and its maker still offers, so nobody's pick disappears from the card (0.9.133 dropped Opus 5.5).
+    static let more: [Provider: [(String, String)]] = [
+        .claude: [("Opus 5.5", "claude-opus-5-5"), ("Sonnet 5", "claude-sonnet-5")],
+        .chatgpt: [("GPT-6.1 Sol", "gpt-6.1-sol"), ("GPT-6 Sol", "gpt-6-sol")],
+        .grok: [("Grok 4.20 Reasoning", "grok-4.20-0309-reasoning")],
+        .openrouter: [("Claude Opus 5.5", "anthropic/claude-opus-5.5"), ("Gemini 3 Flash", "google/gemini-3-flash-preview")],
+    ]
+
+    /// Every id each maker's own list returned on Nov 18 2026 (Anthropic GET /v1/models on Omar's account, the
+    /// ChatGPT sign-in's Codex catalog, docs.x.ai/docs/models, OpenRouter /api/v1/models; only the ids One names).
+    /// An id One shows, starts with or moves anyone to must be in here.
+    static let offered: [Provider: Set<String>] = [
+        .claude: [
+            "claude-fable-5-2", "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-5",
+            "claude-sonnet-5", "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6",
+            "claude-opus-4-5-20251101", "claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929",
+        ],
+        .chatgpt: [
+            "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
+            "gpt-5.6-terra", "gpt-5.6-luna",
+        ],
+        .grok: [
+            "grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3", "grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning",
+            "grok-4.20-multi-agent-0309", "grok-build-0.1",
+        ],
+        .openrouter: [
+            "anthropic/claude-fable-5.2", "anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5",
+            "anthropic/claude-sonnet-5", "anthropic/claude-opus-4.8", "anthropic/claude-haiku-4.5", "google/gemini-3.8-flash",
+            "google/gemini-3-flash-preview", "x-ai/grok-4.3", "x-ai/grok-build-0.1", "openrouter/auto",
+        ],
+    ]
+
+    /// What the card shows as chosen for the model the engine runs: a pill, a row under More options, or neither.
+    enum Choice: Equatable {
+        case tier(Int)
+        case more(Int)
+        case other
+    }
+    static func active(_ model: String, provider: Provider) -> Choice {
+        if let i = provider.tiers.firstIndex(where: { $0.1 == model }) { return .tier(i) }
+        if let i = more[provider]?.firstIndex(where: { $0.1 == model }) { return .more(i) }
+        return .other
+    }
+
     /// Which pill a model stands for (0 Smartest, 1 Balanced, 2 Fastest), now or before; nil when it never held one.
     static func tier(of model: String, provider: Provider) -> Int? {
         if let i = provider.tiers.firstIndex(where: { $0.1 == model }) { return i }

@@ -150,6 +150,16 @@ enum OtherAIsCheck {
         }
         let pinned = await AICatalog.run(["resolved", "claude-sonnet-5", "{\"id\": \"p\", \"reasoning_effort\": \"high\"}"])
         check("a routine that sets its own level keeps it", pinned?["routine"] as? String == "high")
+        // The card and the engine read the same model: each pick, and Opus 5.5 under More options, shows as chosen.
+        for id in Provider.claude.tiers.map(\.1) + (ModelLineup.more[.claude] ?? []).map(\.1) {
+            _ = await hermesRun(["config", "set", "model.default", id])
+            let (_, got) = await hermesRun(["config", "get", "model.default"])
+            let mark = ModelLineup.active(MeCard.currentModel(), provider: .claude)
+            check(
+                "\(id): the card and the engine agree, and the card marks it",
+                got.split(separator: "\n").last.map(String.init) == id
+                    && MeCard.currentModel() == id && mark != .other)
+        }
         print(failures == 0 ? "other ais engine ok" : "other ais engine: \(failures) failed")
         return failures == 0 ? 0 : 1
     }

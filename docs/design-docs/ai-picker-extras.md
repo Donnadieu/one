@@ -125,6 +125,15 @@ Claude `claude-fable-5-2` / `claude-sonnet-5-5` / `claude-haiku-5-5`; ChatGPT `g
 Off (sent as `between_tools`)…Max; Haiku 5.5 Off…Max; GPT-6.2 Astra and Sol Off…Extra high (the engine clamps Max);
 GPT-6 Luna Off…Max; **Grok 4.7: none yet** (the engine's effort allowlist stops at 4.6, so xAI's default, high, applies).
 Saved choices still offered are never moved; retired ones move at launch to the maker's own replacement.
+
+**More options keeps every earlier pick (One 0.9.135, `ModelLineup.more`).** 0.9.133 put Fable 5.2 on Smartest and
+dropped Opus 5.5 from the card: someone on Opus (Omar) saw no pill chosen and had no way back. Anthropic's docs still
+say "start with Opus 5.5 for most workloads; use Fable 5.2 for demanding reasoning", so Fable stays Smartest and every
+model that held a pill and is still offered sits under More options › Other models: Claude Opus 5.5 and Sonnet 5;
+ChatGPT GPT-6.1 Sol and GPT-6 Sol; Grok 4.20 Reasoning; OpenRouter Claude Opus 5.5 and Gemini 3 Flash. When no pill
+holds the running model, a chosen row under the pills names it. The card reads the model the way the engine does
+(`MeCard.configModel`: the `model:` section's `default`, then `model`, then `name`), and `ModelLineup.offered` holds
+each maker's own list from Nov 18 2026: every id One shows, starts with or moves anyone to must be in it.
 | Local model (custom) | top-level `reasoning_effort` (`plugins/model-providers/custom/__init__.py:56-83`) | the engine can't tell; it always sends an explicit level, a server that refuses gets one retry without it | hidden (see below) |
 | Other AIs | per family (`agent/reasoning_effort.py:51-94`, e.g. Kimi K3 Low/High/Max, DeepSeek V4 Low…Max, Gemini Low…High) | per family | the family's top |
 

@@ -213,6 +213,12 @@ struct HelperConstellation: View {
 
 /// A helper's slow float (3 points each way) and its orb's clock, at the screen's full rate. Only the orb and its words
 /// redraw for it; the spot it floats around, its star-free zone and its button stay put. Reduce Motion: still.
+/// How often the small moving things (helper orbs, bot moons, a bot's travelling light) redraw: nil = every frame the
+/// screen shows (120 a second on ProMotion). `--test-smooth --fps N` compares a cap; nothing else sets it.
+enum Motion {
+    nonisolated(unsafe) static var every: Double? = nil
+}
+
 struct HelperMotion<Content: View>: View {
     let calm: Bool
     let seed: Double
@@ -221,7 +227,7 @@ struct HelperMotion<Content: View>: View {
         if calm {
             content(21.7)
         } else {
-            TimelineView(.animation) { tl in
+            TimelineView(.animation(minimumInterval: Motion.every)) { tl in
                 let t = tl.date.timeIntervalSince(WorldLook.start)
                 content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)
             }

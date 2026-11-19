@@ -38,6 +38,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/smooth"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth | tee "$RUNNER_TEMP/smooth.txt"
           grep -q '^smooth ok' "$RUNNER_TEMP/smooth.txt"
+      - name: The same with the small orbs capped at 30 frames a second (to tell drawing cost from main-thread work)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth30"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth30" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth --fps 30 || true
       - name: Time profiles of a second run (Apple's sample slows what it watches, so its numbers don't count)
         if: always()
         run: |

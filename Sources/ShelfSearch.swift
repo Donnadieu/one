@@ -60,6 +60,10 @@ extension ShelfItem {
 }
 
 enum ShelfGroups {
+    /// Everything a card shows, plus the minute (its "just now") and whether Older is open (`ShelfDays`).
+    static func key(_ items: [ShelfItem], olderOpen: Bool, now: Date = Date()) -> [String] {
+        ["\(Int(now.timeIntervalSince1970 / 60)) \(olderOpen)"] + items.map { "\($0.id) \($0.fresh) \($0.title) \($0.detail) \($0.from) \($0.path)" }
+    }
     /// Cards grouped by day, newest group and newest card first; empty groups are dropped.
     /// Each card's day is worked out once (Omar's shelf holds over a thousand cards and this runs on every redraw).
     static func grouped(_ items: [ShelfItem]) -> [(ShelfDay, [ShelfItem])] {
@@ -160,5 +164,25 @@ enum ShelfSearchRender {
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.07)))
             .padding(20).background(WorldLook.bg).foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
+    }
+}
+
+/// Ready for you's cards by day (the Older ones folded until opened). Equatable on what the cards show.
+struct ShelfDays<Card: View>: View, Equatable {
+    let key: [String]
+    let groups: [(ShelfDay, [ShelfItem])]
+    @Binding var olderOpen: Bool
+    @ViewBuilder let card: (ShelfItem) -> Card
+    nonisolated static func == (a: ShelfDays, b: ShelfDays) -> Bool { a.key == b.key }
+    var body: some View {
+        ForEach(groups, id: \.0) { day, items in
+            if day == .older {
+                ShelfOlderRow(count: items.count, open: $olderOpen).padding(.horizontal, 4)
+                if olderOpen { ForEach(items) { card($0) } }
+            } else {
+                ShelfDayLabel(day: day)
+                ForEach(items) { card($0) }
+            }
+        }
     }
 }

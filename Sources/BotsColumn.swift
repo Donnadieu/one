@@ -29,7 +29,7 @@ struct BotMoon: View {
     var body: some View {
         Group {
             if live && !HomeView.still {
-                TimelineView(.animation) { tl in
+                TimelineView(.animation(minimumInterval: Motion.every)) { tl in
                     Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: tl.date.timeIntervalSince(WorldLook.start) + t) }
                 }
             } else {
@@ -289,7 +289,7 @@ struct BotThreads: View {
             // The travelling light moves at the screen's full rate; only this canvas redraws for it.
             let open = !UserDefaults.standard.bool(forKey: "botsCollapsed")
             let lines = working.compactMap { h in points[h.id.uuidString].flatMap { p in h.bot.map { (p, Bots.hex($0.color)) } } }
-            TimelineView(.animation(paused: HomeView.still)) { tl in
+            TimelineView(.animation(minimumInterval: Motion.every, paused: HomeView.still)) { tl in
                 let t = HomeView.still ? 0.62 : tl.date.timeIntervalSince(WorldLook.start)
                 Canvas { ctx, _ in
                     for (p, hex) in lines { BotThreads.thread(&ctx, from: p, to: orb, hex: hex, t: t, open: open) }

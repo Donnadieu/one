@@ -34,6 +34,7 @@ enum SmoothCheck {
         }
         let bots = args.firstIndex(of: "--bots").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
         let counts = bots.map { $0.split(separator: ",").compactMap { Int($0) } } ?? [0, 4, 8]
+        if let k = args.firstIndex(of: "--fps"), k + 1 < args.count, let f = Double(args[k + 1]), f > 0 { Motion.every = 1 / f }
         MainActor.assumeIsolated {
             NSApplication.shared.setActivationPolicy(.regular)
             Task { @MainActor in exit(await run(bots: counts)) }
@@ -166,8 +167,8 @@ enum SmoothCheck {
         guard let dir = ProcessInfo.processInfo.environment["ONE_SMOOTH_SAMPLE"] else { return }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        p.arguments = [String(getpid()), String(seconds), "-mayDie", "-file", "\(dir)/\(name).txt"]
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")  // the CI runner's own sudo (no password there)
+        p.arguments = ["-n", "/usr/bin/sample", String(getpid()), String(seconds), "-mayDie", "-file", "\(dir)/\(name).txt"]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try? p.run()

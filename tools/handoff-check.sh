@@ -7,7 +7,7 @@
 # (`One --test-human-step`, which plays the person through One's own card and window). See Sources/HumanStepCheck.swift.
 # ONE_SUPPORT_DIR: a One folder with an installed engine (CI: the fresh install); default the usual one.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 REPO=$PWD
 SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 ENG="$SUP/engine"
@@ -16,6 +16,7 @@ S="$SUP/hermes/cache/scratch/handoff-check.$$"
 mkdir -p "$S/support/handoff" "$S/hh" "$S/chrome"
 PORT=${HANDOFF_PORT:-9344}
 WEBP=${HANDOFF_WEB:-8791}
+# shellcheck disable=SC2194  # constant word, variable pattern: "is this port one of the shared ones?"
 case " 9223 9224 9333 " in *" $PORT "*) echo "refusing: $PORT is a shared browser"; exit 2 ;; esac
 python3 tests/handoff/post_server.py "$WEBP" tests/handoff/pages >"$S/web.txt" 2>&1 &
 WEB=$!

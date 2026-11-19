@@ -1,5 +1,6 @@
 #!/bin/bash
 . "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
+# runs: owner-only (make humanwindow) — a copy of the person's own Chrome profile and a visible window; no runner has either
 # The human-check window, end to end, on a real robot-check page (Sources/HumanCheckLive.swift).
 # VISIBLE: it opens a real Chrome window. Only run it after the person said yes to that window.
 # Never the shared browser: a throwaway hidden Chrome on its own port, on a copy of the saved profile
@@ -7,7 +8,7 @@
 #   tools/human-window-check.sh [url]      default https://claude.ai/design
 # Touch "$S/support/done" to tap Done on One's card; or tick the check in the window.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 SUP="$HOME/Library/Application Support/One"
 URL="${1:-https://claude.ai/design}"
 PORT=${CHECK_PORT:-9346}
@@ -25,7 +26,7 @@ echo "dir: $S"
 PL="$S/One.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$PL"
 EXTRA=""; [ -n "${FLUSH_ONLY:-}" ] && EXTRA="ONE_CHECK_FLUSH=1"
-for kv in $EXTRA "ONE_TEST_MODE=--test-human-window" "ONE_SUPPORT_DIR=$S/support" "ONE_CHECK_PORT=$PORT" "ONE_CHECK_PROFILE=$S/profile" \
+for kv in $EXTRA "ONE_TEST_MODE=--test-human-window" "ONE_LIVE_CHECK=1" "ONE_SUPPORT_DIR=$S/support" "ONE_CHECK_PORT=$PORT" "ONE_CHECK_PROFILE=$S/profile" \
   "ONE_CHECK_URL=$URL" "ONE_CHECK_LOG=$S/one.txt" ${SHOTS:+"ONE_CHECK_SHOTS=$SHOTS"}; do
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${kv%%=*} string ${kv#*=}" "$PL"
 done

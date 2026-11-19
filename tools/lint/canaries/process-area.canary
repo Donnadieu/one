@@ -1,0 +1,5 @@
+pretend: Sources/Canary.swift
+--
+struct Canary {
+    let p = Process()
+}

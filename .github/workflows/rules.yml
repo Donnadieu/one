@@ -1,0 +1,66 @@
+name: rules
+# Goal: every fast rule runs on EVERY pull request, including a docs-only one.
+#
+# The heavy check (preflight.yml) carries a paths-ignore for *.md, docs/**, LICENSE and .agents/**,
+# because building One four ways to read a changed paragraph is waste. But the fast rules used to sit
+# inside that same workflow, so a docs-only pull request skipped the identity check, One's own lint,
+# the baseline ratchet and both docs checks — the docs rules were the least enforced ones in the repo.
+# They live here now: no paths-ignore, one cheap Linux runner, under a minute. Formatting is the one
+# fast rule that stays in preflight.yml, because swift-format needs macOS.
+#
+# Everything here is also what `make check` runs on the Mac and what .githooks/pre-commit runs before
+# a commit, so the three places can't drift (tools/hooks-check.sh --ci proves that).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rules-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # the identity, baseline and doc-drift checks all compare with the base
+
+      - name: Only Donnadieu's identity (never donnadieu-andela)
+        if: github.event_name == 'pull_request'
+        run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
+      - name: One's own rules (tools/lint/one-lint.py)
+        run: python3 tools/lint/one-lint.py
+
+      - name: Every rule still blocks (one canary per rule)
+        run: python3 tools/lint/one-lint.py --prove
+
+      - name: Lint baseline only shrinks
+        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+
+      - name: Install ruff and shellcheck
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check 'ruff==0.14.5'
+          sudo apt-get install -y --no-install-recommends shellcheck > /dev/null
+
+      - name: Python and shell lint (ruff, shellcheck; their own baseline only shrinks)
+        run: python3 tools/lint/ext-lint.py
+
+      - name: Ext-lint baseline only shrinks
+        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }} tools/lint/ext-baseline.json
+
+      - name: The git hooks and make check haven't drifted apart
+        run: tools/hooks-check.sh --ci
+
+      - name: Doc drift (sensitive code changed without its matching doc)
+        if: github.event_name == 'pull_request'
+        run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+
+      - name: Knowledge base (mandated docs, no broken or orphaned docs/INDEX.md entries)
+        run: tools/knowledge-base-check.sh

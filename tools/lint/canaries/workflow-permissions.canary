@@ -1,0 +1,9 @@
+pretend: .github/workflows/canary.yml
+--
+name: canary
+on: [push]
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true

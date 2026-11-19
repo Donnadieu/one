@@ -4,7 +4,7 @@
 # Nothing is started: the guard reads the command and answers; the person's own One home is never changed.
 #   tools/browser-guard-engine-check.sh     prints "engine guard ok" when it passes
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 SUP="$HOME/Library/Application Support/One"
 E="$SUP/engine"
 [ -d "$E/hermes_cli" ] || { echo "no engine on this Mac; skipped"; exit 0; }

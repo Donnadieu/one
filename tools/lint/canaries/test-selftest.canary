@@ -1,0 +1,5 @@
+pretend: Sources/Canary.swift
+--
+if args.contains("--test-canary") {
+    runTheCanary()
+}

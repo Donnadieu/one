@@ -5,7 +5,7 @@
 #   APP=$(tools/test-copy.sh [name] [folder])   name: ai.forjado.one.<name> (default: test)
 #   "$APP/Contents/MacOS/One" --test-…          folder: where the copy goes (default: a scratch folder)
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 NAME="${1:-test}"
 DEST="${2:-${TMPDIR:-/tmp}/one-test-app-$NAME.noindex}"
 case "$NAME" in *[!a-z0-9-]* | "") echo "test-copy: name must be lowercase letters, digits or -" >&2; exit 2 ;; esac

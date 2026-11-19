@@ -7,7 +7,7 @@
 # A test copy with its own bundle id and a scratch folder: your One, chat and settings are never touched.
 #   tools/phone-tags-check.sh [--no-build]
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAIL build (run ./build.sh)"; exit 1; } ;; esac
 ID=ai.forjado.one.phone-tags-$$
 S=$(mktemp -d "${TMPDIR:-/tmp}/one-phone-tags.XXXXXX")

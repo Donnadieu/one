@@ -1,0 +1,3 @@
+pretend: Sources/Canary.swift
+--
+let script = "tell application \"Mail\" to send theMessage"

@@ -6,7 +6,7 @@
 # inline), and for releases made before bots a version of the check without bots. Built optimized, measured, printed.
 # Never fails the job: a tag that can't build says so and the next one is measured.
 source "$(dirname "$0")/ci-only.sh"
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 ROOT=$PWD
 OUT="${RUNNER_TEMP:-/tmp}/smooth-compare"
 mkdir -p "$OUT"

@@ -1,0 +1,3 @@
+pretend: tools/zz-canary.sh
+--
+ditto build/app.noindex/One.app "$S/One.app"

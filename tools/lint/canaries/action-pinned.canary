@@ -1,0 +1,3 @@
+pretend: .github/workflows/canary.yml
+--
+      - uses: peter-evans/create-pull-request@v6

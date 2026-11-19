@@ -14,7 +14,7 @@
 # Usage: tools/knowledge-base-check.sh
 # Exit 0 = clean. Exit 1 = a hard finding (prints what and the fix).
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 fail=0
 bad() { echo "✗ $1"; fail=1; }
 ok()  { echo "✓ $1"; }

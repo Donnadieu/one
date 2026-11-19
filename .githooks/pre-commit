@@ -1,10 +1,16 @@
 #!/bin/bash
-# Fast guard before every commit: formatting + One's own rules. The full gate is `make check`.
+# Fast guard before every commit: identity, formatting, One's own rules and their canaries, both
+# baselines, and ruff/shellcheck. The full gate is `make check` (which adds doc drift, the knowledge
+# base and tools/hooks-check.sh). tools/hooks-check.sh --ci fails if this list and `make check`
+# drift apart.
 set -e
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 tools/check-identity.sh
 if git diff --cached --name-only | grep -q '^Sources/.*\.swift$'; then
   xcrun swift-format lint -r -s -p Sources || { echo "FIX: run 'make format', then add the files again."; exit 1; }
 fi
 python3 tools/lint/one-lint.py
+python3 tools/lint/one-lint.py --prove > /dev/null || python3 tools/lint/one-lint.py --prove
 tools/lint/check-baseline.sh
+python3 tools/lint/ext-lint.py
+tools/lint/check-baseline.sh origin/main tools/lint/ext-baseline.json

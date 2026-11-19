@@ -31,7 +31,7 @@ check_config() {
 }
 
 check_range() { # $1 = range, $2 = 1 to check signatures
-  local line h an ae cn ce g k
+  local h an ae cn ce g k
   while IFS='|' read -r h an ae cn ce g k; do
     [ -n "$h" ] || continue
     if printf '%s %s %s %s' "$an" "$ae" "$cn" "$ce" | grep -qi 'andela'; then

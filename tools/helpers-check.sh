@@ -7,7 +7,7 @@
 # about a minute. A test copy with its own bundle id and a scratch folder: your One, chat and settings are never touched.
 #   tools/helpers-check.sh [--no-build]
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 case " $* " in *" --no-build "*) ;; *) ./build.sh >/dev/null 2>&1 || { echo "FAIL build (run ./build.sh)"; exit 1; } ;; esac
 # Its own settings name per run: two checks at once (helpers each running preflight) once shared one and wiped
 # each other's saved helpers mid-run ("every helper is still listed (28 of 104)").

@@ -10,7 +10,7 @@
 # Every check prints how long it took; the slowest are listed at the end (balance the parts with them).
 # Every check has a time limit (LIMIT seconds, 180 by default), so a stuck check fails instead of holding a runner for hours.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 FULL=0; CI=0; QUICK=0; ONLY=""; prev=""
 for a in "$@"; do
   [ "$a" = --full ] && FULL=1; [ "$a" = --ci ] && CI=1; [ "$a" = --quick ] && QUICK=1; [ "$prev" = --part ] && ONLY="$a"; prev="$a"
@@ -346,6 +346,10 @@ elif mine; then
   echo "Lots of helpers survive restarts: skipped (--quick)"
 fi
 
+part 4 "The top row stays reachable after a bad restored window frame"
+check "name pill, Voice, Rooms, Connections, Routines, Push to talk, Folders, Switch AI and Stop all still on screen" bash -c "tools/window-guard-check.sh $TBIN | tee $T/wg.txt | grep -q '^window guard ok'"
+grep "FAIL" "$T/wg.txt" 2>/dev/null | sed 's/^/    /'
+
 part 3 "Stop talking just this once"
 mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings
 check "hush drops the rest of that reply, never mutes, the next reply speaks; helper sound rules" bash -c "ONE_SUPPORT_DIR=$T/vc $TBIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"
@@ -448,6 +452,9 @@ check "renders and tests left your real settings exactly as they were" cmp -s "$
 check "a test copy keeps to its own world (with a scratch folder)" bash -c "ONE_SUPPORT_DIR=$T/prod $TBIN --test-production | tee $T/prod/out.txt | grep -q '^production ok'"
 grep "✗" "$T/prod/out.txt" 2>/dev/null | sed 's/^/    /'
 check "a test copy keeps to its own world (no folder given)" bash -c "env -u ONE_SUPPORT_DIR $TBIN --test-production | grep -q '^production ok'"
+# 0.9.74: "reset onboarding" emptied `helpers` and a finished "Message history" helper vanished.
+check "reset onboarding clears setup settings only, never helpers, bubbles or the shelf (the 0.9.74 incident)" bash -c "tools/reset-check.sh --no-build | tee $T/reset.txt | grep -q '^reset: all checks passed'"
+grep "✗" "$T/reset.txt" 2>/dev/null | sed 's/^/    /'
 made_list > "$T/made.after"; shelf_list > "$T/shelf.after"
 check "no file in your Made by folder went missing" bash -c "[ -z \"\$(comm -23 '$T/made.before' '$T/made.after')\" ]"
 check "no card on your Ready for you shelf went missing" bash -c "[ -z \"\$(comm -23 '$T/shelf.before' '$T/shelf.after')\" ]"

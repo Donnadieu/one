@@ -10,7 +10,7 @@
 # ONE_SOAK_ROUTE=1 switches the Mac speakers' format: EVERY app hears that device change, a running One included
 # (Nov 3 23:07 a live 0.9.85 crashed during such a run). Only with no real One open.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 MIN="${1:-10}"
 MODE="${2:-guard}"
 W=$(mktemp -d "${TMPDIR:-/tmp}/one-soak.XXXXXX")

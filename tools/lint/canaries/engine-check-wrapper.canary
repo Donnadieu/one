@@ -1,0 +1,4 @@
+pretend: tools/zz-canary-live-check.sh
+--
+APP=$(tools/test-copy.sh canary "$S")
+env -i HOME="$HOME" "$APP/Contents/MacOS/One" --test-canary

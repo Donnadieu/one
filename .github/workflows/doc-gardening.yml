@@ -43,7 +43,9 @@ jobs:
 
       - name: Open a PR with the mechanical fixes
         if: steps.diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v6
+        # Pinned to a commit, not the v6 tag: a tag on someone else's repo can be moved to new
+        # code after you reviewed it, and this step holds contents+pull-requests write.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c  # v6.1.0
         with:
           commit-message: "doc-gardening: automated fixes"
           title: "doc-gardening: automated fixes"

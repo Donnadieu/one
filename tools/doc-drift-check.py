@@ -55,6 +55,10 @@ SENSITIVE_AREAS = {
     "Sources/Guards.swift": ["docs/SECURITY.md", "docs/design-docs/core-beliefs.md"],
     # Google token file/directory permissions
     "tools/google_signin.py": ["docs/SECURITY.md"],
+    # TestWorld.gate/enter(): the only way into a test mode, and what it refuses
+    "Sources/TestWorld.swift": ["docs/SECURITY.md"],
+    # The shell side of that same gate: who may run a check on this Mac at all
+    "tools/ci-only.sh": ["docs/SECURITY.md"],
 }
 
 # Add this (with a one-line reason) to the HEAD commit message to treat a

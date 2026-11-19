@@ -1,2 +1,45 @@
+# The repo is public. Two jobs: keep build output out, and make a stray credential or scratch file
+# hard to commit by accident. The backstop, for a file added with `git add -f` anyway, is the
+# `secret-file` rule in tools/lint/one-lint.py, which fails on a tracked file whose name says
+# credential. A rule and an ignore, because either one alone has a hole.
+
+# Build output and caches
 build/
 __pycache__/
+*.pyc
+.venv/
+venv/
+*.dSYM/
+.DS_Store
+
+# Credentials, keys and tokens: never in this tree, ever
+.env
+.env.*
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+*.ovpn
+*.asc
+*.gpg
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+credentials.json
+client_secret*.json
+secret.yaml
+secret.yml
+secrets.yaml
+secrets.yml
+
+# Scratch: notes, logs, shots and reviews a check or an agent leaves behind
+tmp/
+.context/
+*.log
+one-shots/
+tools/lint/*.local.json

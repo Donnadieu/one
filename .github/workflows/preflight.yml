@@ -5,7 +5,9 @@ name: check
 #    preflight.sh, `part N` lines).
 #  - Each part builds the app itself, unoptimized and incremental (ONE_BUILD_CACHE): the compiled files of an earlier
 #    run come back from the cache, so only the files a change touched compile again.
-#  - The fast rules (identity, formatting, One's own rules, baseline, doc drift) run in part 1.
+#  - Formatting runs in part 1 (it needs macOS). Every other fast rule runs in rules.yml instead, on
+#    every pull request with no paths-ignore: this workflow skips docs-only changes, and until PER-33
+#    that skipped the identity, lint and docs checks with it.
 #  - A newer push to the same pull request or branch cancels the older run, so stale runs never hold a runner.
 #  - Every check has its own time limit and each part stops at 10 minutes: a stuck check can't block the line for hours.
 on:
@@ -18,6 +20,8 @@ on:
   schedule:
     - cron: '17 7 * * *'  # nightly run (3:17 am New York)
   workflow_dispatch:
+permissions:
+  contents: read
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -51,21 +55,12 @@ jobs:
           path: ${{ runner.temp }}/one-build-cache
           key: one-build-${{ steps.xcode.outputs.key }}-${{ github.sha }}
           restore-keys: one-build-${{ steps.xcode.outputs.key }}-
-      - name: Only Donnadieu's identity (never donnadieu-andela)
-        if: matrix.part == 1 && github.event_name == 'pull_request'
-        run: tools/check-identity.sh --ci ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+      # The rest of the fast rules (identity, One's own rules, the baseline, doc drift, the
+      # knowledge base, ruff and shellcheck) live in rules.yml, which has no paths-ignore and so runs
+      # on a docs-only pull request too. Formatting stays here because it needs macOS (xcrun).
       - name: Formatting
         if: matrix.part == 1
         run: xcrun swift-format lint -r -s -p Sources
-      - name: One's own rules
-        if: matrix.part == 1
-        run: python3 tools/lint/one-lint.py
-      - name: Lint baseline only shrinks
-        if: matrix.part == 1
-        run: tools/lint/check-baseline.sh ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
-      - name: Doc drift (sensitive code changed without its matching doc)
-        if: matrix.part == 1 && github.event_name == 'pull_request'
-        run: python3 tools/doc-drift-check.py ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
       - name: Chrome opens through the Mac's launcher without its first-open check (the hidden-browser check needs it)
         run: |
           xattr -l "/Applications/Google Chrome.app" | cut -c1-120 || true

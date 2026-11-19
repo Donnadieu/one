@@ -12,6 +12,8 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+permissions:
+  contents: read   # checkout, and `gh release download` on a published release
 concurrency:
   group: fresh-install-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true

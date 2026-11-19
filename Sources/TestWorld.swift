@@ -39,9 +39,12 @@ enum TestWorld {
     static func enter() {
         Env.selfTest = true
         let mode = CommandLine.arguments.dropFirst().first { $0.hasPrefix("--") } ?? "this test"
-        // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac. They open windows, take the
-        // focus and stop him working. They run in CI (GitHub) only.
-        guard inCI else {
+        // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac by accident. They open
+        // windows, take the focus and stop him working. They run in CI (GitHub), or — for a live check that
+        // needs One's installed engine and the owner's own subscription, which no runner has — when he asks
+        // for it by name and the make target sets ONE_LIVE_CHECK=1 (tools/ci-only.sh says the rest). The two
+        // refusals below are not relaxed by it: never the real One, never the real One folder.
+        guard inCI || liveCheck else {
             print("refusing: \(mode) is a test, and tests run in CI (GitHub), never on this Mac.")
             print("FIX: push the branch and read the check on the pull request.")
             exit(2)
@@ -76,8 +79,12 @@ enum TestWorld {
         return true
     }
 
-    /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), the only place tests may run.
+    /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), where every check on a pull request runs.
     static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
+
+    /// A live check the owner asked for by name: its make target sets ONE_LIVE_CHECK=1 (tools/ci-only.sh).
+    /// Only for the checks that need One's installed engine and his own subscription, which CI can't have.
+    static var liveCheck: Bool { ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] == "1" }
 
     /// The real One folder, for reading fixtures only (never written by a test).
     static var realSupport: URL {

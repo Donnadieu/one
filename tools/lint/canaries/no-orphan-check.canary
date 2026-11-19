@@ -1,0 +1,5 @@
+pretend: tools/zz-canary-check.sh
+--
+#!/bin/bash
+# A check with no workflow, no preflight line and no `runs:` header.
+exit 0

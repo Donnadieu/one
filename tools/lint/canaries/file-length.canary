@@ -1,0 +1,4 @@
+pretend: Sources/Canary.swift
+repeat: 601
+--
+let canary = 0

@@ -109,14 +109,19 @@ enum StarChatCheck {
 
     // MARK: The views, in a real window
 
+    /// Only the newest window's rows count: a closed one can still hand in a late update.
+    nonisolated(unsafe) static var owner = 0
     static func host(_ speaker: StarSpeaker, _ lines: [StarLine], _ summary: StarSummary, _ st: StarState, width: CGFloat = 760) -> NSWindow {
+        owner += 1
+        let me = owner
+        StarProbe.rows = []
         let v = VStack(alignment: .leading, spacing: 10) {
             StarSummaryCard(summary: summary, speaker: speaker, state: st)
             StarChat(speaker: speaker, lines: lines, state: st)
         }
         .frame(width: width).fixedSize(horizontal: false, vertical: true)
         .coordinateSpace(name: StarProbe.space)
-        .onPreferenceChange(StarProbeKey.self) { r in MainActor.assumeIsolated { StarProbe.rows = r } }
+        .onPreferenceChange(StarProbeKey.self) { r in MainActor.assumeIsolated { if StarChatCheck.owner == me { StarProbe.rows = r } } }
         .environment(\.colorScheme, .dark)
         let w = NSWindow(contentRect: NSRect(x: 40, y: 40, width: width, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
@@ -168,8 +173,8 @@ enum StarChatCheck {
             "a helper's chat too",
             rows("them").allSatisfy { $0.hex == StarSpeaker.helperTint } && rows("me").allSatisfy { $0.frame.minX > width * 0.3 })
         w3.close()
-        _ = host(growth, lines, summary, st).close()  // back to the bot's rows
-        settle(w)
+        w.close()
+        let wb0 = host(growth, lines, summary, st)  // the bot's chat again, the newest window
 
         print("Collapsing")
         let past = rows("day")
@@ -180,7 +185,7 @@ enum StarChatCheck {
         let card = rows("summary").first
         check("the summary card is one line until opened", card != nil && (card?.frame.height ?? 999) < 52)
         st.summaryOpen = true
-        settle(w)
+        settle(wb0)
         let open = rows("summary").first
         let firstBelow = StarProbe.rows.filter { $0.kind != "summary" }.map(\.frame.minY).min() ?? 0
         check("opened, it shows what it did and what's waiting", (open?.frame.height ?? 0) > 100)
@@ -188,32 +193,32 @@ enum StarChatCheck {
         st.summaryOpen = false
         let mon = past.count > 1 ? past[1].id : "none"
         st.toggle(mon)
-        settle(w)
+        settle(wb0)
         check("a day opened by hand shows its messages", rows("me").contains { $0.id.hasPrefix("l-1-") })
         check("and its star says Fold", rows("day").first { $0.id == mon }?.folded == false)
         st.backToNow()
-        settle(w)
+        settle(wb0)
         check("Back to now folds it again and goes to the newest", rows("day").allSatisfy(\.folded) && st.target == StarState.end)
 
         print("Search")
         st.query = "county"
         st.searching = true
-        settle(w)
+        settle(wb0)
         let lit = StarProbe.rows.filter(\.halo)
         check("matching messages get a halo", !lit.isEmpty && lit.allSatisfy { r in StarPath.matches(lines, "county").contains(r.id) })
         check("folded days say how many matches they hold", rows("day").filter { $0.matches > 0 }.count == 4)
         st.step(1)
-        settle(w)
+        settle(wb0)
         let hit = st.hit
         check("the next match opens its day and asks to scroll there", hit == "l-0-0" && st.target == hit && rows("me").contains { $0.id == hit })
         check("that message is lit", StarProbe.rows.first { $0.id == hit }?.halo == true)
         st.query = "german"
         st.step(1)
-        settle(w)
+        settle(wb0)
         check("a match in a folded day is found too", st.hit == "l-1-1" && rows("them").contains { $0.id == "l-1-1" && $0.halo })
         st.backToNow()
         check("Back to now clears the search", st.query.isEmpty && !st.searching)
-        w.close()
+        wb0.close()
 
         print("Long history stays quick")
         let big = history(days: 40, perDay: 10, now: now)
@@ -222,9 +227,9 @@ enum StarChatCheck {
         bigState.reset(for: "big")
         let wb = host(growth, big, summary, bigState)
         let ms = (CACurrentMediaTime() - t0) * 1000
-        check(
-            String(format: "400 messages open in %.0f ms (under 900), only the newest day laid out", ms),
-            ms < 900 && (rows("me").count + rows("them").count) == 10 && rows("day").count == 39)
+        let shown = rows("me").count + rows("them").count
+        check(String(format: "400 messages open in %.0f ms (under 900)", ms), ms < 900)
+        check("only the newest day is laid out (\(shown) messages, \(rows("day").count) folded days)", shown == 10 && rows("day").count == 39)
         wb.close()
         StarProbe.on = false
     }

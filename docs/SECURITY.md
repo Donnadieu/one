@@ -37,7 +37,12 @@ boundaries today, not an aspirational version of them.
   (chmod 600 at write time per the skill runbook) — never echoed, never
   logged.
 - **General rule for any new secret**: never log it (`one-lint: no-secrets`
-  also blocks literal secret-shaped strings from ever landing in source),
+  also blocks literal secret-shaped strings from ever landing in **any**
+  tracked text file — until PER-33 it read `Sources/*.swift` only, which left
+  `tools/`, `tests/`, the workflows and the published `site/` unscanned in a
+  public repo; `one-lint: secret-file` additionally fails on a tracked file
+  whose *name* says credential (`.env`, `*.pem`, `credentials.json`, a private
+  key), and `.gitignore` keeps those out in the first place),
   never pass it as a CLI argument, write it through `Env.writeSecretEnv()`
   (or an equivalent explicit `chmod(0o600)`/`0o700` on write) rather than a
   plain `write(to:)` — don't rely on `umask`.
@@ -112,6 +117,69 @@ boundaries today, not an aspirational version of them.
   lock; `docs/ARCHITECTURE.md` rule 4 says so explicitly, and any new
   allow-listed path should be the narrowest one that actually unblocks the
   feature (a specific subpath, not a whole dotfile-heavy directory).
+
+## The test world: who may run a check on this Mac, and in whose world
+
+The person's Mac is production. A check or a render that runs as the real One
+writes the person's own settings, and on Oct 27 and Nov 9 2026 two of them did
+exactly that. Three things stand between a test and production, and PER-33
+changed only the first of them:
+
+1. **Who may start a test at all.** `TestWorld.enter()` and `tools/ci-only.sh`
+   allow CI (`GITHUB_ACTIONS=true`), or `ONE_LIVE_CHECK=<the check's own file
+   name>` for a *live* check the owner asked for by name — one that needs One's
+   installed engine and his own subscription, which no runner can have. The
+   name is the whole point. `ONE_LIVE_CHECK=1` unlocked **every** script that
+   sources `ci-only.sh` — twenty of them, `tools/preflight.sh` among them,
+   which writes inside the person's real One folder, touches `~/.ssh` and
+   drives real windows for minutes. One stale `export` in a shell, or an agent
+   setting it once, was the hard rule gone. Now `ci-only.sh` requires that the
+   variable name the script it is unlocking **and** that the script declare
+   `# runs: owner-only (make <target>) — <why>` in its header, so preflight and
+   the nightly soak and sanitizer checks keep refusing whatever is exported.
+   The target is `$(call live,<script>)` in the Makefile, which derives the
+   variable from the script it runs so the two can't drift; that a target exists
+   and does this is enforced by `one-lint: no-orphan-check`, and two preflight
+   checks assert that `ONE_LIVE_CHECK=1` and another check's name both still
+   refuse `tools/preflight.sh`.
+
+   Before this, those fourteen checks refused on the Mac *and* had no workflow,
+   so they tested nothing anywhere — and `tools/handoff-qa.sh` got around it by
+   claiming `GITHUB_ACTIONS=true`, an undocumented bypass with nothing naming
+   it. It now sources `ci-only.sh` like every other check, with `make handoffqa`
+   as its target.
+
+   Reachable is not the same as covered, and the difference is worth stating:
+   of the fourteen, **two** (`reset-check.sh`, `window-guard-check.sh`) run on
+   every pull request in preflight, **two** (`sanitizer-check.sh`,
+   `soak-check.sh`) run nightly in `deep-checks.yml`, and the other **ten** run
+   only when Omar types their target. Those ten are free of CI not because
+   nobody wired them up but because no runner has his Claude subscription.
+   Follow-up work in
+   [docs/exec-plans/tech-debt-tracker.md](exec-plans/tech-debt-tracker.md).
+2. **Never as the real One.** `TestWorld.gate()` is the first line of `main()`
+   and refuses any `--test-…`/`--render…` under the real bundle id
+   (`ai.forjado.one`) before anything is built or read. `ONE_LIVE_CHECK` does
+   **not** relax this: a live check runs from `tools/test-copy.sh`, which gives
+   the copy its own bundle id and so its own settings.
+3. **Never the real One folder.** `TestWorld.enter()` refuses when
+   `Env.support` is the person's real folder, and `tools/engine-check.sh` — the
+   wrapper the live *engine* checks go through — always points
+   `ONE_SUPPORT_DIR` at a throwaway folder. Ten hand-copied versions of that
+   setup had drifted on exactly this setting, which is why there is one now
+   (enforced: `one-lint: engine-check-wrapper`).
+
+   Two details this used to get wrong. `--engine-link` **symlinked** the
+   person's real `engine` folder into the test world, and `isProduction()`
+   cannot see through that — it resolves `"$S/sup"`, which really is scratch —
+   so anything the engine wrote under its own engine directory landed in their
+   real folder and the refusal never fired. It copies now (`cp -c`, a clone on
+   APFS), so no byte can travel back. And the two checks that start a test copy
+   through Launch Services rather than `env -i`
+   (`tools/handoff-qa.sh`, `tools/human-window-check.sh`) are a different
+   family that `engine-check-wrapper` cannot see, because they have no
+   `env -i`; they share `engine_launch_env` from the same file instead, which is
+   where the settings baked into a copy's `Info.plist` now live.
 
 ## Trust boundaries for the agent/tool-execution surface
 
@@ -309,13 +377,13 @@ use the plugin's own `oc:` prefix, never the engine's shared picker state.
 
 ## Known findings / open items (current state of `main`, checked today)
 
-- **No automated knowledge-base-integrity test**: unlike repos hardened with
-  the newer harness-engineering skill, this repo has no
-  `test/architecture/knowledge-base.*`-style check asserting doc links
-  resolve, `docs/INDEX.md` agrees with disk, and no doc is orphaned — doc
-  drift (like the three findings above sitting undetected for two releases)
-  is caught by a manual harness pass, not by CI. Tracked in
-  `docs/exec-plans/tech-debt-tracker.md` rather than built in this pass.
+- **Resolved (PER-33): the knowledge-base check now runs in CI.**
+  `tools/knowledge-base-check.sh` asserts every mandated doc exists,
+  `docs/INDEX.md` has no broken or orphaned entries and AGENTS.md stays a
+  table of contents. It ran only in `make check` on the maintainer's own Mac,
+  so the docs rules were the least enforced in the repo; it now also runs in
+  `.github/workflows/rules.yml`, which has no `paths-ignore` and so fires on
+  a docs-only pull request too.
 - Track new findings here (or in `docs/exec-plans/tech-debt-tracker.md` for
   anything that's also a code-quality item) rather than letting "we did a
   security pass once" stand in for a current, accurate list.

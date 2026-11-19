@@ -1,0 +1,5 @@
+pretend: Sources/Canary.swift
+branches: 2
+--
+let a = "WhatsApp"
+let b = "Telegram"

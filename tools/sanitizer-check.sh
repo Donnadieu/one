@@ -6,7 +6,7 @@
 # write. Test copies only: own bundle id, own scratch folder, the line plays at volume 0, no window. ~10 min.
 #   tools/sanitizer-check.sh [seconds per run, default 30]
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 SECS="${1:-30}"
 W=$(mktemp -d "${TMPDIR:-/tmp}/one-sanitize.XXXXXX")
 rc=0

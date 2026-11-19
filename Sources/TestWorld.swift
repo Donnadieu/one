@@ -30,18 +30,33 @@ enum TestWorld {
         exit(2)
     }
     /// The flag that makes this run a render or test under the real bundle id, or nil when it may run.
+    /// `--qa-` counts too, and so does ONE_TEST_MODE: the hand-off QA and the live human check pick their
+    /// mode from that variable rather than from a `--test-` flag, so this gate couldn't see them at all.
+    /// Both do call `enter()`, so the refusal held — but it was one layer deep instead of two.
     static func refused(_ args: [String], bundle: String?) -> String? {
         guard bundle == productionID else { return nil }
-        return args.dropFirst().first { $0.hasPrefix("--render") || $0.hasPrefix("--test-") }
+        if let flag = args.dropFirst().first(where: {
+            $0.hasPrefix("--render") || $0.hasPrefix("--test-") || $0.hasPrefix("--qa-")
+        }) {
+            return flag
+        }
+        if let mode = ProcessInfo.processInfo.environment["ONE_TEST_MODE"], !mode.isEmpty {
+            return "ONE_TEST_MODE=\(mode)"
+        }
+        return nil
     }
 
     /// The first line of every test mode.
     static func enter() {
         Env.selfTest = true
         let mode = CommandLine.arguments.dropFirst().first { $0.hasPrefix("--") } ?? "this test"
-        // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac. They open windows, take the
-        // focus and stop him working. They run in CI (GitHub) only.
-        guard inCI else {
+        // Owner's hard rule (Omar, Nov 4 2026): tests never run on the person's Mac by accident. They open
+        // windows, take the focus and stop him working. They run in CI (GitHub), or — for a live check that
+        // needs One's installed engine and the owner's own subscription, which no runner has — when he asks
+        // for it by name and the make target sets ONE_LIVE_CHECK to that check's file name (tools/ci-only.sh
+        // says the rest). The two
+        // refusals below are not relaxed by it: never the real One, never the real One folder.
+        guard inCI || liveCheck else {
             print("refusing: \(mode) is a test, and tests run in CI (GitHub), never on this Mac.")
             print("FIX: push the branch and read the check on the pull request.")
             exit(2)
@@ -76,8 +91,22 @@ enum TestWorld {
         return true
     }
 
-    /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), the only place tests may run.
+    /// Running on a CI runner (GitHub Actions sets GITHUB_ACTIONS=true), where every check on a pull request runs.
     static var inCI: Bool { ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" }
+
+    /// A live check the owner asked for by name: its make target sets ONE_LIVE_CHECK to that check's own
+    /// file name, and tools/ci-only.sh is what checks the name matches a script that declares itself
+    /// owner-only. Only for the checks that need One's installed engine and his own subscription, which
+    /// CI can't have.
+    ///
+    /// The value has to BE a check's file name. Accepting any non-empty string would have let
+    /// `ONE_LIVE_CHECK=1` — the old, unscoped spelling, and the one most likely to be left in a shell —
+    /// open every test mode straight from a test copy with no script in the path at all, which is the
+    /// half of the hard rule about windows and focus rather than about files.
+    static var liveCheck: Bool {
+        let asked = ProcessInfo.processInfo.environment["ONE_LIVE_CHECK"] ?? ""
+        return asked.hasSuffix("-check.sh") || asked.hasSuffix("-qa.sh")
+    }
 
     /// The real One folder, for reading fixtures only (never written by a test).
     static var realSupport: URL {

@@ -1,0 +1,13 @@
+{
+ "ruff|sounds/make_sounds.py": 1,
+ "ruff|tests/handoff/e2e_signin.py": 1,
+ "ruff|tests/handoff/test_human_step.py": 3,
+ "ruff|tools/chrome-copy-check.py": 1,
+ "ruff|tools/doc-gardening.py": 3,
+ "ruff|tools/goal-progress-check.py": 1,
+ "ruff|tools/main-queue-check.py": 1,
+ "ruff|tools/overlay/agent/vault_backends/base.py": 2,
+ "ruff|tools/overlay/tools/one_human_step.py": 1,
+ "ruff|tools/restart-guard-check.py": 1,
+ "ruff|tools/usage-meter-check.py": 1
+}

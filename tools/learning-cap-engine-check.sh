@@ -4,7 +4,7 @@
 # The engine to use: ONE_SUPPORT_DIR's (the fresh-install workflow installs one there).
 #   ONE_SUPPORT_DIR=<folder with engine/> tools/learning-cap-engine-check.sh    prints "engine cap ok" when it passes
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 E="$SUP/engine"
 [ -d "$E/hermes_cli" ] || { echo "no engine in $SUP; skipped"; exit 0; }

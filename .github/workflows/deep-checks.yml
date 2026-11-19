@@ -1,0 +1,64 @@
+name: deep-checks
+# Goal: the two slow memory checks run somewhere.
+#
+# tools/sanitizer-check.sh and tools/soak-check.sh each build One from scratch and drive it for about
+# ten minutes, so they can't sit in the three-minute pull-request gate. They refuse on the owner's Mac
+# (they take the audio line and the focus), and before PER-33 no workflow ran them either: `make
+# sanitize` and `make soak` were the only way in and both refused, so the thread/address sanitizer
+# and the guard-malloc soak tested nothing anywhere. They use the stand-in engine, so they cost no
+# money and need no account.
+#
+# Nightly, and by hand when a change touches audio, memory or the helper loop. A failure here is a
+# nightly signal, not a blocked pull request: these find the slow, rare corruption bugs (0.9.32 to
+# 0.9.84 heap corruption, the Nov 3 crash during a device change), which is a different job from
+# gating a diff.
+on:
+  schedule:
+    - cron: '41 8 * * *'  # nightly, after the preflight nightly (4:41 am New York)
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: 'Minutes for the soak run'
+        default: '10'
+      soak_mode:
+        description: 'guard (sampling guard, optimized) | thread | address'
+        default: 'guard'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanitize:
+    name: thread and address sanitizer on the real audio line
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+      - run: tools/sanitizer-check.sh 30
+
+  soak:
+    name: the whole app under load, a write to freed memory crashes at the write
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+      # ONE_SOAK_ROUTE stays 0: switching the speakers' format is for the owner's Mac, where a real
+      # One may be open to hear it.
+      # Through env:, never straight into the run line. GitHub substitutes a ${{ }} before bash
+      # parses it, so the quotes around it here would not contain a value carrying its own quote.
+      - env:
+          SOAK_MINUTES: ${{ inputs.soak_minutes || '10' }}
+          SOAK_MODE: ${{ inputs.soak_mode || 'guard' }}
+        run: tools/soak-check.sh "$SOAK_MINUTES" "$SOAK_MODE"

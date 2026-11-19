@@ -21,8 +21,20 @@
   doesn't point at a missing file; `--fix` repairs unambiguous moved-file links and opens a small
   PR when it changes anything. See `.agents/skills/doc-gardening/SKILL.md` to run it by hand.
 - `tools/knowledge-base-check.sh`: knowledge-base integrity test (part of `make check` as
-  `make knowledgebase`) — every doc this repo's harness mandates exists, `doc-gardening.py --check`
-  is clean (delegated to, never duplicated), and AGENTS.md stays a table of contents (≤200 lines).
+  `make knowledgebase`, and of `.github/workflows/rules.yml` on every pull request) — every doc this
+  repo's harness mandates exists, `doc-gardening.py --check` is clean (delegated to, never
+  duplicated), and AGENTS.md stays a table of contents (≤200 lines).
+- `tools/lint/one-lint.py` + `tools/lint/repo_rules.py`: One's own rules, each with a one-line why
+  and a `FIX:`. `--list` prints them all; `--prove` runs each against the snippet in
+  `tools/lint/canaries/` that breaks it, so a refactor can't quietly neuter one. Old debt is
+  grandfathered in `tools/lint/baseline.json`, which may only shrink.
+- `tools/lint/ext-lint.py`: ruff (bug rules only) and shellcheck over One's own Python and shell, on
+  the same shrink-only ratchet (`tools/lint/ext-baseline.json`).
+- `tools/hooks-check.sh`: the git hooks are armed in this clone (`make hooks`), and the pre-commit
+  hook, `make check` and CI haven't drifted apart about what the rules are.
+- `tools/engine-check.sh`: the one wrapper every live check that drives One's real engine goes
+  through — the test copy, the throwaway One folder, the clean environment and the timeout, in one
+  place instead of ten copies that had drifted.
 - [decisions.md](decisions.md): design decisions that are easy to undo by accident, newest first
 - [QUALITY_SCORE.md](QUALITY_SCORE.md): per-area grading
 - [exec-plans/README.md](exec-plans/README.md): active and completed plans, tech debt

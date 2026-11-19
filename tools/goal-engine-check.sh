@@ -5,7 +5,7 @@
 # for a yes. The engine to use: ONE_SUPPORT_DIR's (the fresh-install workflow installs and patches one there).
 #   ONE_SUPPORT_DIR=<folder with engine/> tools/goal-engine-check.sh    prints "goal engine ok" when it passes
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 H="$SUP/engine/.hermes/bin/hermes"
 [ -x "$H" ] || { echo "no engine in $SUP; skipped"; exit 0; }

@@ -10,9 +10,14 @@
 # ONE_SOAK_ROUTE=1 switches the Mac speakers' format: EVERY app hears that device change, a running One included
 # (Nov 3 23:07 a live 0.9.85 crashed during such a run). Only with no real One open.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 MIN="${1:-10}"
 MODE="${2:-guard}"
+# MIN reaches `$((MIN * 60 + 180))`, and bash runs a command substitution inside an arithmetic
+# subscript: MIN='x[$(…)]' executes it. The workflow passes this through env: rather than pasting it
+# into the run line, which closes the paste; this closes the same hole one layer down, where the
+# value arrives as an argument.
+case "$MIN" in *[!0-9]* | "") echo "soak-check: minutes must be a whole number, not '$MIN'" >&2; exit 2 ;; esac
 W=$(mktemp -d "${TMPDIR:-/tmp}/one-soak.XXXXXX")
 APP="$W/One.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$W/support"

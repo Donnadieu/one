@@ -1,0 +1,3 @@
+pretend: Sources/Env.swift
+--
+let name = Model.shared.assistantName

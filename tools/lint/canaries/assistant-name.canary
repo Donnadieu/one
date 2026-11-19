@@ -1,0 +1,11 @@
+pretend: Sources/Canary.swift
+branches: 3
+--
+Text("Nova is getting that for you")
+Label("Ask Juno", systemImage: "sparkles")
+Button("Elias can do it") {}
+--allow--
+Text("\(m.name) is getting that for you")
+// Nova, Juno and Elias in a comment are not UI text
+Persona.write(assistant: "Juno")
+Chip(label: "Nova")

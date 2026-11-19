@@ -3,7 +3,7 @@
 # prints the extra swiftc arguments, one per line. Every script that compiles One reads them:
 #   OBJC=(); while IFS= read -r l; do OBJC+=("$l"); done < <(tools/objc.sh "$DIR" [extra clang flags…])
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 DIR="$1"; shift
 mkdir -p "$DIR"
 clang -c -fobjc-arc -O2 -target arm64-apple-macosx14.0 "$@" Sources/ObjC/OneCatch.m -o "$DIR/OneCatch.o"

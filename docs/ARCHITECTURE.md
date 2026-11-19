@@ -12,6 +12,13 @@
                Env  (paths, folder-lock profile, environment)        ← foundation
 ```
 
+**This table is read by the lint, not just by people.** `tools/lint/one-lint.py` takes the file sets
+for `dependency-direction` (which files are a lower layer) and `destructive-fs-area` (which areas may
+delete files) straight from the Area column here, and `architecture-table` fails on a `Sources/*.swift`
+file with no row — so a new service file can't escape those rules by nobody remembering to edit a list
+inside the lint, which is exactly how `HumanStep.swift` escaped the old hand-typed one. Add the row in
+the same change as the file.
+
 | File | Area | Responsibility |
 |---|---|---|
 | Env.swift | foundation | paths, `Access.profile()` (the folder lock), engine environment |
@@ -242,7 +249,7 @@
 | ChromeBridge.swift | service | "Use my Chrome" from a chat: `One --connect-chrome [profile]` (the engine can't read Chrome's folder, so inside the lock it leaves a request in `browser/connect-requests/` and the open One does the copy via `MyChrome.serveLoop`); picks the profile they use (Local State last_used, asks only when several were used this week, keeps the pick in `browser/my-chrome-profile`), refuses with exit 7 (AWAY) when nobody has used the Mac for 5 minutes (a routine), checks one real signed-in site in a hidden tab, plain-words result + exit codes; `MyChrome.rule` goes in SOUL and every prompt; no engine restart (the engine only talks to the local port) |
 | ChromeBridgeCheck.swift | check | part of `--test-browser`: profile pick, live session cookies, no menu in the rule, the restart line |
 | BrowserCheck.swift | dev only | `One --test-browser`, run by preflight |
-| BrowserGuardCheck.swift | dev only | the browser guard part of `One --test-browser`; `tools/browser-guard-check.py` (the plugin on real commands) and `tools/browser-guard-engine-check.sh` (the real engine blocks) run in preflight |
+| BrowserGuardCheck.swift | dev only | the browser guard part of `One --test-browser`; `tools/browser-guard-check.py` (the plugin on real commands) runs in preflight; `tools/browser-guard-engine-check.sh` (the real engine LOADS the guard) runs in `.github/workflows/fresh-install.yml`, the only venue with the engine installed |
 | GatewayGuard.swift | service | stops the engine's background helper (gateway) only when it's stale, never a healthy one another One uses, and never one still running a routine (left and retired once it's done) |
 | BrainIndex.swift | service | the brain's search index (storage design 3f): one SQLite file per room in `<support>/index/` (`<room>.sqlite`, `shared-<title>.sqlite`, `assistant.sqlite`; never in the brain or iCloud), FTS5 word search (porter, bm25) plus a trigram copy for close spellings when this Mac's SQLite has it; `.md`/`.txt` only, never `confidential/`, `.git`, hidden or iCloud placeholders, over 1 MB; refreshed by file time and size, a broken index deleted and made again; `BrainIndex.start()`: at launch off the main thread, on file changes (FSEvents) or every 10 min, tidied at night; `BrainRooms` (which rooms, which are private by `room.yaml`) |
 | BrainSearch.swift | service | `One --search "words" [--room <name>] [--limit N] [--json]` (before any window, via `Bridge.run`): ranked results with room, full path, heading and a marked snippet; no room named = private rooms left out and their index never opened; all words, then close spellings, then some words; `BrainSearch.note` on every prompt (SessionNotes) |
@@ -259,13 +266,59 @@
 | HistoryCheck.swift | dev only | `One --test-history` (preflight): copies (clones, what's in and out), nothing changed = no copy, versions, put back + `before restore`, undo everything, pruning over 7 months never touching `before-move`, the locked copy opens with its key and its retention |
 | App.swift | entry | `@main`, app delegate, CLI test hooks |
 | JobsCheck.swift | dev only | `One --test-jobs` (three core jobs end to end, run by `make jobs`) and `FakeMail`, the test inbox behind `ONE_FAKE_MAIL` |
+| Accounts.swift | service | one login Hermes's own credential pool already tracks for a provider (`hermes auth list`): reading the pool, naming a new account, the failover Hermes made on its own |
+| LocalModels.swift | service | a local OpenAI-compatible service: only loopback addresses are ever queried or saved, the model list and the memory-sized recommendation |
+| SwitchAI.swift | service | the engine is shared by every conversation, so replacing it mid-turn would cut off helpers: when a brain swap is allowed and when it waits |
+| HelperTell.swift | service | passing a message to a working (or finished) helper, instead of starting a second one |
+| PhoneVoice.swift | service | a phone chat speaks with the Mac's voice |
+| StepPageCopy.swift | service | a hand-off window opens on the helper's very page, not on its address |
+| VoiceWave.swift | service | what the assistant's voice is doing at one moment, measured from the sound being played |
+| Pulse.swift | service | a heartbeat, so a crash leaves a trace even when no crash report is reachable |
+| WindowGuard.swift | service | a restored window frame that would push the top row off screen is corrected before the window is shown (the 0.9.74-and-restart regression) |
+| FolderApprovals.swift | service + ui | every NEW folder grant needs a yes in the conversation, never a silent default; the ledger and the card that asks |
+| PanelCenter.swift | state | one panel at a time: every panel opens through `Model.closeOtherPanels` |
+| LimitBanner.swift | ui | a pool failover Hermes already made on its own (`Accounts.detectSwitch`), said in plain words |
+| LocalModelFlow.swift | ui | the local choice inside Switch AI; it never asks for a server address or a terminal |
+| ProviderAccountsView.swift | ui | the accounts screen: tap a provider in Switch AI and see every login it has |
+| SwitchAIPanel.swift | ui | Switch AI as its own pop-up over the real chat, not the first-run setup screen |
+| NoteText.swift | ui | a note's text as one selectable piece, so a drag across paragraphs then ⌘C copies it |
+| ShelfSearch.swift | ui | Ready for you: the search box (title and the text inside each file) and day grouping |
+| RoomGraph.swift | ui | your rooms as a living map: the assistant's orb in the middle, rooms around it |
+| RoomGraphView.swift | ui | the map itself: a canvas redrawn every frame, plus the mouse and trackpad handling |
+| RoomGraphDraw.swift | ui | drawing the rooms map, one small typed function per step rather than one big Canvas closure |
+| RoomGraphFrame.swift | ui | one animation frame of the rooms map: the camera flight and where every room and note sits |
+| RoomLabels.swift | ui | names on the rooms map: each name tries a few spots around its dot and takes the first that fits |
+| AccountsCheck.swift | check | `One --test-accounts`: parsing `hermes auth list`, naming a new account, the failover notice; no network, no real Hermes |
+| FolderApprovalCheck.swift | check | `One --test-folder-approval` (preflight): the folder-approval ledger, and that a grant needs a yes in the conversation |
+| FolderSheetCheck.swift | check | `One --test-folders-fit`: the Folders window fits its content |
+| HelperSpanCheck.swift | check | `One --test-helpers`: a helper tag runs over any number of paragraphs (Nov 10, 2026) |
+| HiddenBrowserCheck.swift | check | `One --test-hidden-browser`: the hidden browser never shows in the Dock or Stage Manager |
+| HumanCheckLive.swift | check | `One --test-human-window` (`make humanwindow`): the whole human-check flow on a real robot-check page, in a visible window |
+| HandoffQA.swift | check | `One --qa-handoff` (`make handoffqa`): One's half of a hand-off, for a live QA run the owner watches |
+| LocalModelsCheck.swift | check | `One --test-local-model` (preflight): the model list, the memory-sized recommendation, the small-model warning |
+| MessageHistoryCheck.swift | check | `One --test-message-history`: message history as one plain thread |
+| MessageHistoryClickCheck.swift | check | `One --test-message-click`: a real on-screen window, clicked |
+| MessageTypingPerfCheck.swift | check | `One --test-message-typing`: typing lag in real numbers (prints, never pass/fail) |
+| PanelRun.swift | check | `One --test-panels`: one panel at a time, as Model state; no window needed |
+| QueueCheck.swift | check | `One --test-helpers-stress queue` (the last part of `tools/helpers-check.sh`): helpers finishing together get one quiet line |
+| ResetCheck.swift | check | `One --test-reset` (preflight, `tools/reset-check.sh`): `--reset` clears onboarding only, never helpers, bubbles or the shelf (the 0.9.74 incident) |
+| ShelfSearchCheck.swift | check | `One --test-shelf-search`: searching made-up Ready for you cards; no real files, no UI |
+| SwitchAICheck.swift | check | `One --test-switch-ai`: the exact decisions that used to restart a working engine; no network, no real switch |
+| WindowGuardCheck.swift | check | `One --test-window-guard` (`tools/window-guard-check.sh`, preflight): the top row stays reachable after a bad restored frame |
+| HelperTagsRender.swift | dev only | `One --render-helper-tags <prefix>`: what a reply with helper tags shows a person |
+| JobTreeRender.swift | dev only | `--render-world <prefix>` (test copy): a helper's own programs and sub-helpers as a tree |
+| OrbVoiceRender.swift | dev only | `One --render-orb-voice <clip.wav> <out dir>`: the world frame by frame (30 fps) driven by real sound |
+| RoomsRender.swift | dev only | review renders of the rooms map against the real brain; never shown in the app |
+| SwitchAIPanelRender.swift | dev only | `One --render-switch-ai <png> [mode]` (test copy): the Switch AI pop-up |
 
 ## Rules
 1. `Env` depends on nothing in the app.
 2. Services never import UI types. UI talks to services through `Model` (or the service's `shared`).
 3. Running another program (`Process`) only happens in services (enforced: `process-area`).
 4. Anything the engine can reach must be listed in `Access.profile()`; never widen it to all of home.
-5. New area = new file; keep each under 600 lines (enforced: `file-length`).
+5. New area = new file; keep each under 600 lines, in any language — Swift, Python, shell,
+   workflows (enforced: `file-length`; the vendored engine copies under `tests/fixtures/` are a
+   stated skip, because they are kept byte-identical to upstream for diffing).
 6. **Dependency direction (enforced: `dependency-direction`).** Dependencies point one way, down the
    diagram at the top of this file: UI → `Model` → services → `Env`/foundation. A file tagged
    `foundation` or `service` in the table above must never reference `Model.shared` (the state layer
@@ -278,6 +331,11 @@
    grandfathered in `tools/lint/baseline.json` as debt, not silently allowed going forward. A rule this
    lint can't check reliably (e.g. an indirect reverse dependency through a protocol or a closure
    captured across files) is a stated skip, not something it guesses at.
+   **Which files are a lower layer comes from the Area column of the table above**, not from a list
+   inside the lint. It used to be 32 file names typed into `one-lint.py`, which meant a new service
+   file was exempt until somebody remembered to add it (`HumanStep.swift` was, for months) and
+   `Helpers.swift` was wrongly flagged for the Views the table says it may have. A file the table
+   doesn't name at all fails `architecture-table` instead, so nothing is quietly exempt.
 
 ## Extending
 - New connection: a node in `worldNodes` or a `connections.json` entry, a `connect()` branch, and the
@@ -285,4 +343,12 @@
 - New shipped skill: a folder `skills/<category>/<name>/SKILL.md` (description 60 characters max, trigger first). build.sh
   bundles it and `BundledSkills.sync()` installs it; change its content and the next release updates untouched copies.
   Never put one person's details (account ids, names, emails) in a shipped skill.
-- New CLI test hook: `args.contains("--test-x")` in App.swift, `Env.selfTest = true` first (enforced).
+- New CLI test hook: `args.contains("--test-x")` in App.swift, `TestWorld.enter()` first (enforced:
+  `test-selftest`). Its runner script goes in `tools/` and must be reachable: a line in
+  `tools/preflight.sh` or a workflow step, or — only if it needs this Mac — a
+  `# runs: owner-only (make <target>) — <why>` header and that make target (enforced:
+  `no-orphan-check`). A runner that drives One's real engine calls `tools/engine-check.sh` rather
+  than copying its setup (enforced: `engine-check-wrapper`).
+- New lint rule: a function in `tools/lint/one-lint.py` (or `repo_rules.py` if it reads the whole
+  tree), a row in `RULES` with an id, a one-line why, a `FIX:` and the files it looks at, and a
+  canary in `tools/lint/canaries/<id>.canary` so `--prove` shows it still blocks.

@@ -7,7 +7,7 @@
 # (`One --test-human-step`, which plays the person through One's own card and window). See Sources/HumanStepCheck.swift.
 # ONE_SUPPORT_DIR: a One folder with an installed engine (CI: the fresh install); default the usual one.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 REPO=$PWD
 SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 ENG="$SUP/engine"
@@ -16,13 +16,14 @@ S="$SUP/hermes/cache/scratch/handoff-check.$$"
 mkdir -p "$S/support/handoff" "$S/hh" "$S/chrome"
 PORT=${HANDOFF_PORT:-9344}
 WEBP=${HANDOFF_WEB:-8791}
+# shellcheck disable=SC2194  # constant word, variable pattern: "is this port one of the shared ones?"
 case " 9223 9224 9333 " in *" $PORT "*) echo "refusing: $PORT is a shared browser"; exit 2 ;; esac
 python3 tests/handoff/post_server.py "$WEBP" tests/handoff/pages >"$S/web.txt" 2>&1 &
 WEB=$!
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --disable-crash-reporter \
-  --remote-debugging-port=$PORT --user-data-dir="$S/chrome" --no-first-run --no-default-browser-check --window-size=1000,700 about:blank >/dev/null 2>&1 &
+  --remote-debugging-port="$PORT" --user-data-dir="$S/chrome" --no-first-run --no-default-browser-check --window-size=1000,700 about:blank >/dev/null 2>&1 &
 CHR=$!
-for _ in $(seq 30); do curl -s -m1 127.0.0.1:$PORT/json/version >/dev/null && break; sleep 0.5; done
+for _ in $(seq 30); do curl -s -m1 "127.0.0.1:$PORT/json/version" >/dev/null && break; sleep 0.5; done
 # The engine half runs with the engine's own runtime, through a tiny runner placed in the engine (removed after).
 printf 'import os, sys, runpy\nsys.stdout.reconfigure(line_buffering=True)\nsys.path.insert(0, os.getcwd())\nrunpy.run_path(os.environ["ONE_TEST_SCRIPT"], run_name="__main__")\n' > "$ENG/one_handoff_run.py"
 ( cd "$ENG" && HERMES_RUNTIME_DIR="$SUP/hermes/tools" HERMES_HOME="$S/hh" OVERLAY="$REPO/tools/overlay/tools/one_human_step.py" \

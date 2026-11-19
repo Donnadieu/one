@@ -1,0 +1,4 @@
+pretend: Sources/Canary.swift
+repeat: 701
+--
+// 701 lines: 101 over the 600-line cap, so the rule counts it twice and the baseline can only shrink.

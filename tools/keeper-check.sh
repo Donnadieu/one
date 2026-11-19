@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2016  # every `expect '…'` argument is a snippet this script evals after the keeper runs; the $(…) inside must NOT expand when it is written.
 . "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # Proves the keeper (`One --keeper`, which macOS runs every minute) really opens One again after a failed start,
 # waits longer each time, never opens it after a quit they asked for, and puts the previous version back after a

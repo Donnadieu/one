@@ -2,18 +2,21 @@
 . "$(dirname "$0")/ci-only.sh"  # tests run in CI only, never on the person's Mac
 # One preflight: must pass before every release.
 #   tools/preflight.sh           quick checks (about 1 minute, no login, no network except the updater check)
-#   tools/preflight.sh --full    also a fresh engine install into an empty folder (about 2 minutes)
-#   tools/preflight.sh --ci      skip checks that need a Mac with One's engine (GitHub runners)
+#   (a fresh engine install into an empty folder needs a machine with no One on it: that is
+#    .github/workflows/fresh-install.yml, not a flag here)
+#   tools/preflight.sh --ci      accepted and ignored. It used to skip the checks that need One's
+#                                installed engine, but every venue passed it, so those checks ran
+#                                nowhere: they live in .github/workflows/fresh-install.yml now.
 #   tools/preflight.sh --quick   skip the slow helpers stress check
 #   tools/preflight.sh --part N  only the checks of part N (1..PARTS). CI runs every part side by side, each on its
 #                                own runner, so a pull request's check finishes in about 3 minutes, not 8.
 # Every check prints how long it took; the slowest are listed at the end (balance the parts with them).
 # Every check has a time limit (LIMIT seconds, 180 by default), so a stuck check fails instead of holding a runner for hours.
 set -u
-cd "$(dirname "$0")/.."
-FULL=0; CI=0; QUICK=0; ONLY=""; prev=""
+cd "$(dirname "$0")/.." || exit 1
+QUICK=0; ONLY=""; prev=""
 for a in "$@"; do
-  [ "$a" = --full ] && FULL=1; [ "$a" = --ci ] && CI=1; [ "$a" = --quick ] && QUICK=1; [ "$prev" = --part ] && ONLY="$a"; prev="$a"
+  [ "$a" = --quick ] && QUICK=1; [ "$prev" = --part ] && ONLY="$a"; prev="$a"
 done
 # The parts CI runs side by side (.github/workflows/preflight.yml lists the same numbers in its matrix).
 PARTS=4
@@ -68,6 +71,7 @@ LIMIT=600 check "app builds" ./build.sh
 # (own settings) and a scratch One folder; the real build only runs to prove it refuses. See TestWorld.swift.
 TAPP=$(tools/test-copy.sh preflight "$T/app"); TBIN="$TAPP/Contents/MacOS/One"
 defaults delete ai.forjado.one.preflight >/dev/null 2>&1
+# shellcheck disable=SC2012  # Xcode*.app sorted by version is the point, and find's order is unspecified
 made_list() { ls -1 "$HOME/Documents"/Made\ by*/ 2>/dev/null | sort; }
 shelf_list() { defaults export ai.forjado.one - 2>/dev/null | plutil -extract shelf raw -o - - 2>/dev/null | base64 -D 2>/dev/null \
   | /usr/bin/python3 -c 'import json,sys; [print(x["path"]) for x in json.load(sys.stdin)]' 2>/dev/null | sort; }
@@ -125,7 +129,8 @@ check "the hooked connection still loads" /usr/bin/python3 -c "import ast,sys; a
 check "goals keep going while they make progress: more turns while the count moves, the ceiling, a stall pauses, waiting for you, no count (the judge), its own helpers at work" /usr/bin/python3 tools/goal-progress-check.py "$T/goalovl/engine"
 check "notes kept out of the goal, the yes rule added, held only while its goal works, Stop pauses it, mid-goal messages reach it, an answer picks a waiting goal back up, held while its own helpers work" /usr/bin/python3 tools/goal-overlay-check.py
 check "typed /goal commands, Goal: helper jobs, the engine's goal row in plain words, the goal line, Stop" bash -c "ONE_SUPPORT_DIR=$T/goals $TBIN --test-goals | tee $T/goals-out.txt | grep -q '^goals ok'"
-[ $CI = 0 ] && LIMIT=600 check "the real engine with a stand-in model: done, budget, Stop, pause/resume, a helper's goal, a send waiting for a yes, more turns while moving, ceiling, stall, waiting for you then an answer" tools/goal-engine-check.sh
+# The real engine with a stand-in model: runs in .github/workflows/fresh-install.yml (tools/goal-engine-check.sh),
+# which is the only venue with One's engine installed.
 
 part 3 "Skill folders: a link back up never loops the engine"
 mkdir -p "$T/sw/engine/agent"
@@ -198,7 +203,7 @@ mkdir -p "$T/rt"; check "every repo job gets its own copy, also a repo named by 
 grep "✗" "$T/rt/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the main-queue plugin bundled" test -f "$APP/Contents/Resources/one-main-queue/__init__.py"
 check "the after-job review is held at 5 recipes a day and 1 per recipe; the person, helpers and the nightly review never are" /usr/bin/python3 tools/learning-cap-check.py
-[ $CI = 0 ] && check "the real engine loads the learning cap and holds the review's 6th edit" tools/learning-cap-engine-check.sh
+# The real engine and the learning cap: runs in .github/workflows/fresh-install.yml (tools/learning-cap-engine-check.sh).
 
 part 3 "Local models"
 mkdir -p "$T/local"
@@ -243,7 +248,7 @@ grep "✗" "$T/keeper.txt" 2>/dev/null | sed 's/^/    /'
 check "phone messages sent while One was off: the last 2 hours answered, older ones listed in one note and never acted on" /usr/bin/python3 tools/missed-messages-check.py
 check "helper lines in a phone-chat reply (engine): handed to One once, never shown (a receipt instead), the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news; a reply that says a job is starting with no line is logged, told next turn, and shown when it hangs (the Nov 17 replies)" /usr/bin/python3 tools/phone-tags-check.py
 check "choices in a Telegram reply (engine plugin): One's own cut, tap buttons under the reply, a tap is typing that answer once, old buttons stop, nobody else can tap, other chats untouched" /usr/bin/python3 tools/phone-choices-check.py
-[ $CI = 0 ] && check "the real engine runs the missed-messages plugin on real messages" tools/missed-messages-engine-check.sh
+# The real engine and the missed-messages plugin: runs in .github/workflows/fresh-install.yml (tools/missed-messages-engine-check.sh).
 
 part 3 "Tell me when I learn (decisions on a made-up skill log)"
 mkdir -p "$T/lrn"
@@ -346,6 +351,10 @@ elif mine; then
   echo "Lots of helpers survive restarts: skipped (--quick)"
 fi
 
+part 4 "The top row stays reachable after a bad restored window frame"
+check "name pill, Voice, Rooms, Connections, Routines, Push to talk, Folders, Switch AI and Stop all still on screen" bash -c "tools/window-guard-check.sh $TBIN | tee $T/wg.txt | grep -q '^window guard ok'"
+grep "FAIL" "$T/wg.txt" 2>/dev/null | sed 's/^/    /'
+
 part 3 "Stop talking just this once"
 mkdir -p "$T/vc"; VM_BEFORE=$(defaults read ai.forjado.one voiceMuted 2>/dev/null)  # stand-in voice, its own settings
 check "hush drops the rest of that reply, never mutes, the next reply speaks; helper sound rules" bash -c "ONE_SUPPORT_DIR=$T/vc $TBIN --test-voice | tee $T/vc/out.txt | grep -q '^voice ok'"
@@ -355,14 +364,18 @@ check "the voice test left your mute setting alone" test "$VM_BEFORE" = "$(defau
 part 1 "Shipped skills"
 mkdir -p "$T/sk"
 check "fresh home gets them, edited copies are kept" bash -c "ONE_SUPPORT_DIR=$T/sk $TBIN --test-skills | tee $T/sk/out.txt | grep -q '^skills ok'"
+mkdir -p "$T/pn"
+check "one panel at a time (Model state: every panel goes through closeOtherPanels)" bash -c "ONE_SUPPORT_DIR=$T/pn $TBIN --test-panels | tee $T/pn/out.txt | grep -q '^panels ok'"
+grep "✗" "$T/pn/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/ss"
+check "Ready for you search: titles, the text inside a file, day grouping, the Older fold" bash -c "ONE_SUPPORT_DIR=$T/ss $TBIN --test-shelf-search | tee $T/ss/out.txt | grep -q '^ALL PASS'"
+grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 grep "✗" "$T/sk/out.txt" 2>/dev/null | sed 's/^/    /'
 
-part 1 "Home glass"
-if [ $CI = 0 ]; then  # needs a real window on screen
-  mkdir -p "$T/gl"
-  check "only the blur is left under the tint (design: blur 40, saturate 1.4), also after focus, resize, appearance" bash -c "ONE_SUPPORT_DIR=$T/gl $TBIN --test-glass | tee $T/gl/out.txt | grep -q '^glass ok'"
-  grep "FAIL" "$T/gl/out.txt" 2>/dev/null | sed 's/^/    /'
-fi
+# Home glass: tools/glass-check.sh (`make glass`). It reads the window's live visual-effect layers,
+# which a macOS runner has no compositing window server behind — every reading comes back blur -1.0 —
+# so it is owner-only and runnable by name, rather than the `[ $CI = 0 ]` line it used to be here,
+# which every venue bypassed with --ci.
 
 part 1 "Long messages and pastes"
 if true; then  # a real window on the CI runner's own screen
@@ -393,7 +406,9 @@ rm -f "$SUP/guard/allow/preflight-probe.json"
 part 3 "No browser window without their yes"
 check "visible launches blocked (open -a, AppleScript, no --headless), logged, one window per yes" /usr/bin/python3 tools/browser-guard-check.py
 check "no hand-made restart or reinstall of One while it's open or a routine is at work; One --update allowed" /usr/bin/python3 tools/restart-guard-check.py
-[ $CI = 0 ] && check "the real engine loads the guard and blocks a visible browser" tools/browser-guard-engine-check.sh
+# The real engine LOADS the browser guard: runs in .github/workflows/fresh-install.yml
+# (tools/browser-guard-engine-check.sh). Until PER-33 it was named only here, behind `[ $CI = 0 ]`,
+# so the one check proving the guard is loaded by Hermes ran nowhere.
 
 part 3 "Updater"
 if mine; then
@@ -416,24 +431,14 @@ mkdir -p "$T/rtl"
 check "the routines are constellations (no box, no pop-up card), never over the skills or the dial, even with 55; every routine has a plain name, a line saying what it does, its next run and last result; grouped, one open at a time, a picked one opens in place; leftovers can go (asks first)" bash -c "ONE_SUPPORT_DIR=$T/rtl $TBIN --test-routines-list | tee $T/rtl/out.txt | grep -q '^routines list ok'"
 grep "✗" "$T/rtl/out.txt" 2>/dev/null | sed 's/^/    /'
 
-part 1
-if [ $CI = 0 ] && mine; then
-echo "Screens"
-mkdir -p "$T/r"; # Renders read the real brain (live-rooms) but get a scratch home, so they can't touch the engine.
-mkdir -p "$T/rsup"; (cd "$T/r" && ONE_SUPPORT_DIR="$T/rsup" perl -e 'alarm 150; exec @ARGV' "$TBIN" --render-world p >/dev/null 2>&1)
-for f in p-orb p-cw-all p-cw-other p-me-card p-live-rooms; do check "renders $f" test -s "$T/r/$f.png"; done
-fi
+# Screens: the renders read the real brain, so they say nothing on a runner, and `[ $CI = 0 ] && mine`
+# meant no venue ever ran them. A visual change is rendered on purpose and shown before it lands —
+# `One --render-world <prefix>` (AGENTS.md) — so that is where this belongs, not in a dead branch here.
 
-if [ $FULL = 1 ] && [ $CI = 0 ] && mine; then
-  echo "Fresh install (empty folder, nothing from this Mac)"
-  mkdir -p "$T/fresh"
-  (cd "$T/fresh" && ONE_SUPPORT_DIR="$T/fresh" perl -e 'alarm 600; exec @ARGV' "$TBIN" --install-test > "$T/fresh/out.txt" 2>&1)
-  check "engine installs" grep -q "^install: ok" "$T/fresh/out.txt"
-  check "installed into the empty folder" grep -q "hermes: $T/fresh" "$T/fresh/out.txt"
-  check "fresh engine is the pinned version" bash -c "[ \"$(cd $T/fresh/engine && git rev-parse HEAD)\" = \"$(cat $APP/Contents/Resources/hermes-commit.txt)\" ]"
-  check "KeePass in the fresh engine" grep -q KeePassLoginBackend "$T/fresh/engine/agent/vault_backends/base.py"
-  check "tools Python built" test -x "$T/fresh/tools-venv/bin/python"
-fi
+# Fresh install into an empty folder: runs in .github/workflows/fresh-install.yml, on a machine that
+# has no One on it. It carries all five assertions that used to be here (install ok, the empty folder,
+# the pinned engine commit, KeePass, the tools Python). This block was `[ $FULL = 1 ] && [ $CI = 0 ]`,
+# and no venue could satisfy both, so `make full` ran it nowhere.
 
 part 1 "Your files and settings are production"
 mkdir -p "$T/prod"
@@ -448,6 +453,20 @@ check "renders and tests left your real settings exactly as they were" cmp -s "$
 check "a test copy keeps to its own world (with a scratch folder)" bash -c "ONE_SUPPORT_DIR=$T/prod $TBIN --test-production | tee $T/prod/out.txt | grep -q '^production ok'"
 grep "✗" "$T/prod/out.txt" 2>/dev/null | sed 's/^/    /'
 check "a test copy keeps to its own world (no folder given)" bash -c "env -u ONE_SUPPORT_DIR $TBIN --test-production | grep -q '^production ok'"
+
+# The gate that was widened in PER-33, both ways round. Every check above runs with GITHUB_ACTIONS
+# set, so "neither variable set, therefore refuse" was executed nowhere at all, and the claim that
+# ONE_LIVE_CHECK does not relax the two production refusals was asserted by nothing. If a later edit
+# folds the bundle-id guard into the CI branch, or makes the live check default to true, these go red.
+check "a test with no CI and no live check refuses" bash -c "env -u GITHUB_ACTIONS -u ONE_LIVE_CHECK ONE_SUPPORT_DIR=$T/prod perl -e 'alarm 30; exec @ARGV' $TBIN --test-production | grep -q '^refusing' && [ \${PIPESTATUS[0]} = 2 ]"
+check "a live check still refuses to run as your real One" bash -c "ONE_LIVE_CHECK=jobs-check.sh ONE_SUPPORT_DIR=$T/prod perl -e 'alarm 30; exec @ARGV' $BIN --test-connections-open 1 | grep -q '^refusing' && [ \${PIPESTATUS[0]} = 2 ]"
+# tools/ci-only.sh unlocks ONE script, by name, and only one that says it is owner-only: an export
+# left in a shell must not open tools/preflight.sh, which writes this Mac's own One folder.
+check "ONE_LIVE_CHECK=1 does not unlock preflight itself" bash -c "env -u GITHUB_ACTIONS ONE_LIVE_CHECK=1 tools/preflight.sh 2>&1 | grep -q '^refusing'"
+check "a live check's name does not unlock a different script" bash -c "env -u GITHUB_ACTIONS ONE_LIVE_CHECK=jobs-check.sh tools/preflight.sh 2>&1 | grep -q '^refusing'"
+# 0.9.74: "reset onboarding" emptied `helpers` and a finished "Message history" helper vanished.
+check "reset onboarding clears setup settings only, never helpers, bubbles or the shelf (the 0.9.74 incident)" bash -c "tools/reset-check.sh --no-build | tee $T/reset.txt | grep -q '^reset: all checks passed'"
+grep "✗" "$T/reset.txt" 2>/dev/null | sed 's/^/    /'
 made_list > "$T/made.after"; shelf_list > "$T/shelf.after"
 check "no file in your Made by folder went missing" bash -c "[ -z \"\$(comm -23 '$T/made.before' '$T/made.after')\" ]"
 check "no card on your Ready for you shelf went missing" bash -c "[ -z \"\$(comm -23 '$T/shelf.before' '$T/shelf.after')\" ]"

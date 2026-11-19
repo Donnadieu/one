@@ -1,0 +1,116 @@
+name: rules
+# Goal: every fast rule runs on EVERY pull request, including a docs-only one.
+#
+# The heavy check (preflight.yml) carries a paths-ignore for *.md, docs/**, LICENSE and .agents/**,
+# because building One four ways to read a changed paragraph is waste. But the fast rules used to sit
+# inside that same workflow, so a docs-only pull request skipped the identity check, One's own lint,
+# the baseline ratchet and both docs checks — the docs rules were the least enforced ones in the repo.
+# They live here now: no paths-ignore, one cheap Linux runner, under a minute. Formatting is the one
+# fast rule that stays in preflight.yml, because swift-format needs macOS.
+#
+# Everything here is also what `make check` runs on the Mac and what .githooks/pre-commit runs before
+# a commit. tools/hooks-check.sh --ci reads all three files and holds them to the REQUIRED table it
+# carries, both ways round, so a step deleted from any one of them — or from all three — turns this
+# job red, and so does a step that appears in one venue without being declared.
+#
+# `rules` is the check to require on main in the repository's branch protection: it is the only
+# workflow with no paths-ignore, so it is the only one that reports on every pull request. A required
+# check that a docs-only pull request skips never reports at all, and the pull request waits forever.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rules-${{ github.event.pull_request.number || github.ref }}
+  # Only for a pull request: on main, two merges in quick succession would cancel the first and
+  # leave a commit on main with no rules result at all.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The versions tools/lint/ext-lint.py pins (PINNED there), and the ones its baseline was measured
+  # with. ext-lint refuses to seed or shrink its baseline on any other version, because a different
+  # version finds a different set and the counts would stop meaning what CI measures.
+  RUFF_VERSION: 0.14.5
+  SHELLCHECK_VERSION: 0.11.0
+  SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # the identity, baseline and doc-drift checks all compare with the base
+
+      # On a pull request: the commits it adds. On a push to main: the commits the push added. It used
+      # to be pull-request-only, so a push straight to main was checked by nothing at all.
+      # A dispatch has no `github.event.before`, and a first push or a force-push sends all-zeros, so
+      # the fallback is the head commit's own parent rather than an empty left side (which git reads
+      # as HEAD and resolves to nothing — check-identity.sh refuses that range now, so this would be
+      # red rather than falsely green, but red on every dispatch is no better).
+      - name: Only Donnadieu's identity (never donnadieu-andela)
+        env:
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            RANGE="$PR_BASE..$PR_HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] &&
+               git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            RANGE="$BEFORE..$HEAD_SHA"
+          else
+            RANGE="$HEAD_SHA~1..$HEAD_SHA"
+          fi
+          echo "checking $RANGE"
+          tools/check-identity.sh --ci "$RANGE"
+
+      - name: One's own rules (tools/lint/one-lint.py)
+        run: python3 tools/lint/one-lint.py
+
+      - name: Every rule still blocks, and lets its allow block through (one canary per rule)
+        run: python3 tools/lint/one-lint.py --prove
+
+      - name: Install ruff and shellcheck
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check "ruff==$RUFF_VERSION"
+          # Pinned, and not from apt: the image's shellcheck moves with the image, so an unrelated
+          # pull request would go red (or quietly find less) the week the runner was rebuilt. The
+          # apt install also had no `apt-get update`, which fails whenever the index is stale.
+          #
+          # By checksum, because a tag is not bytes: a release asset can be re-uploaded under the
+          # same tag, and `--version` only asks the binary what it thinks it is. This is the same
+          # reasoning as pinning an action to a commit rather than a tag (one-lint: action-pinned).
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJ -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/shellcheck.tar.xz"
+          sudo install -m 0755 "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version | grep -q "$SHELLCHECK_VERSION"
+
+      - name: Python and shell lint (ruff, shellcheck; their own baseline only shrinks)
+        run: python3 tools/lint/ext-lint.py
+
+      - name: Every baseline only shrinks
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+        run: tools/lint/check-baseline.sh --all "$BASE"
+
+      - name: The hook, make check and this workflow haven't drifted apart
+        run: tools/hooks-check.sh --ci
+
+      - name: Doc drift (sensitive code changed without its matching doc)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/doc-drift-check.py "$BASE" "$HEAD"
+
+      - name: Knowledge base (mandated docs, no broken or orphaned docs/INDEX.md entries)
+        run: tools/knowledge-base-check.sh

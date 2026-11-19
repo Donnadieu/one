@@ -29,9 +29,13 @@ Also prints (never fails on) a best-effort scan of SECURITY.md/RELIABILITY.md
 for phrases that usually mean "this is still open" — a nudge to double check
 a finding is still true, not an authoritative check.
 """
+import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint"))
+import repo_rules  # noqa: E402  (tools/lint; sys.path is set above)
 
 # --- The mapping. Keep this current: when a new sensitive area gets its own
 # --- doc section in SECURITY.md / RELIABILITY.md / core-beliefs.md (or a new
@@ -55,6 +59,10 @@ SENSITIVE_AREAS = {
     "Sources/Guards.swift": ["docs/SECURITY.md", "docs/design-docs/core-beliefs.md"],
     # Google token file/directory permissions
     "tools/google_signin.py": ["docs/SECURITY.md"],
+    # TestWorld.gate/enter(): the only way into a test mode, and what it refuses
+    "Sources/TestWorld.swift": ["docs/SECURITY.md"],
+    # The shell side of that same gate: who may run a check on this Mac at all
+    "tools/ci-only.sh": ["docs/SECURITY.md"],
 }
 
 # Add this (with a one-line reason) to the HEAD commit message to treat a
@@ -107,6 +115,57 @@ def check_drift(changed):
     return failures
 
 
+def areas_at(ref):
+    """{file: area tags} from docs/ARCHITECTURE.md as of a ref, or None when it can't be read.
+
+    The lint's own parser, not a second one: aliases and where the table ends have to be read the
+    same way at both refs, or this check reports a difference that isn't there.
+    """
+    out = subprocess.run(["git", "show", f"{ref}:docs/ARCHITECTURE.md"], capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    return repo_rules.parse_areas(out.stdout)
+
+
+def judged(tags):
+    """What the Area column actually decides: the three answers the lint reads out of it."""
+    return (
+        bool(tags & repo_rules.LOWER_LAYERS),    # dependency-direction judges this file at all
+        bool(tags & repo_rules.MAY_HAVE_VIEWS),  # ... and whether a View in it is allowed
+        tags <= repo_rules.MAY_DELETE,           # destructive-fs-area lets it delete files
+    )
+
+
+def check_area_retags(base, changed):
+    """A file's Area changed what the LINT decides, but the file itself didn't change.
+
+    The Area column is read by the lint: `dependency-direction` and `destructive-fs-area` take their
+    file sets from it. So editing one word there can take a file out of a safety rule, and the
+    shrink-only baseline reads the findings going away as debt paid down. Retagging a file is a
+    claim about the code, so the code has to be in the same diff.
+
+    Compared by effect, not by word: renaming an area to a clearer synonym (`view` -> `ui`, both of
+    which allow a View and neither of which is a lower layer) decides nothing differently, so it is
+    not this failure and shouldn't have to carry a skip marker.
+    """
+    old = areas_at(base)
+    if old is None:
+        return []
+    new = repo_rules.areas()
+    out = []
+    for name, was in old.items():
+        now = new.get(name)
+        if now is not None and judged(now) == judged(was):
+            continue
+        if any(c.endswith("/" + name) or c == name for c in changed):
+            continue   # the file is in this diff too, so the retag is part of a real change
+        # A row that is gone counts as well. For Sources/*.swift `architecture-table` fails closed on
+        # it anyway, but nothing covered the other rows, and deleting a row is the same move as
+        # retagging one: it takes a file out of what the lint can judge.
+        out.append((name, sorted(was), sorted(now) if now is not None else ["(no row any more)"]))
+    return out
+
+
 def scan_stale_phrases(root):
     hits = []
     for doc in WATCHED_DOCS:
@@ -129,6 +188,12 @@ def main():
 
     changed = changed_files(base, head)
     if changed is None:
+        # A base that was passed explicitly (CI always does) and can't be resolved means this check
+        # did not run. Saying "skipping" and exiting 0 made that indistinguishable from a clean tree.
+        if len(sys.argv) > 1:
+            print(f"✗ doc-drift-check: couldn't diff against {base!r}, so nothing was checked.")
+            print("    FIX: fetch it first (git fetch origin main), or pass a ref that exists here.")
+            return 1
         print(f"doc-drift-check: couldn't diff against {base!r}, skipping (not a hard failure)")
         return 0
 
@@ -136,6 +201,19 @@ def main():
     failures = check_drift(changed)
 
     exit_code = 0
+    retags = check_area_retags(base, changed)
+    if retags:
+        print("✗ doc-drift-check: a file's Area changed in docs/ARCHITECTURE.md, but the file didn't:")
+        for name, was, now in retags:
+            print(f"    {name}: {' + '.join(was)} -> {' + '.join(now)}")
+        print("    FIX: that column is read by the lint — dependency-direction and destructive-fs-area take")
+        print("    their file sets from it, so a retag can take a file out of a safety rule and the baseline")
+        print("    reads the findings going away as debt paid down. Change the file in the same diff, or put")
+        print(f"    '{SKIP_MARKER}' in the commit message with the reason the old area was simply wrong.")
+        if skip:
+            print(f"  ({SKIP_MARKER} found in HEAD commit message — treated as a stated skip.)")
+        else:
+            exit_code = 1
     if failures:
         print("✗ doc-drift-check: sensitive code changed without its doc:")
         for src, docs in failures:
@@ -160,7 +238,7 @@ def main():
         for h in stale_hits:
             print(f"    {h}")
 
-    if exit_code == 0 and not failures and not stale_hits:
+    if exit_code == 0 and not failures and not stale_hits and not retags:
         print("doc-drift-check: clean")
     return exit_code
 

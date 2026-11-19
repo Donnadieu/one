@@ -278,6 +278,7 @@ extension Model {
                 var entry = said
                 if let a = h.asked, !a.isEmpty, !(h.log ?? []).isEmpty { entry = "**You:** \(a)\n\n" + said }
                 update(id) { $0.log = Array((($0.log ?? []) + [entry]).suffix($0.bot == nil ? 10_000 : 40)) }  // a bot's chat is kept by the engine
+                if h.bot != nil { BotChat.add(h, entry: entry) }  // and all of it, with times, in its own file (BotChat.swift)
             }
             if let h2 = helpers.first(where: { $0.id == id }), h2.state == "done", h2.bot == nil, let log = h2.log, !log.isEmpty {
                 // The file keeps the whole report: the first full answer plus every follow-up, never just the last line.

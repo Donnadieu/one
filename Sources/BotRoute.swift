@@ -152,6 +152,7 @@ extension Model {
         guard let h = helpers.first(where: { $0.id == id }), h.bot != nil else { return }
         let parts = Choices.split(body)
         let said = "**\(title)**\n\n" + parts.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        BotChat.add(h, entry: said)  // its whole chat, with times (BotChat.swift)
         update(id) { b in
             b.log = Array(((b.log ?? []) + [said]).suffix(40))
             b.routineNews = (b.routineNews.map { $0 + "\n\n" } ?? "") + "\"\(title)\" reported:\n" + body

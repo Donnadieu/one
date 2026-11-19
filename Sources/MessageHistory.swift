@@ -108,6 +108,7 @@ struct HistoryStrip: View {
                 Color.clear.frame(width: 12, height: 1)
             }
             VStack(alignment: .leading, spacing: 6) {
+                if i == 0 || turns[i - 1].fromMe { StarName(name: m.name, date: b.date) }  // who's speaking (StarHelper.swift)
                 LongFoldText(text: parts.body, key: LongFold.key(b), size: 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let p = picked(parts.choices, after: i) {

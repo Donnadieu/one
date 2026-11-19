@@ -12,6 +12,13 @@
                Env  (paths, folder-lock profile, environment)        ← foundation
 ```
 
+**This table is read by the lint, not just by people.** `tools/lint/one-lint.py` takes the file sets
+for `dependency-direction` (which files are a lower layer) and `destructive-fs-area` (which areas may
+delete files) straight from the Area column here, and `architecture-table` fails on a `Sources/*.swift`
+file with no row — so a new service file can't escape those rules by nobody remembering to edit a list
+inside the lint, which is exactly how `HumanStep.swift` escaped the old hand-typed one. Add the row in
+the same change as the file.
+
 | File | Area | Responsibility |
 |---|---|---|
 | Env.swift | foundation | paths, `Access.profile()` (the folder lock), engine environment |
@@ -261,7 +268,9 @@
 2. Services never import UI types. UI talks to services through `Model` (or the service's `shared`).
 3. Running another program (`Process`) only happens in services (enforced: `process-area`).
 4. Anything the engine can reach must be listed in `Access.profile()`; never widen it to all of home.
-5. New area = new file; keep each under 600 lines (enforced: `file-length`).
+5. New area = new file; keep each under 600 lines, in any language — Swift, Python, shell,
+   workflows (enforced: `file-length`; the vendored engine copies under `tests/fixtures/` are a
+   stated skip, because they are kept byte-identical to upstream for diffing).
 6. **Dependency direction (enforced: `dependency-direction`).** Dependencies point one way, down the
    diagram at the top of this file: UI → `Model` → services → `Env`/foundation. A file tagged
    `foundation` or `service` in the table above must never reference `Model.shared` (the state layer
@@ -274,6 +283,11 @@
    grandfathered in `tools/lint/baseline.json` as debt, not silently allowed going forward. A rule this
    lint can't check reliably (e.g. an indirect reverse dependency through a protocol or a closure
    captured across files) is a stated skip, not something it guesses at.
+   **Which files are a lower layer comes from the Area column of the table above**, not from a list
+   inside the lint. It used to be 32 file names typed into `one-lint.py`, which meant a new service
+   file was exempt until somebody remembered to add it (`HumanStep.swift` was, for months) and
+   `Helpers.swift` was wrongly flagged for the Views the table says it may have. A file the table
+   doesn't name at all fails `architecture-table` instead, so nothing is quietly exempt.
 
 ## Extending
 - New connection: a node in `worldNodes` or a `connections.json` entry, a `connect()` branch, and the
@@ -281,4 +295,12 @@
 - New shipped skill: a folder `skills/<category>/<name>/SKILL.md` (description 60 characters max, trigger first). build.sh
   bundles it and `BundledSkills.sync()` installs it; change its content and the next release updates untouched copies.
   Never put one person's details (account ids, names, emails) in a shipped skill.
-- New CLI test hook: `args.contains("--test-x")` in App.swift, `Env.selfTest = true` first (enforced).
+- New CLI test hook: `args.contains("--test-x")` in App.swift, `TestWorld.enter()` first (enforced:
+  `test-selftest`). Its runner script goes in `tools/` and must be reachable: a line in
+  `tools/preflight.sh` or a workflow step, or — only if it needs this Mac — a
+  `# runs: owner-only (make <target>) — <why>` header and that make target (enforced:
+  `no-orphan-check`). A runner that drives One's real engine calls `tools/engine-check.sh` rather
+  than copying its setup (enforced: `engine-check-wrapper`).
+- New lint rule: a function in `tools/lint/one-lint.py` (or `repo_rules.py` if it reads the whole
+  tree), a row in `RULES` with an id, a one-line why, a `FIX:` and the files it looks at, and a
+  canary in `tools/lint/canaries/<id>.canary` so `--prove` shows it still blocks.

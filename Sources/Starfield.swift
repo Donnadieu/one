@@ -261,7 +261,6 @@ struct Starfield: View, Equatable {
     var top: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @Environment(\.colorScheme) var scheme
-    @ObservedObject private var pace = Pace.shared
     nonisolated static func == (a: Starfield, b: Starfield) -> Bool { a.zones == b.zones && a.top == b.top }
     func sky(t: Double) -> some View {
         Canvas { ctx, size in
@@ -282,11 +281,9 @@ struct Starfield: View, Equatable {
             } else if still {
                 sky(t: Stars.stillT)  // Reduce Motion or a render: one still frame, nothing ticking
             } else {
-                // A plain 12-a-second clock, not the display's animation clock (that one woke the window every frame);
-                // 4 a second behind another app, and none while the window isn't on screen (Pace.swift).
-                TimelineView(PaceEvery(start: WorldLook.start, seconds: pace.starsEvery, on: pace.homeSeen)) { tl in
-                    sky(t: tl.date.timeIntervalSince(WorldLook.start) + Stars.stillT)
-                }
+                // The shared tick, not the display's animation clock (that one woke the window every frame): 10 a
+                // second in front, 3 behind another app, none while the window isn't on screen (Pace.swift).
+                PaceRest(ticker: .stars) { now in sky(t: now.timeIntervalSince(WorldLook.start) + Stars.stillT) }
             }
         }
         .allowsHitTesting(false)

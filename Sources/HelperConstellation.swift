@@ -118,7 +118,6 @@ struct HelperConstellation: View {
     @State var hover: UUID?
     var pointed: UUID? = nil  // renders: this one shown as if pointed at
     @Environment(\.accessibilityReduceMotion) var reduceMotion
-    @ObservedObject private var pace = Pace.shared
     var body: some View {
         let hs = HelperRings.sorted(m.helpers.filter { $0.bot == nil })  // bots live in the column on the left (BotsColumn.swift)
         let lay = HelperRings.layout(count: hs.count)
@@ -179,8 +178,8 @@ struct HelperConstellation: View {
             m.focusHelper(h.id)
         } label: {
             // Its words once a second: the real step, its time, or "No progress for 6 min" (HelperProgress.swift).
-            TimelineView(pace.every(1)) { slow in
-                let now = HelperProgress.now(slow.date)
+            PaceRest(ticker: .second) { date in
+                let now = HelperProgress.now(date)
                 let tag = HelperTag(
                     title: h.title, line: sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true), look: look, warm: warm,
                     opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now))

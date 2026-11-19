@@ -19,20 +19,26 @@ enum IdleCheck {
         static let hiddenHomeDraws = 0.5  // a second
         /// The floating orb at rest (nothing working, nobody talking): a slow breath, a few frames a second.
         static let restingOrbDraws = 20.0  // a second
-        /// Main thread, tucked away or minimized, nothing working: the orb and the loops only.
-        static let hiddenMain = 0.03
+        /// A CI runner draws without a graphics chip, so a frame costs its main thread several times what it costs a
+        /// Mac. 0.9.137 on the runner: tucked away 29% main thread, 35% app, 136 wakeups/s, home drawing 401 times a
+        /// second; in front 19%; behind another app 16%.
+        /// Main thread, tucked away or minimized, nothing working: the resting orb and the loops only.
+        static let hiddenMain = 0.06
         /// The whole app's CPU in the same states (every thread: drawing, files, the loops).
-        static let hiddenApp = 0.05
+        static let hiddenApp = 0.08
         /// Wakeups a second in the same states (Activity Monitor's "Idle Wake Ups" plus interrupts).
-        static let hiddenWakeups = 60.0
-        /// In front or behind another app with nothing working. A CI runner draws without a graphics chip, so a
-        /// frame costs its main thread several times what it costs a Mac; these are set from what the runner shows.
-        static let frontMain = 0.12
-        static let backMain = 0.06
-        /// In front with 4 helpers at work (each streaming ~10 pieces a second).
+        static let hiddenWakeups = 80.0
+        /// Nothing of One on screen (the orb put away too): only the loops. The floor of "open and idle".
+        static let floorMain = 0.01
+        static let floorApp = 0.02
+        static let floorWakeups = 30.0
+        /// In front or behind another app with nothing working.
+        static let frontMain = 0.10
+        static let backMain = 0.05
+        /// In front with 4 helpers at work (each streaming ~10 pieces a second): their lights at full rate.
         static let workersMain = 0.30
         /// Tucked away with 4 helpers at work: the orb's working light and the words coming in.
-        static let workersHiddenMain = 0.08
+        static let workersHiddenMain = 0.25
     }
 
     nonisolated static func main(_ args: [String]) {
@@ -261,11 +267,25 @@ enum IdleCheck {
         m.helpers = []
         try? await Task.sleep(for: .seconds(1))
         _ = await measure("[look] tucked away, no helpers or bots, stars still", seconds: 3)
+        win.makeKeyAndOrderFront(nil)
         Floater.shared.openMain()
         try? await Task.sleep(for: .seconds(1))
         _ = await measure("[look] in front, no helpers or bots, stars still", seconds: 3)
         m.helpers = keep
         Stars.reduceMotion = false
+        // The floor: the window tucked away and the orb put away too, so nothing of One is on screen.
+        win.orderOut(nil)
+        Floater.shared.hide()
+        try? await Task.sleep(for: .seconds(1.5))
+        let floor = await measure("nothing of One on screen (window and orb put away)")
+        over(
+            floor.homeDraws + floor.orbDraws > Budget.hiddenHomeDraws,
+            "nothing on screen: still drew \(String(format: "%.1f", floor.homeDraws + floor.orbDraws)) a second")
+        over(floor.main > Budget.floorMain, "nothing on screen: main thread \(pct(floor.main)) (budget \(pct(Budget.floorMain)))")
+        over(floor.app > Budget.floorApp, "nothing on screen: app \(pct(floor.app)) CPU (budget \(pct(Budget.floorApp)))")
+        over(
+            floor.wakeups > Budget.floorWakeups,
+            "nothing on screen: \(String(format: "%.0f", floor.wakeups)) wakeups a second (budget \(Int(Budget.floorWakeups)))")
         stream.invalidate()
         win.close()
         fails.forEach { print($0) }

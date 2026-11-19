@@ -239,10 +239,9 @@ extension Model {
 struct HelperProgressView: View {
     @ObservedObject var m: Model
     let h: Helper
-    @ObservedObject private var pace = Pace.shared
     var body: some View {
-        TimelineView(pace.every(1)) { tl in
-            let now = HelperProgress.now(tl.date)
+        PaceRest(ticker: .second) { date in
+            let now = HelperProgress.now(date)
             if let p = m.pulses[h.id] {
                 content(p, now: now)
             } else {

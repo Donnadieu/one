@@ -64,6 +64,7 @@ import SwiftUI
         set(\.homeSeen, seen && !NSApp.isHidden)
         set(\.orbSeen, Floater.shared.orbShown && !NSApp.isHidden)
         set(\.front, NSApp.isActive)
+        retime()
     }
 
     private func set(_ k: ReferenceWritableKeyPath<Pace, Bool>, _ v: Bool) { if self[keyPath: k] != v { self[keyPath: k] = v } }
@@ -83,29 +84,84 @@ import SwiftUI
     // MARK: Clocks for the views
 
     /// Seconds between frames for a moving picture at rest, or nil when it runs on the screen's own clock (work, a
-    /// voice, listening, in front). Rest runs on a plain timer: the screen's clock (`.animation(minimumInterval:)`)
-    /// still wakes the window and lays the whole home screen out on every screen refresh, even when it skips drawing
-    /// (Nov 19 2026 CI: 120 layouts a second with 30 drawings).
+    /// voice, listening). Rest runs on one shared timer per window (`PaceTicker`): the screen's clock
+    /// (`.animation(minimumInterval:)`) still woke the window and laid the whole home screen out on every refresh even
+    /// when it skipped drawing, and a timer per picture laid it out once per picture (Nov 19 2026 CI: 107-120 layouts
+    /// a second for 30 drawings each). One shared tick = every picture at rest moves in one pass.
     func calm(quick: Bool, orb: Bool = false) -> Double? {
         if quick || voice { return front || orb ? nil : Pace.quickBack }
-        if orb { return Pace.orbRest }
-        return front ? Pace.calmFront : Pace.calmBack
+        return orb ? Pace.orbRest : front ? Pace.calmFront : Pace.calmBack
     }
-    /// A moving picture in the main window (`quick`: it shows work, listening or a voice), paused while unseen.
-    func home(quick: Bool) -> AnimationTimelineSchedule {
-        .animation(minimumInterval: interval(quick: quick || voice), paused: !homeSeen)
-    }
-    func interval(quick: Bool) -> Double? {
-        if front { return quick ? Motion.every : max(Motion.every ?? 0, Pace.calmFront) }
-        return quick ? max(Motion.every ?? 0, Pace.quickBack) : Pace.calmBack
-    }
-    /// A slow periodic clock in the main window (words once a second, the stars): one still moment while unseen.
+    /// A slow periodic clock (Routines' sky): one still moment while the window is unseen.
     func every(_ seconds: Double, from start: Date = WorldLook.start) -> PaceEvery { PaceEvery(start: start, seconds: seconds, on: homeSeen) }
-    /// The stars twinkle 12 times a second in front, 4 behind another app.
-    var starsEvery: Double { front ? 1 / Stars.fps : 1 / 4 }
+
+    private var homeTimer: Timer?
+    private var orbTimer: Timer?
+    private var homeEvery = 0.0
+    private var orbEvery = 0.0
+    private var ticks = 0
+
+    /// Starts, stops or re-times the shared timers: each runs only while its window is seen and something uses it.
+    func retime() {
+        let t = PaceTicker.self
+        let moving = t.home.users + t.stars.users > 0
+        let h = !homeSeen ? 0 : moving ? max(front ? Pace.calmFront : Pace.calmBack, Motion.every ?? 0) : t.second.users > 0 ? 1 : 0
+        let o = orbSeen && t.orb.users > 0 ? max(Pace.orbRest, Motion.every ?? 0) : 0
+        if h != homeEvery {
+            homeEvery = h
+            homeTimer?.invalidate()
+            homeTimer = h > 0 ? timer(h) { Pace.shared.homeTick() } : nil
+        }
+        if o != orbEvery {
+            orbEvery = o
+            orbTimer?.invalidate()
+            orbTimer = o > 0 ? timer(o) { PaceTicker.orb.tick(Date()) } : nil
+        }
+    }
+
+    private func timer(_ every: Double, _ f: @escaping @MainActor () -> Void) -> Timer {
+        let t = Timer(timeInterval: every, repeats: true) { _ in MainActor.assumeIsolated { f() } }
+        t.tolerance = every * 0.1  // lets macOS fire it together with other wakeups
+        RunLoop.main.add(t, forMode: .common)
+        return t
+    }
+
+    /// One pass for the main window: every picture at rest, the stars every third tick, words once a second.
+    private func homeTick() {
+        let now = Date()
+        ticks += 1
+        PaceTicker.home.tick(now)
+        if ticks % 3 == 0 { PaceTicker.stars.tick(now) }  // 10 a second in front, 3 behind another app
+        if Int(now.timeIntervalSince1970) != Int(PaceTicker.second.now.timeIntervalSince1970) { PaceTicker.second.tick(now) }
+    }
 }
 
-/// The clock every moving picture uses: the screen's own clock only while it shows work or a voice, a plain timer at
+/// A shared tick for pictures at rest (`home`, `orb`), the stars (`stars`, a third as often) and words that change
+/// once a second (`second`). Views count themselves in while on screen, so a timer runs only while something uses it.
+@MainActor final class PaceTicker: ObservableObject {
+    static let home = PaceTicker()
+    static let stars = PaceTicker()
+    static let second = PaceTicker()
+    static let orb = PaceTicker()
+    @Published private(set) var now = Date()
+    var users = 0 {
+        didSet { Pace.shared.retime() }
+    }
+    func tick(_ d: Date) { now = d }
+}
+
+/// A view that moves with one of the shared ticks.
+struct PaceRest<Content: View>: View {
+    @ObservedObject var ticker: PaceTicker
+    @ViewBuilder let content: (Date) -> Content
+    var body: some View {
+        content(ticker.now)
+            .onAppear { ticker.users += 1 }
+            .onDisappear { ticker.users -= 1 }
+    }
+}
+
+/// The clock every moving picture uses: the screen's own clock only while it shows work or a voice, the shared tick at
 /// rest (`Pace.calm`), and nothing at all while its window (the main one, or the floating orb's) isn't on screen.
 struct PaceClock<Content: View>: View {
     var quick = false
@@ -115,7 +171,11 @@ struct PaceClock<Content: View>: View {
     var body: some View {
         let seen = orb ? pace.orbSeen : pace.homeSeen
         if let s = pace.calm(quick: quick, orb: orb) {
-            TimelineView(PaceEvery(start: WorldLook.start, seconds: max(s, Motion.every ?? 0), on: seen)) { tl in content(tl.date) }
+            if quick {  // at work behind another app: its own clock, a little slower
+                TimelineView(.animation(minimumInterval: s, paused: !seen)) { tl in content(tl.date) }
+            } else {
+                PaceRest(ticker: orb ? .orb : .home, content: content)
+            }
         } else {
             TimelineView(.animation(minimumInterval: Motion.every, paused: !seen)) { tl in content(tl.date) }
         }

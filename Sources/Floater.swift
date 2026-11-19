@@ -163,6 +163,7 @@ final class OrbHost: NSView {
 
     func setup() {
         watchOrb()
+        Pace.shared.update()  // starts watching the window, so nothing draws while it's not on screen (Pace.swift)
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSWindow.didMiniaturizeNotification, object: nil, queue: .main) { n in
             if !(n.object is NSPanel) { self.show() }
@@ -268,12 +269,16 @@ final class OrbHost: NSView {
         clamp()
     }
 
+    /// The orb is out (Pace.swift draws it only then).
+    var orbShown: Bool { orb?.isVisible == true }
+
     func show() {
         guard Model.shared.onboarded else { return }
         build()
         placeCard()
         orb?.orderFrontRegardless()
         card?.orderFrontRegardless()
+        Pace.shared.update()
         if !UserDefaults.standard.bool(forKey: "orbHintSeen") { UserDefaults.standard.set(true, forKey: "orbHintSeen") }
         flashHint()
     }
@@ -282,6 +287,7 @@ final class OrbHost: NSView {
         if Listener.shared.listening { Listener.shared.finish { _ in } }
         orb?.orderOut(nil)
         card?.orderOut(nil)
+        Pace.shared.update()
     }
 
     /// Is One's window actually on screen (not closed, minimized or fully covered)?
@@ -321,7 +327,7 @@ final class OrbHost: NSView {
             return
         }
         mainWindow?.orderOut(nil)
-        show()
+        show()  // and Pace.update(): the home screen stops drawing
     }
 
     func openMain() {
@@ -333,6 +339,7 @@ final class OrbHost: NSView {
             w.makeKeyAndOrderFront(nil)
         }
         NSApp.activate(ignoringOtherApps: true)
+        Pace.shared.update()
     }
 
     /// Keep the orb fully on a screen.

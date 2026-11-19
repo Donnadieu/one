@@ -26,10 +26,11 @@ struct BotMoon: View {
     var needsYes = false
     var unread = false
     var faint = false
+    @ObservedObject private var pace = Pace.shared
     var body: some View {
         Group {
             if live && !HomeView.still {
-                TimelineView(.animation(minimumInterval: Motion.every)) { tl in
+                TimelineView(pace.home(quick: false)) { tl in
                     Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: tl.date.timeIntervalSince(WorldLook.start) + t) }
                 }
             } else {
@@ -284,13 +285,14 @@ struct BotsColumn: View {
 struct BotThreads: View {
     @ObservedObject var m: Model
     let points: [String: CGPoint]
+    @ObservedObject private var pace = Pace.shared
     var body: some View {
         let working = m.openHelper == nil ? m.bots.filter { $0.state == "working" } : []
         if let orb = points["orb"], !working.isEmpty {
             // The travelling light moves at the screen's full rate; only this canvas redraws for it.
             let open = !UserDefaults.standard.bool(forKey: "botsCollapsed")
             let lines = working.compactMap { h in points[h.id.uuidString].flatMap { p in h.bot.map { (p, Bots.hex($0.color)) } } }
-            TimelineView(.animation(minimumInterval: Motion.every, paused: HomeView.still)) { tl in
+            TimelineView(.animation(minimumInterval: pace.interval(quick: true), paused: HomeView.still || !pace.homeSeen)) { tl in
                 let t = HomeView.still ? 0.62 : tl.date.timeIntervalSince(WorldLook.start)
                 Canvas { ctx, _ in
                     for (p, hex) in lines { BotThreads.thread(&ctx, from: p, to: orb, hex: hex, t: t, open: open) }

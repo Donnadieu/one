@@ -172,6 +172,11 @@ enum IdleCheck {
         let front = await measure("in front, nothing working")
         over(front.main > Budget.frontMain, "in front: main thread \(pct(front.main)) (budget \(pct(Budget.frontMain)))")
 
+        // Another app in front: Finder, the way a click on the desktop does it.
+        if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+            if #available(macOS 14.0, *) { NSApp.yieldActivation(to: finder) }
+            finder.activate()
+        }
         NSApp.deactivate()
         try? await Task.sleep(for: .seconds(1.5))
         let back = await measure("in the background (another app in front)\(NSApp.isActive ? " [One stayed active]" : "")")

@@ -153,6 +153,18 @@ enum SmoothCheck {
         return w
     }
 
+    /// `ONE_SMOOTH_SAMPLE=<dir>`: a time profile of this run (Apple's `sample`) for `seconds`, saved as <dir>/<name>.txt.
+    static func profile(_ name: String, seconds: Int) {
+        guard let dir = ProcessInfo.processInfo.environment["ONE_SMOOTH_SAMPLE"] else { return }
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+        p.arguments = [String(getpid()), String(seconds), "-mayDie", "-file", "\(dir)/\(name).txt"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+    }
+
     static func textView(in v: NSView) -> NSTextView? {
         if let t = v as? NSTextView, t.isEditable { return t }
         for s in v.subviews { if let t = textView(in: s) { return t } }
@@ -168,7 +180,16 @@ enum SmoothCheck {
         let m = Model.shared
         m.assistantName = "Ava"
         m.userName = "Omar"
-        cancel = m.objectWillChange.sink { _ in MainActor.assumeIsolated { if recording { publishes += 1 } } }
+        // Redraws the model asked for: changes in the same turn of the main loop are drawn once, so they count once.
+        var asked = false
+        cancel = m.objectWillChange.sink { _ in
+            MainActor.assumeIsolated {
+                guard recording, !asked else { return }
+                asked = true
+                publishes += 1
+                DispatchQueue.main.async { asked = false }
+            }
+        }
         // A fast heartbeat: a long gap between beats = the main thread was busy that long.
         let beat = Timer(timeInterval: 0.001, repeats: true) { _ in MainActor.assumeIsolated { if recording { beats.append(CACurrentMediaTime()) } } }
         RunLoop.main.add(beat, forMode: .common)
@@ -197,12 +218,14 @@ enum SmoothCheck {
         for n in bots {
             world(bots: n)
             try? await Task.sleep(for: .seconds(1.5))
+            if n == bots.max() { profile("idle-\(n)-bots", seconds: 3) }
             let idle = await record(3)
             print(
                 String(
                     format:
                         "bots %d, idle: main thread %.0f%% busy, %.0f fps, %d of %d frames late, longest frame %.1f ms, busy up to %.1f ms, %.1f model changes/s",
                     n, idle.busy * 100, idle.fps, idle.late, idle.frames.count, idle.longestFrame, idle.longestBusy, idle.publishes))
+            if n == bots.max() { profile("typing-\(n)-bots", seconds: 3) }
             let keys = await typing(win)
             print(
                 String(
@@ -240,6 +263,8 @@ enum SmoothCheck {
             frames = []
             beats = []
             recording = true
+            if what.hasSuffix("opens") { profile(what.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "'", with: ""), seconds: 1) }
+            if ProcessInfo.processInfo.environment["ONE_SMOOTH_SAMPLE"] != nil { try? await Task.sleep(for: .milliseconds(400)) }
             withAnimation(.easeOut(duration: 0.3)) { act() }
             let w = await record(0.8)
             print(

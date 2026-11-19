@@ -19,23 +19,34 @@ struct BotAnchors: PreferenceKey {
 struct BotMoon: View {
     let hex: UInt32
     var size: CGFloat = 30
-    var t: Double = 0
+    var t: Double = 0  // the moment shown; with `live`, where its own clock starts
+    /// Moves on its own clock at the screen's full rate. Only this small picture redraws, never the column around it
+    /// (the whole column redrawing 20 times a second made typing and the orbs stutter, Nov 18 2026).
+    var live = false
     var needsYes = false
     var unread = false
     var faint = false
     var body: some View {
-        Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: t) }
-            .frame(width: size, height: size)
-            .opacity(faint ? 0.45 : 1)
-            .overlay(Circle().strokeBorder(Color(hex: 0xF6B46E, needsYes ? 0.9 : 0), lineWidth: 1.6).padding(-3))
-            .overlay(alignment: .topTrailing) {
-                if unread && !needsYes {
-                    Circle().fill(WorldLook.cream).frame(width: 7, height: 7).overlay(
-                        Circle().strokeBorder(WorldLook.bg, lineWidth: 1.5).padding(-1.5)
-                    )
-                    .offset(x: 1, y: -1)
+        Group {
+            if live && !HomeView.still {
+                TimelineView(.animation) { tl in
+                    Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: tl.date.timeIntervalSince(WorldLook.start) + t) }
                 }
+            } else {
+                Canvas { ctx, sz in BotMoon.draw(&ctx, sz, hex: hex, t: t) }
             }
+        }
+        .frame(width: size, height: size)
+        .opacity(faint ? 0.45 : 1)
+        .overlay(Circle().strokeBorder(Color(hex: 0xF6B46E, needsYes ? 0.9 : 0), lineWidth: 1.6).padding(-3))
+        .overlay(alignment: .topTrailing) {
+            if unread && !needsYes {
+                Circle().fill(WorldLook.cream).frame(width: 7, height: 7).overlay(
+                    Circle().strokeBorder(WorldLook.bg, lineWidth: 1.5).padding(-1.5)
+                )
+                .offset(x: 1, y: -1)
+            }
+        }
     }
     static func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, hex: UInt32, t: Double) {
         let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
@@ -71,10 +82,8 @@ struct BotsColumn: View {
     nonisolated(unsafe) static var stillHover: UUID?  // renders only
     var body: some View {
         let bots = m.bots
-        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: HomeView.still || bots.isEmpty)) { tl in
-            let t = HomeView.still ? 21.7 : tl.date.timeIntervalSince(WorldLook.start)
-            if bots.isEmpty { first } else { column(bots, t: t) }
-        }
+        // No clock here: each moon keeps its own (`BotMoon.live`). Renders show the moment 21.7 s in.
+        if bots.isEmpty { first } else { column(bots, t: HomeView.still ? 21.7 : 0) }
     }
 
     /// Before the first bot: one faint circle at the bottom left, nothing else.
@@ -140,7 +149,7 @@ struct BotsColumn: View {
         }
         return order.compactMap { p in
             guard let hs = by[p], let b = hs.first?.bot else { return nil }
-            return Group(name: b.room, path: p, isPrivate: Bots.isPrivate(b), bots: hs)
+            return Group(name: b.room, path: p, isPrivate: Bots.isPrivateSoon(b), bots: hs)
         }
     }
 
@@ -185,7 +194,7 @@ struct BotsColumn: View {
             withAnimation(.easeOut(duration: 0.3)) { m.focusHelper(h.id) }
         } label: {
             HStack(spacing: 10) {
-                BotMoon(hex: Bots.hex(b.color), size: 30, t: t + Double(b.name.count), needsYes: yes, unread: h.waiting)
+                BotMoon(hex: Bots.hex(b.color), size: 30, t: t + Double(b.name.count), live: true, needsYes: yes, unread: h.waiting)
                     .anchorPreference(key: BotAnchors.self, value: .center) { [h.id.uuidString: $0] }
                 if !collapsed {
                     VStack(alignment: .leading, spacing: 1) {
@@ -277,21 +286,23 @@ struct BotThreads: View {
     var body: some View {
         let working = m.openHelper == nil ? m.bots.filter { $0.state == "working" } : []
         if let orb = points["orb"], !working.isEmpty {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: HomeView.still)) { tl in
+            // The travelling light moves at the screen's full rate; only this canvas redraws for it.
+            let open = !UserDefaults.standard.bool(forKey: "botsCollapsed")
+            let lines = working.compactMap { h in points[h.id.uuidString].flatMap { p in h.bot.map { (p, Bots.hex($0.color)) } } }
+            TimelineView(.animation(paused: HomeView.still)) { tl in
                 let t = HomeView.still ? 0.62 : tl.date.timeIntervalSince(WorldLook.start)
                 Canvas { ctx, _ in
-                    for h in working {
-                        guard let p = points[h.id.uuidString], let b = h.bot else { continue }
-                        BotThreads.thread(&ctx, from: p, to: orb, hex: Bots.hex(b.color), t: t)
-                    }
+                    for (p, hex) in lines { BotThreads.thread(&ctx, from: p, to: orb, hex: hex, t: t, open: open) }
                 }
             }
             .allowsHitTesting(false)
         }
     }
-    static func thread(_ ctx: inout GraphicsContext, from a: CGPoint, to o: CGPoint, hex: UInt32, t: Double) {
+    static func thread(
+        _ ctx: inout GraphicsContext, from a: CGPoint, to o: CGPoint, hex: UInt32, t: Double,
+        open: Bool = !UserDefaults.standard.bool(forKey: "botsCollapsed")
+    ) {
         // From the end of its row (clear of its name and the rows under it), then across to the orb's edge.
-        let open = !UserDefaults.standard.bool(forKey: "botsCollapsed")
         let start = CGPoint(x: a.x + (open ? 178 : 20), y: a.y)
         let end = CGPoint(x: o.x - 52, y: o.y)
         let c1 = CGPoint(x: start.x + 90, y: start.y)

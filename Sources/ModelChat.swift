@@ -136,13 +136,9 @@ extension Model {
         return RestartWait.recover(HelperTrail.restore(d.map(HelperClose.decode) ?? [])).0
     }
 
-    func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
-    /// A piece of a working helper's reply, as the engine streams it (`--test-smooth` sends these too).
-    func helperStreamed(_ id: UUID, _ s: String) {
-        helperUnderway(id)
-        update(id) { $0.reply += s }
-        pulseText(id, s)
-        saveTrail(id, force: false)
+    func saveHelpers() {
+        helpersUnsaved = false
+        UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers")
     }
     func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
     func focusHelper(_ id: UUID) {
@@ -229,12 +225,14 @@ extension Model {
                 }
             })
         helperTurnEnded[id] = Date()
+        flushStreamed()  // its last words are in before anything reads its reply
         if helpers.first(where: { $0.id == id })?.updatePaused == true {
             // Paused for an update: the engine is going away. It picks back up after the restart; nothing else happens now.
             saveTrail(id)
             return
         }
         try? await Task.sleep(for: .milliseconds(150))
+        flushStreamed()
         await helperTurnOver(id)
         defer { Task { @MainActor in self.nextUpForHelper(id) } }  // what they sent meanwhile goes next
         let away = !NSApp.isActive

@@ -372,13 +372,10 @@ check "Ready for you search: titles, the text inside a file, day grouping, the O
 grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 grep "✗" "$T/sk/out.txt" 2>/dev/null | sed 's/^/    /'
 
-part 1 "Home glass"
-# A real window, on the CI runner's own screen — the same thing "Long messages and pastes" below
-# relies on. It used to be behind `[ $CI = 0 ]`, and every venue runs preflight with --ci, so this
-# check ran nowhere at all.
-mkdir -p "$T/gl"
-check "only the blur is left under the tint (design: blur 40, saturate 1.4), also after focus, resize, appearance" bash -c "ONE_SUPPORT_DIR=$T/gl $TBIN --test-glass | tee $T/gl/out.txt | grep -q '^glass ok'"
-grep "FAIL" "$T/gl/out.txt" 2>/dev/null | sed 's/^/    /'
+# Home glass: tools/glass-check.sh (`make glass`). It reads the window's live visual-effect layers,
+# which a macOS runner has no compositing window server behind — every reading comes back blur -1.0 —
+# so it is owner-only and runnable by name, rather than the `[ $CI = 0 ]` line it used to be here,
+# which every venue bypassed with --ci.
 
 part 1 "Long messages and pastes"
 if true; then  # a real window on the CI runner's own screen

@@ -84,6 +84,8 @@ handoff:          ## a code step handed to the person, end to end on a local tes
 	tools/handoff-check.sh
 learning:         ## tell me when I learn: new skill line + Undo, fixes silent, the remember question (real engine, ~10 min)
 	$(call live,learning-check.sh)
+glass:            ## Home glass on a real screen: blur under the tint after focus, resize, appearance (a window opens)
+	$(call live,glass-check.sh)
 handoffqa:        ## hand a code step to yourself in a real browser window, by hand (QA=<dir> for the scratch)
 	QA="$${QA:-$${TMPDIR:-/tmp}/one-handoff-qa}" $(call live,handoff-qa.sh)
 hooks:            ## install the git hooks (pre-commit fast checks, pre-push identity) and pin this clone to Donnadieu

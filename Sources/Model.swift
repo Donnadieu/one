@@ -282,7 +282,16 @@ final class Model: ObservableObject {
     @Published var talkNote: String?
 
     // Helpers
-    @Published var helpers: [Helper] = Model.savedHelpers() { didSet { saveHelpers() } }
+    @Published var helpers: [Helper] = Model.savedHelpers() { didSet { if streamingWords { helpersUnsaved = true } else { saveHelpers() } } }
+    // Streamed words, gathered and shown a few times a second instead of on every piece (HelperStream.swift).
+    var streamed: [UUID: String] = [:]
+    var streamFlush: Task<Void, Never>?
+    var streamingWords = false
+    var helpersUnsaved = false
+    var helpersSaveLater: Task<Void, Never>?
+    var mainWords = ""  // the main chat's reply, the same way (voice off: the words show as they come)
+    var mainWordsAt = -1
+    var mainFlush: Task<Void, Never>?
     @Published var pulses: [UUID: HelperPulse] = [:]  // what each working helper is doing right now (HelperProgress.swift)
     var pulseWired = false
     @Published var openHelper: UUID?

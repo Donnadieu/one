@@ -256,10 +256,24 @@ enum Glass {
     /// wallpaper tint) and saturates 2.4×. Under our 70% tint that left about 6% of the desktop showing, a flat colour
     /// instead of the design's 30%. Keep only the blur, set to the design's numbers; `HomeBackdrop` does the tint.
     /// Returns false when the layers aren't the ones expected (a future macOS): then nothing is changed.
+    static func isClear(_ variant: CALayer, _ backdrop: CALayer) -> Bool {
+        guard (variant.sublayers ?? []).allSatisfy({ $0 === backdrop || $0.isHidden }), let fs = backdrop.filters else { return false }
+        for case let f as NSObject in fs {
+            switch f.value(forKey: "name") as? String {
+            case "gaussianBlur": if (f.value(forKey: "inputRadius") as? Double) != blur { return false }
+            case "colorSaturate": if (f.value(forKey: "inputAmount") as? Double) != saturation { return false }
+            default: break
+            }
+        }
+        return true
+    }
     @discardableResult static func clearMaterial(_ root: CALayer) -> Bool {
         guard let variant = root.sublayers?.first(where: { ($0.sublayers ?? []).contains { $0.name == "backdrop" } }),
             let backdrop = variant.sublayers?.first(where: { $0.name == "backdrop" })
         else { return false }
+        // Runs on every layout of the window: when it's already set, touch nothing. Setting the filters again (even to
+        // the same numbers) makes the Mac redo the whole blur behind the window.
+        if isClear(variant, backdrop) { return true }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for l in variant.sublayers ?? [] where l !== backdrop { l.isHidden = true }

@@ -73,6 +73,20 @@ enum Bots {
     static func isPrivate(_ b: BotInfo) -> Bool {
         !Shared.paths.contains(b.roomPath) && RoomPrivacy.isPrivate(URL(fileURLWithPath: b.roomPath, isDirectory: true))
     }
+    /// The same answer, read from the room's files at most every few seconds: the bots column asks on every redraw.
+    static func isPrivateSoon(_ b: BotInfo, now: Date = Date()) -> Bool {
+        privacyLock.lock()
+        let seen = privacySeen[b.roomPath]
+        privacyLock.unlock()
+        if let seen, now.timeIntervalSince(seen.at) < 5 { return seen.isPrivate }
+        let v = isPrivate(b)
+        privacyLock.lock()
+        privacySeen[b.roomPath] = (v, now)
+        privacyLock.unlock()
+        return v
+    }
+    private static let privacyLock = NSLock()
+    nonisolated(unsafe) private static var privacySeen: [String: (isPrivate: Bool, at: Date)] = [:]
 
     // MARK: Its folder and memory
 

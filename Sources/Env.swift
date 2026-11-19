@@ -17,13 +17,15 @@ enum Env {
     /// The window still loads in some of these modes; it must never start the engine, because that
     /// used to restart the person's live engine helper and fail the message they were waiting on.
     static var commandLine: Bool { CommandLine.arguments.dropFirst().contains { $0.hasPrefix("--") } }
+    /// ~/Library/Application Support/One, looked up once (it was looked up on every use, many times a second).
+    static let appSupportOne = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("One", isDirectory: true)
     static var support: URL {
         // A test never gets the real folder: ONE_SUPPORT_DIR, or the scratch folder TestWorld.enter() made.
         let base = ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) } ?? (selfTest ? TestWorld.scratch : nil)
         let u =
             base
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("One", isDirectory: true)
+            ?? appSupportOne
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }

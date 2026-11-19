@@ -136,7 +136,10 @@ extension Model {
         return RestartWait.recover(HelperTrail.restore(d.map(HelperClose.decode) ?? [])).0
     }
 
-    func saveHelpers() { UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers") }
+    func saveHelpers() {
+        helpersUnsaved = false
+        UserDefaults.standard.set(try? JSONEncoder().encode(helpers), forKey: "helpers")
+    }
     func update(_ id: UUID, _ f: (inout Helper) -> Void) { if let k = helpers.firstIndex(where: { $0.id == id }) { f(&helpers[k]) } }
     func focusHelper(_ id: UUID) {
         if let h = helpers.first(where: { $0.id == id }), asleep(h) || !isReady { return }  // not back yet: can't be opened
@@ -204,14 +207,7 @@ extension Model {
         let body = text.replacingOccurrences(of: Helpers.helperNote, with: "")  // its first brief carries it already
         let stop = await Engine.shared.promptSession(
             sid, body + NoteCache.pack(sid, rules: rules), images: images,
-            onText: { s in
-                Task { @MainActor in
-                    self.helperUnderway(id)
-                    self.update(id) { $0.reply += s }
-                    self.pulseText(id, s)
-                    self.saveTrail(id, force: false)
-                }
-            },
+            onText: { s in Task { @MainActor in self.helperStreamed(id, s) } },
             onTool: { s in
                 Task { @MainActor in
                     guard self.helpers.first(where: { $0.id == id })?.state == "working" else { return }  // stopped or paused: keep its line
@@ -229,12 +225,14 @@ extension Model {
                 }
             })
         helperTurnEnded[id] = Date()
+        flushStreamed()  // its last words are in before anything reads its reply
         if helpers.first(where: { $0.id == id })?.updatePaused == true {
             // Paused for an update: the engine is going away. It picks back up after the restart; nothing else happens now.
             saveTrail(id)
             return
         }
         try? await Task.sleep(for: .milliseconds(150))
+        flushStreamed()
         await helperTurnOver(id)
         defer { Task { @MainActor in self.nextUpForHelper(id) } }  // what they sent meanwhile goes next
         let away = !NSApp.isActive
@@ -446,7 +444,7 @@ extension Model {
         heldText = ""
         Engine.shared.onText = { s in
             Task { @MainActor in
-                if voiceFirst { self.heldText += s } else if idx < self.bubbles.count { self.bubbles[idx].text += s }
+                if voiceFirst { self.heldText += s } else { self.mainStreamed(idx, s) }
             }
         }
         Engine.shared.onTool = { s in
@@ -473,6 +471,7 @@ extension Model {
         turnStarted = false
         var stop = await Engine.shared.prompt(message, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
+        flushMain()
         let soFar = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         if Engine.dropped(stop, text: soFar, gatewayBefore: gateway) {
             // The engine's helper restarted under this message: send it again once, quietly,
@@ -486,6 +485,7 @@ extension Model {
             let again = c.engine + recap + rules + deltas
             stop = await Engine.shared.promptAgain(([again] + sentSoFar).joined(separator: "\n\n"), images: c.images)
             try? await Task.sleep(for: .milliseconds(150))
+            flushMain()
         }
         await turnOver(idx, failed: stop.hasPrefix("error"))
         let said = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")

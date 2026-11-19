@@ -57,6 +57,9 @@ boundaries today, not an aspirational version of them.
   default-deny sandbox — anything outside `$HOME` is unrestricted by this
   profile (network access, other volumes, `/tmp`, etc. are not part of this
   boundary).
+- `Support/One` itself is `Env.support`: `ONE_SUPPORT_DIR`, else a test's scratch folder (`TestWorld`), else
+  `~/Library/Application Support/One`. Since 0.9.136 that last path is looked up once (`Env.appSupportOne`); the order,
+  and therefore what the lock opens, is unchanged.
 - `rw`: `Support/One`, the Brain folder, `~/.cache`, `~/Library/Caches`,
   `~/.config/gh`, every folder the person has explicitly approved
   (`folders`), and any active shared-room paths.

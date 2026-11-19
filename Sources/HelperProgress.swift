@@ -210,8 +210,7 @@ extension Model {
     }
     func pulseText(_ id: UUID, _ s: String) {
         guard var p = pulses[id] else { return }
-        p.said += s
-        if p.said.count > 4000 { p.said = String(p.said.suffix(2000)) }
+        HelperPulse.add(s, to: &p)
         pulses[id] = p
     }
     func pulseEnd(_ id: UUID) { pulses[id] = nil }

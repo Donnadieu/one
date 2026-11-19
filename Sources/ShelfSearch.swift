@@ -44,26 +44,66 @@ enum ShelfDay: String, CaseIterable {
     case yesterday = "Yesterday"
     case week = "This week"
     case older = "Older"
-}
 
-extension ShelfItem {
-    var day: ShelfDay {
-        let c = Calendar.current
-        if c.isDateInToday(made) { return .today }
-        if c.isDateInYesterday(made) { return .yesterday }
-        let days = c.dateComponents([.day], from: c.startOfDay(for: made), to: c.startOfDay(for: Date())).day ?? 0
+    /// Where today, yesterday and this week start, worked out once: a card's day is then two date comparisons (the
+    /// same answer as `of`, which asks the calendar for every card).
+    struct Bounds {
+        let tomorrow: Date
+        let today: Date
+        let yesterday: Date
+        let week: Date
+        init(_ now: Date, calendar c: Calendar = .current) {
+            today = c.startOfDay(for: now)
+            tomorrow = c.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86400)
+            yesterday = c.date(byAdding: .day, value: -1, to: today) ?? today.addingTimeInterval(-86400)
+            week = c.date(byAdding: .day, value: -6, to: today) ?? today.addingTimeInterval(-6 * 86400)
+        }
+        func day(_ made: Date) -> ShelfDay {
+            if made >= today && made < tomorrow { return .today }
+            if made >= yesterday && made < today { return .yesterday }
+            return made >= week ? .week : .older  // later than tomorrow counts as this week, as before
+        }
+    }
+
+    /// Which day `made` falls in, with `today` = the start of today in `c` (worked out once for a whole shelf).
+    static func of(_ made: Date, calendar c: Calendar, today: Date) -> ShelfDay {
+        let start = c.startOfDay(for: made)
+        if start == today { return .today }
+        let days = c.dateComponents([.day], from: start, to: today).day ?? 0
+        if days == 1 { return .yesterday }
         return days < 7 ? .week : .older
     }
 }
 
+extension ShelfItem {
+    var day: ShelfDay { ShelfDay.of(made, calendar: Calendar.current, today: Calendar.current.startOfDay(for: Date())) }
+}
+
 enum ShelfGroups {
-    /// Cards grouped by day, newest group and newest card first; empty groups are dropped.
+    /// Everything a card shows, plus the minute (its "just now"): Ready for you redraws only when this changes.
+    static func key(_ items: [ShelfItem], now: Date = Date()) -> Int {
+        var h = Hasher()
+        h.combine(Int(now.timeIntervalSince1970 / 60))
+        h.combine(items.count)
+        for it in items {
+            h.combine(it.id)
+            h.combine(it.fresh)
+            h.combine(it.title)
+            h.combine(it.detail)
+            h.combine(it.from)
+            h.combine(it.path)
+            h.combine(it.made)
+            h.combine(it.bot)
+        }
+        return h.finalize()
+    }
+    /// Each card's day is worked out once (Omar's shelf holds over a thousand cards and this runs on every redraw).
     static func grouped(_ items: [ShelfItem]) -> [(ShelfDay, [ShelfItem])] {
         let sorted = items.sorted { $0.made > $1.made }
-        return ShelfDay.allCases.compactMap { day in
-            let v = sorted.filter { $0.day == day }
-            return v.isEmpty ? nil : (day, v)
-        }
+        let b = ShelfDay.Bounds(Date())
+        var by: [ShelfDay: [ShelfItem]] = [:]
+        for it in sorted { by[b.day(it.made), default: []].append(it) }
+        return ShelfDay.allCases.compactMap { day in by[day].map { (day, $0) } }
     }
 }
 
@@ -155,5 +195,23 @@ enum ShelfSearchRender {
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.035)))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color(hex: 0xF4EFE8, 0.07)))
             .padding(20).background(WorldLook.bg).foregroundStyle(WorldLook.cream).environment(\.colorScheme, .dark))
+    }
+}
+
+/// Ready for you's cards by day (the Older ones folded until opened).
+struct ShelfDays<Card: View>: View {
+    let groups: [(ShelfDay, [ShelfItem])]
+    @Binding var olderOpen: Bool
+    @ViewBuilder let card: (ShelfItem) -> Card
+    var body: some View {
+        ForEach(groups, id: \.0) { day, items in
+            if day == .older {
+                ShelfOlderRow(count: items.count, open: $olderOpen).padding(.horizontal, 4)
+                if olderOpen { ForEach(items) { card($0) } }
+            } else {
+                ShelfDayLabel(day: day)
+                ForEach(items) { card($0) }
+            }
+        }
     }
 }

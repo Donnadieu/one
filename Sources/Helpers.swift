@@ -349,53 +349,60 @@ struct ShelfCardView: View {
     }
 }
 
-struct ShelfPanel: View {
-    @ObservedObject var m: Model
+/// Ready for you. It doesn't watch the model: HomeView hands it the cards (`shown`) and it redraws only when they change
+/// (`key`, plus the minute for "just now"). Watching the model redrew over a thousand cards on every change of any
+/// helper (Nov 18 2026: 10 of the 16 ms each change cost home, `One --render-smooth-cost`).
+struct ShelfPanel: View, Equatable {
+    let m: Model  // for what a tap does, never read to draw
+    let shown: [ShelfItem]
+    var key: Int = 0
     @AppStorage(Glass.key) var solid = Glass.standard
     var collapse: () -> Void = {}
+    nonisolated static func == (a: ShelfPanel, b: ShelfPanel) -> Bool { a.key == b.key }
     @State private var query = ""
     @State private var matched: Set<UUID>?
     @State private var olderOpen = false
     var body: some View {
-        let fresh = m.shelfShown.filter(\.fresh).count
+        let fresh = shown.filter(\.fresh).count
         VStack(alignment: .leading, spacing: 10) {
             ShelfHeader(fresh: fresh, markAll: { m.markShelfRead() }, collapse: collapse).padding(.horizontal, 4)
-            if m.shelfShown.count > 6 || !query.isEmpty { ShelfSearchField(text: $query).padding(.horizontal, 4) }
-            StillScroll {
-                VStack(alignment: .leading, spacing: 8) {
-                    if query.isEmpty {
-                        ForEach(ShelfGroups.grouped(m.shelfShown), id: \.0) { day, items in
-                            if day == .older {
-                                ShelfOlderRow(count: items.count, open: $olderOpen).padding(.horizontal, 4)
-                                if olderOpen { ForEach(items) { card($0) } }
-                            } else {
-                                ShelfDayLabel(day: day)
-                                ForEach(items) { card($0) }
-                            }
-                        }
-                    } else if let matched {
-                        let results = m.shelfShown.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
-                        if results.isEmpty {
-                            Text("No matches for “\(query)”").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.4))
-                                .padding(.horizontal, 4).padding(.top, 8)
-                        } else {
-                            ForEach(results) { card($0) }
-                        }
-                    }
-                }
-            }
+            if shown.count > 6 || !query.isEmpty { ShelfSearchField(text: $query).padding(.horizontal, 4) }
+            StillScroll { cards(shown) }
             ShelfFooter()
         }
         .padding(.top, 14).padding(.horizontal, 12).frame(width: 260)
         .overlay(alignment: .bottom) { ShelfCopyNote().padding(.horizontal, 10).padding(.bottom, 50) }
         .onAppear { ShelfCopy.shared.start() }
         .onChange(of: query) { _, q in search(q) }
-        .onChange(of: m.shelfShown.map(\.id)) { _, _ in if !query.isEmpty { search(query) } }
+        .onChange(of: shown.map(\.id)) { _, _ in if !query.isEmpty { search(query) } }
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(WorldLook.cream.opacity(0.04)))
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: 0x1C1C20, Glass.thin(solid) ? 0.6 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(WorldLook.cream.opacity(0.06)))
         .padding(.top, 8).padding(.bottom, 16).padding(.trailing, 16)
-        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: m.shelfShown.map(\.id))
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: shown.map(\.id))
+    }
+    /// Only the cards in view are built (a week of cards was over a hundred, each laid out again on every change).
+    @ViewBuilder private func cards(_ shown: [ShelfItem]) -> some View {
+        if HomeView.still {
+            VStack(alignment: .leading, spacing: 8) { list(shown) }  // renders draw a lazy stack blank
+        } else {
+            LazyVStack(alignment: .leading, spacing: 8) { list(shown) }
+        }
+    }
+    @ViewBuilder private func list(_ shown: [ShelfItem]) -> some View {
+        Group {
+            if query.isEmpty {
+                ShelfDays(groups: ShelfGroups.grouped(shown), olderOpen: $olderOpen) { card($0) }
+            } else if let matched {
+                let results = shown.filter { matched.contains($0.id) }.sorted { $0.made > $1.made }
+                if results.isEmpty {
+                    Text("No matches for “\(query)”").font(.system(size: 12)).foregroundStyle(WorldLook.cream.opacity(0.4))
+                        .padding(.horizontal, 4).padding(.top, 8)
+                } else {
+                    ForEach(results) { card($0) }
+                }
+            }
+        }
     }
     @ViewBuilder private func card(_ it: ShelfItem) -> some View {
         ShelfCardView(item: it)
@@ -414,7 +421,7 @@ struct ShelfPanel: View {
             matched = nil
             return
         }
-        let items = m.shelfShown
+        let items = shown
         Task {
             let r = await ShelfTextIndex.shared.matches(items, query: q)
             if query == q { matched = r }

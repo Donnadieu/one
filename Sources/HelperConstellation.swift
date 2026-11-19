@@ -125,68 +125,71 @@ struct HelperConstellation: View {
         GeometryReader { g in
             // A narrow window pulls the orbits in to fit; orbs and words keep their size.
             let k = hs.isEmpty ? 1 : min(1, max(0.55, (g.size.width - 16) / (2 * lay.reachX)))
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: calm || m.helpers.isEmpty)) { tl in
-                let t = calm ? 21.7 : tl.date.timeIntervalSince(WorldLook.start)
-                ZStack {
-                    if !hs.isEmpty {
-                        Canvas { ctx, size in
-                            let c = CGPoint(x: size.width / 2, y: size.height / 2)
-                            for r in lay.rings {
-                                let e = CGRect(x: c.x - r.rx * k, y: c.y - r.ry, width: r.rx * 2 * k, height: r.ry * 2)
-                                ctx.stroke(
-                                    Path(ellipseIn: e), with: .color(WorldLook.cream.opacity(0.075)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                            }
+            // No clock around the whole constellation (it redrew every orb, label and button 30 times a second, so typing
+            // and the orbs stuttered, Nov 18 2026): each helper's orb moves on its own clock (`HelperMotion`), its words
+            // change once a second, and the orbits and the assistant's orb (its own clock) never redraw for them.
+            ZStack {
+                if !hs.isEmpty {
+                    Canvas { ctx, size in
+                        let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                        for r in lay.rings {
+                            let e = CGRect(x: c.x - r.rx * k, y: c.y - r.ry, width: r.rx * 2 * k, height: r.ry * 2)
+                            ctx.stroke(
+                                Path(ellipseIn: e), with: .color(WorldLook.cream.opacity(0.075)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                         }
-                        .allowsHitTesting(false)
                     }
-                    Orb(size: 92, active: m.thinking || m.gate == .gettingReady)  // the assistant's own orb; it breathes while getting ready
-                        .starCalm(radius: 100, feather: 50)  // the galaxy keeps clear of the orb
-                        .anchorPreference(key: BotAnchors.self, value: .center) { ["orb": $0] }  // a working bot's thread ends here
-                        .opacity(m.openHelper == nil ? 1 : 0.5)
-                        .contentShape(Circle())
-                        .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
-                        .help(m.openHelper == nil ? "" : "Back to \(m.name)")
-                        .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
-                    ForEach(Array(hs.enumerated()), id: \.element.id) { i, h in
-                        let s = lay.spots[i]
-                        spot(
-                            h, i: i, t: t, calm: calm, look: lay.look, spot: s, at: CGPoint(x: s.at.x * k, y: s.at.y),
-                            now: HelperProgress.now(tl.date))
-                    }
+                    .allowsHitTesting(false)
                 }
-                .frame(width: g.size.width, height: g.size.height)
+                Orb(size: 92, active: m.thinking || m.gate == .gettingReady)  // the assistant's own orb; it breathes while getting ready
+                    .starCalm(radius: 100, feather: 50)  // the galaxy keeps clear of the orb
+                    .anchorPreference(key: BotAnchors.self, value: .center) { ["orb": $0] }  // a working bot's thread ends here
+                    .opacity(m.openHelper == nil ? 1 : 0.5)
+                    .contentShape(Circle())
+                    .onTapGesture { if m.openHelper != nil { withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil } } }
+                    .help(m.openHelper == nil ? "" : "Back to \(m.name)")
+                    .onHover { inside in if m.openHelper != nil { inside ? NSCursor.pointingHand.push() : NSCursor.pop() } }
+                ForEach(Array(hs.enumerated()), id: \.element.id) { i, h in
+                    let s = lay.spots[i]
+                    spot(h, i: i, calm: calm, look: lay.look, spot: s, at: CGPoint(x: s.at.x * k, y: s.at.y))
+                }
             }
+            .frame(width: g.size.width, height: g.size.height)
         }
         .frame(maxWidth: .infinity)
         .frame(height: hs.isEmpty ? 150 : max(470, lay.reachY * 2 + 20))
         .animation(.spring(response: 0.7, dampingFraction: 0.8), value: m.helpers.map(\.id))
     }
 
-    func spot(_ h: Helper, i: Int, t: Double, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint, now: Date) -> some View {
+    func spot(_ h: Helper, i: Int, calm: Bool, look: HelperRings.Look, spot: HelperRings.Spot, at p: CGPoint) -> some View {
         let sleeping = m.asleep(h)  // being picked back up: dim, "starting again", can't be tapped (StartupGate.swift)
         let on = (hover == h.id || pointed == h.id) && !sleeping
         let warm = h.viewState == .needsYes && !sleeping
         let opened = h.state == "done" && !h.waiting
-        // The real step, its time, or "No progress for 6 min" (HelperProgress.swift).
-        let line = sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true)
-        let seed = Double(i)
-        let drift = calm ? CGSize.zero : CGSize(width: sin(t * 0.23 + seed * 1.9) * 3, height: cos(t * 0.19 + seed * 2.7) * 3)
         let gap: CGFloat = spot.orb >= 40 ? 7 : 5
         let tagH: CGFloat = look.title * 1.25 + look.line * 1.25 + 7
-        let dy: CGFloat = p.y + drift.height + (gap + tagH) / 2  // centre the orb (not orb + label) on its spot
-        let dx: CGFloat = p.x + drift.width
+        let dy: CGFloat = p.y + (gap + tagH) / 2  // centre the orb (not orb + label) on its spot
         let dimmed: Bool = m.openHelper != nil && m.openHelper != h.id
         let alpha: Double = dimmed ? 0.5 : (on ? 1 : spot.fade) * (sleeping ? 0.62 : 1)
-        let face = HelperFace(
-            state: h.viewState, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened,
-            tag: HelperTag(
-                title: h.title, line: line, look: look, warm: warm, opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now)),
-            sleeping: sleeping, fill: h.state == "working" || h.pausedForBudget == true ? Budget.fill(h) : nil)
+        let state = h.viewState
+        let fill = h.state == "working" || h.pausedForBudget == true ? Budget.fill(h) : nil
+        let line = sleeping ? GateWords.helper : m.progressLine(h, now: HelperProgress.now(Date()), short: true)
         return Button {
             if stopAsk == h.id { return }  // the long press already asked; this is its release
             m.focusHelper(h.id)
         } label: {
-            face.starCalm(pad: 8, feather: 16, floor: 0.15)
+            // Its words once a second: the real step, its time, or "No progress for 6 min" (HelperProgress.swift).
+            TimelineView(.periodic(from: .now, by: 1)) { slow in
+                let now = HelperProgress.now(slow.date)
+                let tag = HelperTag(
+                    title: h.title, line: sleeping ? GateWords.helper : m.progressLine(h, now: now, short: true), look: look, warm: warm,
+                    opened: opened, full: on, quiet: !sleeping && m.seemsStuck(h, now: now))
+                HelperMotion(calm: calm, seed: Double(i)) { t in
+                    HelperFace(
+                        state: state, t: calm ? 0.9 : HelperRings.orbTime(t, i), orb: spot.orb, gap: gap, opened: opened, tag: tag,
+                        sleeping: sleeping, fill: fill)
+                }
+            }
+            .starCalm(pad: 8, feather: 16, floor: 0.15)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(h.title), \(line)")
@@ -198,13 +201,37 @@ struct HelperConstellation: View {
         }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in if h.state == "working" { stopAsk = h.id } })
         .allowsHitTesting(!sleeping)  // not back yet: no tap, no X, no menu, no long press
-        .offset(x: dx, y: dy)
+        .offset(x: p.x, y: dy)
         .zIndex(on ? 5 : 1)
         .opacity(alpha)
         .transition(
             .asymmetric(
                 insertion: .scale(scale: 0.2).combined(with: .opacity),
                 removal: .offset(x: -p.x, y: -p.y).combined(with: .scale(scale: 0.1)).combined(with: .opacity)))
+    }
+}
+
+/// A helper's slow float (3 points each way) and its orb's clock, at the screen's full rate. Only the orb and its words
+/// redraw for it; the spot it floats around, its star-free zone and its button stay put. Reduce Motion: still.
+/// How often the small moving things (helper orbs, bot moons, a bot's travelling light) redraw: nil = every frame the
+/// screen shows (120 a second on ProMotion). `--test-smooth --fps N` compares a cap; nothing else sets it.
+enum Motion {
+    nonisolated(unsafe) static var every: Double? = nil
+}
+
+struct HelperMotion<Content: View>: View {
+    let calm: Bool
+    let seed: Double
+    @ViewBuilder let content: (Double) -> Content
+    var body: some View {
+        if calm {
+            content(21.7)
+        } else {
+            TimelineView(.animation(minimumInterval: Motion.every)) { tl in
+                let t = tl.date.timeIntervalSince(WorldLook.start)
+                content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)
+            }
+        }
     }
 }
 

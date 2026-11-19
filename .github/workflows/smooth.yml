@@ -1,0 +1,78 @@
+name: smooth
+# Home stays smooth: `One --test-smooth` on an optimized build (the speed people really get), with 0, 4 and 8 bots and
+# several helpers at work: typing, idle frames and screen changes against the budgets in Sources/SmoothCheck.swift.
+#  - Every pull request that touches Sources/ and every push to main.
+#  - By hand (workflow_dispatch) with `compare`: the same measurement on older releases, to see which one got slower.
+#    The check is copied into each old tag (with the one hook line it needs), so every version is measured the same way.
+on:
+  push:
+    branches: [main]
+    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+  pull_request:
+    paths: ['Sources/**', 'build.sh', '.github/workflows/smooth.yml']
+  workflow_dispatch:
+    inputs:
+      compare:
+        description: 'Older tags to measure too (space separated), e.g. v0.9.122 v0.9.123 v0.9.134'
+        default: ''
+concurrency:
+  group: smooth-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  smooth:
+    runs-on: macos-26
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 40 }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Use the newest Xcode on the runner
+        run: |
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+          swiftc --version
+      - name: Build (optimized, like a release)
+        run: ./build.sh 2>&1 | grep -E " error:|compiled in" ; test -x build/app.noindex/One.app/Contents/MacOS/One -o -x build/One.app/Contents/MacOS/One
+      - name: Home stays smooth (this branch)
+        run: |
+          APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth | tee "$RUNNER_TEMP/smooth.txt"
+          grep -q '^smooth ok' "$RUNNER_TEMP/smooth.txt"
+      - name: One model change costs home less than a frame (no window, pure main-thread work)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh render "$RUNNER_TEMP/smooth-cost-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth-cost"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth-cost" perl -e 'alarm 180; exec @ARGV' "$APP/Contents/MacOS/One" --render-smooth-cost 200 8 --judge
+      - name: The same with the small orbs capped at 30 frames a second (to tell drawing cost from main-thread work)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth30"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth30" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth --fps 30 || true
+      - name: Time profiles of a second run (Apple's sample slows what it watches, so its numbers don't count)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth2" "$RUNNER_TEMP/smooth-samples"
+          D="$RUNNER_TEMP/smooth-samples"
+          ONE_SMOOTH_SAMPLE="$D" ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth2" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth > "$D/run.txt" 2>&1 &
+          RUN=$!
+          # The check leaves <name>.want ("<pid> <seconds>") when it wants a profile; Apple's sample needs sudo here.
+          while kill -0 $RUN 2>/dev/null; do
+            for f in "$D"/*.want; do
+              [ -e "$f" ] || continue
+              read -r P SECS < "$f" || true; n=$(basename "$f" .want); rm -f "$f"
+              sudo /usr/bin/sample "$P" "$SECS" -mayDie -file "$D/$n.txt" >/dev/null 2>&1 &
+            done
+            sleep 0.5
+          done
+          wait || true
+          ls -la "$D"
+      - name: Keep the profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: smooth-samples, path: '${{ runner.temp }}/smooth-samples', if-no-files-found: ignore }
+      - name: The same measurement on older releases
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.compare != ''
+        run: tools/smooth-compare.sh ${{ inputs.compare }}

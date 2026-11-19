@@ -31,6 +31,7 @@ import SwiftUI
     static let calmBack = 1.0 / 10
     static let quickBack = 1.0 / 30
     static let orbRest = 1.0 / 15
+    static let orbQuick = 1.0 / 30  // the floating orb at work or listening: small, so 30 a second looks smooth
 
     private var voiceUntil = Date.distantPast
     private weak var home: NSWindow?
@@ -110,7 +111,7 @@ import SwiftUI
         let t = PaceTicker.self
         let moving = t.home.users + t.stars.users > 0
         let h = !homeSeen ? 0 : moving ? max(front ? Pace.calmFront : Pace.calmBack, Motion.every ?? 0) : t.second.users > 0 ? 1 : 0
-        let o = orbSeen && t.orb.users > 0 ? max(Pace.orbRest, Motion.every ?? 0) : 0
+        let o = orbSeen && t.orb.users > 0 ? max(t.orb.quick > 0 || voice ? Pace.orbQuick : Pace.orbRest, Motion.every ?? 0) : 0
         if h != homeEvery {
             homeEvery = h
             homeTimer?.invalidate()
@@ -184,17 +185,29 @@ import SwiftUI
     var users = 0 {
         didSet { Pace.shared.retime() }
     }
+    /// Of those, the ones showing work or listening right now (the floating orb's tick speeds up for them).
+    var quick = 0 {
+        didSet { Pace.shared.retime() }
+    }
     func tick(_ d: Date) { now = d }
 }
 
 /// A view that moves with one of the shared ticks.
 struct PaceRest<Content: View>: View {
     @ObservedObject var ticker: PaceTicker
+    var quick = false
     @ViewBuilder let content: (Date) -> Content
     var body: some View {
         content(ticker.now)
-            .onAppear { ticker.users += 1 }
-            .onDisappear { ticker.users -= 1 }
+            .onAppear {
+                ticker.users += 1
+                if quick { ticker.quick += 1 }
+            }
+            .onDisappear {
+                ticker.users -= 1
+                if quick { ticker.quick -= 1 }
+            }
+            .onChange(of: quick) { _, q in ticker.quick += q ? 1 : -1 }
     }
 }
 
@@ -207,7 +220,9 @@ struct PaceClock<Content: View>: View {
     @ObservedObject private var pace = Pace.shared
     var body: some View {
         let seen = orb ? pace.orbSeen : pace.homeSeen
-        if let s = pace.calm(quick: quick, orb: orb) {
+        if orb {  // the floating orb always rides its own tick: 15 a second at rest, 30 at work (Pace.retime)
+            PaceRest(ticker: .orb, quick: quick, content: content)
+        } else if let s = pace.calm(quick: quick, orb: orb) {
             if quick {  // at work behind another app: its own clock, a little slower
                 TimelineView(.animation(minimumInterval: s, paused: !seen)) { tl in content(tl.date) }
             } else {

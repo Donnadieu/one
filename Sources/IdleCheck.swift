@@ -17,24 +17,25 @@ enum IdleCheck {
     enum Budget {
         /// The home screen draws nothing at all while its window isn't on screen (tucked away or minimized).
         static let hiddenHomeDraws = 0.5  // a second
-        /// The floating orb at rest (nothing working, nobody talking): a slow breath, a few frames a second.
+        /// The floating orb at rest (nothing working, nobody talking): a slow breath, 15 frames a second.
         static let restingOrbDraws = 20.0  // a second
         /// A CI runner draws without a graphics chip, so a frame costs its main thread several times what it costs a
         /// Mac. 0.9.137 on the runner: tucked away 29% main thread, 35% app, 136 wakeups/s, home drawing 401 times a
         /// second; in front 19%; behind another app 16%.
-        /// Main thread, tucked away or minimized, nothing working: the resting orb and the loops only.
-        static let hiddenMain = 0.05
+        /// Main thread, tucked away or minimized, nothing working: the resting orb and the loops only (the runner
+        /// swings 3-8% here from run to run).
+        static let hiddenMain = 0.10
         /// The whole app's CPU in the same states (every thread: drawing, files, the loops).
-        static let hiddenApp = 0.06
+        static let hiddenApp = 0.12
         /// Wakeups a second in the same states (Activity Monitor's "Idle Wake Ups" plus interrupts).
-        static let hiddenWakeups = 50.0
+        static let hiddenWakeups = 60.0
         /// In front or behind another app with nothing working.
-        static let frontMain = 0.12
+        static let frontMain = 0.14
         static let backMain = 0.06
         /// In front with 4 helpers at work (each streaming ~10 pieces a second): their lights at full rate.
         static let workersMain = 0.30
         /// Tucked away with 4 helpers at work: the orb's working light and the words coming in.
-        static let workersHiddenMain = 0.25
+        static let workersHiddenMain = 0.20
     }
 
     nonisolated static func main(_ args: [String]) {

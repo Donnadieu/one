@@ -56,7 +56,7 @@ jobs:
           while kill -0 $RUN 2>/dev/null; do
             for f in "$D"/*.want; do
               [ -e "$f" ] || continue
-              read -r P SECS < "$f"; n=$(basename "$f" .want); rm -f "$f"
+              read -r P SECS < "$f" || true; n=$(basename "$f" .want); rm -f "$f"
               sudo /usr/bin/sample "$P" "$SECS" -mayDie -file "$D/$n.txt" >/dev/null 2>&1 &
             done
             sleep 0.5

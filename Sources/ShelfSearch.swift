@@ -44,26 +44,31 @@ enum ShelfDay: String, CaseIterable {
     case yesterday = "Yesterday"
     case week = "This week"
     case older = "Older"
-}
 
-extension ShelfItem {
-    var day: ShelfDay {
-        let c = Calendar.current
-        if c.isDateInToday(made) { return .today }
-        if c.isDateInYesterday(made) { return .yesterday }
-        let days = c.dateComponents([.day], from: c.startOfDay(for: made), to: c.startOfDay(for: Date())).day ?? 0
+    /// Which day `made` falls in, with `today` = the start of today in `c` (worked out once for a whole shelf).
+    static func of(_ made: Date, calendar c: Calendar, today: Date) -> ShelfDay {
+        let start = c.startOfDay(for: made)
+        if start == today { return .today }
+        let days = c.dateComponents([.day], from: start, to: today).day ?? 0
+        if days == 1 { return .yesterday }
         return days < 7 ? .week : .older
     }
 }
 
+extension ShelfItem {
+    var day: ShelfDay { ShelfDay.of(made, calendar: Calendar.current, today: Calendar.current.startOfDay(for: Date())) }
+}
+
 enum ShelfGroups {
     /// Cards grouped by day, newest group and newest card first; empty groups are dropped.
+    /// Each card's day is worked out once (Omar's shelf holds over a thousand cards and this runs on every redraw).
     static func grouped(_ items: [ShelfItem]) -> [(ShelfDay, [ShelfItem])] {
         let sorted = items.sorted { $0.made > $1.made }
-        return ShelfDay.allCases.compactMap { day in
-            let v = sorted.filter { $0.day == day }
-            return v.isEmpty ? nil : (day, v)
-        }
+        let c = Calendar.current
+        let today = c.startOfDay(for: Date())
+        var by: [ShelfDay: [ShelfItem]] = [:]
+        for it in sorted { by[ShelfDay.of(it.made, calendar: c, today: today), default: []].append(it) }
+        return ShelfDay.allCases.compactMap { day in by[day].map { (day, $0) } }
     }
 }
 

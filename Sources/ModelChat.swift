@@ -444,7 +444,7 @@ extension Model {
         heldText = ""
         Engine.shared.onText = { s in
             Task { @MainActor in
-                if voiceFirst { self.heldText += s } else if idx < self.bubbles.count { self.bubbles[idx].text += s }
+                if voiceFirst { self.heldText += s } else { self.mainStreamed(idx, s) }
             }
         }
         Engine.shared.onTool = { s in
@@ -471,6 +471,7 @@ extension Model {
         turnStarted = false
         var stop = await Engine.shared.prompt(message, images: c.images)
         try? await Task.sleep(for: .milliseconds(150))
+        flushMain()
         let soFar = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
         if Engine.dropped(stop, text: soFar, gatewayBefore: gateway) {
             // The engine's helper restarted under this message: send it again once, quietly,
@@ -484,6 +485,7 @@ extension Model {
             let again = c.engine + recap + rules + deltas
             stop = await Engine.shared.promptAgain(([again] + sentSoFar).joined(separator: "\n\n"), images: c.images)
             try? await Task.sleep(for: .milliseconds(150))
+            flushMain()
         }
         await turnOver(idx, failed: stop.hasPrefix("error"))
         let said = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")

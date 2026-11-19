@@ -109,6 +109,14 @@ enum SmoothCheck {
             h.seen = i < 4 ? nil : true
             hs.append(h)
         }
+        // Omar's Ready for you held 1,326 cards on Nov 18 2026: about that many, most of them older.
+        if m.shelf.count != 1300 {
+            m.shelf = (0..<1300).map { i in
+                ShelfItem(
+                    title: "Result \(i)", detail: "What a helper made", from: "Ava", path: Env.support.appendingPathComponent("made/\(i).md").path,
+                    made: Date().addingTimeInterval(-Double(i) * 3700), fresh: i < 3)
+            }
+        }
         m.openHelper = nil
         m.routinesOpen = false
         m.helpers = hs

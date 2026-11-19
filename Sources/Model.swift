@@ -289,6 +289,9 @@ final class Model: ObservableObject {
     var streamingWords = false
     var helpersUnsaved = false
     var helpersSaveLater: Task<Void, Never>?
+    var mainWords = ""  // the main chat's reply, the same way (voice off: the words show as they come)
+    var mainWordsAt = -1
+    var mainFlush: Task<Void, Never>?
     @Published var pulses: [UUID: HelperPulse] = [:]  // what each working helper is doing right now (HelperProgress.swift)
     var pulseWired = false
     @Published var openHelper: UUID?

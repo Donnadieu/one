@@ -49,6 +49,27 @@ extension Model {
         saveLater()
     }
 
+    /// A piece of the main chat's reply (voice off), shown with the others every `mainEvery` seconds.
+    static let mainEvery = 0.05
+    func mainStreamed(_ idx: Int, _ s: String) {
+        if mainWordsAt != idx { flushMain() }
+        mainWordsAt = idx
+        mainWords += s
+        guard mainFlush == nil else { return }
+        mainFlush = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(Model.mainEvery))
+            self.flushMain()
+        }
+    }
+    func flushMain() {
+        mainFlush?.cancel()
+        mainFlush = nil
+        let (w, i) = (mainWords, mainWordsAt)
+        mainWords = ""
+        guard !w.isEmpty, i >= 0, i < bubbles.count else { return }
+        bubbles[i].text += w
+    }
+
     /// `applicationShouldTerminate`: the last streamed words are written, then quit now or once routines finish (QuitHold).
     func quitting() -> NSApplication.TerminateReply {
         saveStreamedNow()

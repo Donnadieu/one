@@ -42,7 +42,7 @@ jobs:
         if: always()
         run: |
           APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
-          mkdir -p "$RUNNER_TEMP/smooth2"
+          mkdir -p "$RUNNER_TEMP/smooth2" "$RUNNER_TEMP/smooth-samples"
           ONE_SMOOTH_SAMPLE="$RUNNER_TEMP/smooth-samples" ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth2" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth > "$RUNNER_TEMP/smooth-samples/run.txt" 2>&1 || true
       - name: Keep the profiles
         if: always()

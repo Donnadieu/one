@@ -217,6 +217,13 @@ struct HelperConstellation: View {
 /// screen shows (120 a second on ProMotion). `--test-smooth --fps N` compares a cap; nothing else sets it.
 enum Motion {
     nonisolated(unsafe) static var every: Double? = nil
+    /// How many moving pictures were drawn so far (orbs, bot moons, the stars, helpers drifting): `--test-idle` reads it.
+    nonisolated(unsafe) static var drawn = 0
+    nonisolated(unsafe) static var orbDrawn = 0  // of those, the floating orb's
+    @discardableResult static func drew() -> Int {
+        drawn += 1
+        return drawn
+    }
 }
 
 struct HelperMotion<Content: View>: View {
@@ -229,6 +236,7 @@ struct HelperMotion<Content: View>: View {
         } else {
             TimelineView(.animation(minimumInterval: Motion.every)) { tl in
                 let t = tl.date.timeIntervalSince(WorldLook.start)
+                let _ = Motion.drew()
                 content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)
             }
         }

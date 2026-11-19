@@ -38,6 +38,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/smooth"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth | tee "$RUNNER_TEMP/smooth.txt"
           grep -q '^smooth ok' "$RUNNER_TEMP/smooth.txt"
+      - name: Open and idle costs next to nothing (in front, behind, tucked away, minimized, 1-4 helpers at work)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh idle "$RUNNER_TEMP/idle-app.noindex")
+          mkdir -p "$RUNNER_TEMP/idle"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/idle" perl -e 'alarm 180; exec @ARGV' "$APP/Contents/MacOS/One" --test-idle | tee "$RUNNER_TEMP/idle.txt"
+          grep -q '^idle ok' "$RUNNER_TEMP/idle.txt"
       - name: One model change costs home less than a frame (no window, pure main-thread work)
         if: always()
         run: |

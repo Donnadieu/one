@@ -1,0 +1,227 @@
+import AppKit
+import SwiftUI
+
+// MARK: - Check: One costs next to nothing when it's open and idle (`One --test-idle`)
+//
+// Ek, Nov 19 2026: "Having One open really slows down my computer. It definitely slows things down when there are
+// workers running, but I think it just slows things down when it's open and not doing anything too." The smooth check
+// on 0.9.136 already showed the main thread 16-20% busy with nothing but bots on screen. This opens the real home
+// screen (with the floating orb and One's own main loops running, as in the app) on the CI runner's screen and
+// measures, in each state a person leaves One in:
+// - in front with nothing working, in the background (another app in front), tucked away into the orb (the red
+//   button), minimized, and in front with 1 to 4 helpers at work (each streaming words), plus 4 at work tucked away;
+// - for each: the main thread's share of one core, the whole app's CPU, wakeups a second, and how many moving
+//   pictures were drawn a second on the home screen and on the floating orb (`Motion.drawn`, `Motion.orbDrawn`).
+// Budgets in `Budget`; any state over one fails. Test copy only, its own settings and scratch folder.
+enum IdleCheck {
+    enum Budget {
+        /// The home screen draws nothing at all while its window isn't on screen (tucked away or minimized).
+        static let hiddenHomeDraws = 0.5  // a second
+        /// The floating orb at rest (nothing working, nobody talking): a slow breath, a few frames a second.
+        static let restingOrbDraws = 20.0  // a second
+        /// Main thread, tucked away or minimized, nothing working: the orb and the loops only.
+        static let hiddenMain = 0.03
+        /// The whole app's CPU in the same states (every thread: drawing, files, the loops).
+        static let hiddenApp = 0.05
+        /// Wakeups a second in the same states (Activity Monitor's "Idle Wake Ups" plus interrupts).
+        static let hiddenWakeups = 60.0
+        /// In front or behind another app with nothing working. A CI runner draws without a graphics chip, so a
+        /// frame costs its main thread several times what it costs a Mac; these are set from what the runner shows.
+        static let frontMain = 0.12
+        static let backMain = 0.06
+        /// In front with 4 helpers at work (each streaming ~10 pieces a second).
+        static let workersMain = 0.30
+        /// Tucked away with 4 helpers at work: the orb's working light and the words coming in.
+        static let workersHiddenMain = 0.08
+    }
+
+    nonisolated static func main(_ args: [String]) {
+        guard args.contains("--test-idle") else { return }
+        TestWorld.enter()
+        guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {
+            print("refusing: set ONE_SUPPORT_DIR to an empty folder first")
+            exit(2)
+        }
+        MainActor.assumeIsolated {
+            NSApplication.shared.setActivationPolicy(.regular)
+            Task { @MainActor in exit(await run()) }
+        }
+        NSApplication.shared.run()
+    }
+
+    // MARK: What is measured
+
+    struct Usage {
+        var wall = CACurrentMediaTime()
+        var main = SmoothCheck.threadCPU()
+        var app = 0.0
+        var wakeups: UInt64 = 0
+        var drawn = Motion.drawn
+        var orb = Motion.orbDrawn
+        init() {
+            var r = rusage_info_v4()
+            let ok = withUnsafeMutablePointer(to: &r) { p in
+                p.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0) }
+            }
+            guard ok == 0 else { return }
+            var tb = mach_timebase_info()
+            mach_timebase_info(&tb)
+            app = Double(r.ri_user_time + r.ri_system_time) * Double(tb.numer) / Double(tb.denom) / 1e9
+            wakeups = r.ri_pkg_idle_wkups + r.ri_interrupt_wkups
+        }
+    }
+
+    struct Result {
+        var name: String
+        var main: Double
+        var app: Double
+        var wakeups: Double
+        var homeDraws: Double
+        var orbDraws: Double
+        var line: String {
+            String(
+                format: "%@: main thread %.1f%% busy, app %.1f%% CPU, %.0f wakeups/s; drawn a second: home %.1f, floating orb %.1f", name,
+                main * 100, app * 100, wakeups, homeDraws, orbDraws)
+        }
+    }
+
+    @MainActor static func measure(_ name: String, seconds: Double = 5) async -> Result {
+        let a = Usage()
+        try? await Task.sleep(for: .seconds(seconds))
+        let b = Usage()
+        let wall = max(b.wall - a.wall, 0.001)
+        let orb = Double(b.orb - a.orb) / wall
+        let r = Result(
+            name: name, main: (b.main - a.main) / wall, app: (b.app - a.app) / wall, wakeups: Double(b.wakeups - a.wakeups) / wall,
+            homeDraws: Double(b.drawn - a.drawn) / wall - orb, orbDraws: orb)
+        print(r.line)
+        return r
+    }
+
+    // MARK: The run
+
+    @MainActor static func window() -> NSWindow {
+        let view = HomeView(m: Model.shared).frame(minWidth: 1180, minHeight: 760).foregroundStyle(WorldLook.cream)
+            .environment(\.colorScheme, .dark)
+        let w = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 1180, height: 760),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: view)
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return w
+    }
+
+    @MainActor static func working(_ n: Int) {
+        let m = Model.shared
+        var hs = m.helpers
+        var k = 0
+        for i in hs.indices where hs[i].bot == nil {
+            hs[i].state = k < n ? "working" : "done"
+            hs[i].line = k < n ? "Searching the web" : "Done"
+            k += 1
+        }
+        m.helpers = hs
+    }
+
+    @MainActor static func run() async -> Int32 {
+        UserDefaults.standard.set(true, forKey: "voiceMuted")
+        UserDefaults.standard.set(0.87, forKey: Glass.key)  // Omar's See-through
+        UserDefaults.standard.set(false, forKey: "botsCollapsed")
+        let m = Model.shared
+        m.assistantName = "Ava"
+        m.userName = "Omar"
+        m.onboarded = true
+        SmoothCheck.world(bots: 4)
+        // Bots and helpers all finished: nothing at work.
+        m.helpers = m.helpers.map {
+            var h = $0
+            h.state = "done"
+            h.line = "Done"
+            return h
+        }
+        // Working helpers stream words the way the engine sends them: about 10 pieces a second each.
+        var k = 0
+        let stream = Timer(timeInterval: 0.1, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                for h in Model.shared.helpers where h.state == "working" && h.bot == nil {
+                    k += 1
+                    Model.shared.helperStreamed(h.id, "word\(k % 97) ")
+                }
+            }
+        }
+        RunLoop.main.add(stream, forMode: .common)
+        let win = window()
+        Floater.shared.setup()
+        m.startTending()
+        try? await Task.sleep(for: .seconds(4))  // first loads, the shelf scan, layout settle
+        var ok = true
+        var fails: [String] = []
+        func over(_ bad: Bool, _ what: String) {
+            if bad {
+                ok = false
+                fails.append("FAIL " + what)
+            }
+        }
+        func pct(_ v: Double) -> String { String(format: "%.1f%%", v * 100) }
+
+        let front = await measure("in front, nothing working")
+        over(front.main > Budget.frontMain, "in front: main thread \(pct(front.main)) (budget \(pct(Budget.frontMain)))")
+
+        NSApp.deactivate()
+        try? await Task.sleep(for: .seconds(1.5))
+        let back = await measure("in the background (another app in front)\(NSApp.isActive ? " [One stayed active]" : "")")
+        over(back.main > Budget.backMain, "in the background: main thread \(pct(back.main)) (budget \(pct(Budget.backMain)))")
+
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .seconds(1))
+        Floater.shared.tuckAway(nil)  // the red button
+        try? await Task.sleep(for: .seconds(1.5))
+        let tucked = await measure("tucked away into the orb, nothing working")
+        win.makeKeyAndOrderFront(nil)
+        Floater.shared.openMain()
+        try? await Task.sleep(for: .seconds(1))
+        win.miniaturize(nil)
+        try? await Task.sleep(for: .seconds(2))
+        let mini = await measure("minimized\(win.isMiniaturized ? "" : " [didn't minimize]"), nothing working")
+        for r in [tucked, mini] {
+            over(r.homeDraws > Budget.hiddenHomeDraws, "\(r.name): home drew \(String(format: "%.1f", r.homeDraws)) a second (budget 0)")
+            over(
+                r.orbDraws > Budget.restingOrbDraws,
+                "\(r.name): the resting orb drew \(String(format: "%.0f", r.orbDraws)) a second (budget \(Int(Budget.restingOrbDraws)))")
+            over(r.main > Budget.hiddenMain, "\(r.name): main thread \(pct(r.main)) (budget \(pct(Budget.hiddenMain)))")
+            over(r.app > Budget.hiddenApp, "\(r.name): app \(pct(r.app)) CPU (budget \(pct(Budget.hiddenApp)))")
+            over(
+                r.wakeups > Budget.hiddenWakeups,
+                "\(r.name): \(String(format: "%.0f", r.wakeups)) wakeups a second (budget \(Int(Budget.hiddenWakeups)))")
+        }
+
+        win.deminiaturize(nil)
+        Floater.shared.openMain()
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(for: .seconds(1.5))
+        var four: Result?
+        for n in 1...4 {
+            working(n)
+            try? await Task.sleep(for: .seconds(1))
+            let r = await measure("in front, \(n) helper\(n == 1 ? "" : "s") at work", seconds: 4)
+            if n == 4 { four = r }
+        }
+        if let four { over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))") }
+        Floater.shared.tuckAway(nil)
+        try? await Task.sleep(for: .seconds(1.5))
+        let away = await measure("tucked away, 4 helpers at work", seconds: 4)
+        over(away.homeDraws > Budget.hiddenHomeDraws, "tucked away at work: home drew \(String(format: "%.1f", away.homeDraws)) a second (budget 0)")
+        over(away.main > Budget.workersHiddenMain, "tucked away at work: main thread \(pct(away.main)) (budget \(pct(Budget.workersHiddenMain)))")
+        stream.invalidate()
+        win.close()
+        fails.forEach { print($0) }
+        print(ok ? "idle ok" : "idle: over budget")
+        return ok ? 0 : 1
+    }
+}

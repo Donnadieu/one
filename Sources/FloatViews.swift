@@ -76,6 +76,7 @@ struct FloatingOrb: View {
     }
 
     private func face(_ t: Double) -> some View {
+        Motion.orbDrawn += 1
         let listening = state == .listening
         let working = state == .working
         let voice: Double = listening ? 0.45 + 0.4 * abs(sin(t * 4.1) * sin(t * 2.3 + 0.7)) : 0

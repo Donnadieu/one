@@ -140,6 +140,7 @@ enum Stars {
     }
 
     static func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double, zones: [Zone]) {
+        Motion.drawn += 1
         drawBand(&ctx, size: size)
         var shown: [Layer: Int] = [:]
         for s in all {

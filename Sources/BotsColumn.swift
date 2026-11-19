@@ -49,6 +49,7 @@ struct BotMoon: View {
         }
     }
     static func draw(_ ctx: inout GraphicsContext, _ sz: CGSize, hex: UInt32, t: Double) {
+        Motion.drawn += 1
         let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
         let r = min(sz.width, sz.height) / 2
         let col = Color(hex: hex)

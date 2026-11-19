@@ -58,6 +58,8 @@ enum IdleCheck {
         var wakeups: UInt64 = 0
         var drawn = Motion.drawn
         var orb = Motion.orbDrawn
+        var loops = IdleCheck.loops
+        var layouts = IdleCheck.layouts
         init() {
             var r = rusage_info_v4()
             let ok = withUnsafeMutablePointer(to: &r) { p in
@@ -78,10 +80,13 @@ enum IdleCheck {
         var wakeups: Double
         var homeDraws: Double
         var orbDraws: Double
+        var loops = 0.0
+        var layouts = 0.0
         var line: String {
             String(
-                format: "%@: main thread %.1f%% busy, app %.1f%% CPU, %.0f wakeups/s; drawn a second: home %.1f, floating orb %.1f", name,
-                main * 100, app * 100, wakeups, homeDraws, orbDraws)
+                format:
+                    "%@: main thread %.1f%% busy, app %.1f%% CPU, %.0f wakeups/s; drawn a second: home %.1f, floating orb %.1f; main loop woke %.0f/s, home laid out %.0f/s",
+                name, main * 100, app * 100, wakeups, homeDraws, orbDraws, loops, layouts)
         }
     }
 
@@ -100,12 +105,23 @@ enum IdleCheck {
         let orb = Double(b.orb - a.orb) / wall
         let r = Result(
             name: name, main: (b.main - a.main) / wall, app: (b.app - a.app) / wall, wakeups: Double(b.wakeups - a.wakeups) / wall,
-            homeDraws: Double(b.drawn - a.drawn) / wall - orb, orbDraws: orb)
+            homeDraws: Double(b.drawn - a.drawn) / wall - orb, orbDraws: orb, loops: Double(b.loops - a.loops) / wall,
+            layouts: Double(b.layouts - a.layouts) / wall)
         print(r.line)
         return r
     }
 
     // MARK: The run
+
+    /// Times the main thread's run loop woke up, and times the home screen was laid out.
+    nonisolated(unsafe) static var loops = 0
+    nonisolated(unsafe) static var layouts = 0
+    final class Host<V: View>: NSHostingView<V> {
+        override func layout() {
+            MainActor.assumeIsolated { IdleCheck.layouts += 1 }
+            super.layout()
+        }
+    }
 
     @MainActor static func window() -> NSWindow {
         let view = HomeView(m: Model.shared).frame(minWidth: 1180, minHeight: 760).foregroundStyle(WorldLook.cream)
@@ -117,9 +133,13 @@ enum IdleCheck {
         w.titlebarAppearsTransparent = true
         w.appearance = NSAppearance(named: .darkAqua)
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: view)
+        w.contentView = Host(rootView: view)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
+            MainActor.assumeIsolated { IdleCheck.loops += 1 }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
         return w
     }
 
@@ -230,6 +250,22 @@ enum IdleCheck {
         let away = await measure("tucked away, 4 helpers at work", seconds: 4)
         over(away.homeDraws > Budget.hiddenHomeDraws, "tucked away at work: home drew \(String(format: "%.1f", away.homeDraws)) a second (budget 0)")
         over(away.main > Budget.workersHiddenMain, "tucked away at work: main thread \(pct(away.main)) (budget \(pct(Budget.workersHiddenMain)))")
+        // Where the rest goes (printed, never judged): the same tucked-away state without the stars' clock, then with
+        // nothing on the home screen moving at all.
+        working(0)
+        Stars.reduceMotion = true
+        m.objectWillChange.send()
+        try? await Task.sleep(for: .seconds(1))
+        _ = await measure("[look] tucked away, stars still", seconds: 3)
+        let keep = m.helpers
+        m.helpers = []
+        try? await Task.sleep(for: .seconds(1))
+        _ = await measure("[look] tucked away, no helpers or bots, stars still", seconds: 3)
+        Floater.shared.openMain()
+        try? await Task.sleep(for: .seconds(1))
+        _ = await measure("[look] in front, no helpers or bots, stars still", seconds: 3)
+        m.helpers = keep
+        Stars.reduceMotion = false
         stream.invalidate()
         win.close()
         fails.forEach { print($0) }

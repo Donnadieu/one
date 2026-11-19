@@ -103,7 +103,73 @@ enum ModelLineupCheck {
         check("GPT-6.2 Astra as Smartest thinks at Extra high", Effort.preset(tier: 0, levels: astra) == .xhigh)
         check("Grok 4.7 has no level the engine sends yet: nothing is written", Effort.preset(tier: 0, levels: []) == nil)
 
+        failures += offeredChecks()
         print(failures == 0 ? "model lineup ok" : "model lineup: \(failures) failed")
         return failures == 0 ? 0 : 1
+    }
+
+    /// Nov 18 2026: 0.9.133 put Fable 5.2 on Smartest and Opus 5.5 vanished from the card, so someone on Opus saw no
+    /// pill chosen and had no way back. Every model that held a pill stays pickable, the card marks what the engine
+    /// runs, and no id is used that its maker's own list didn't return.
+    @MainActor static func offeredChecks() -> Int {
+        var failures = 0
+        func check(_ name: String, _ pass: Bool) {
+            print("\(pass ? "✓" : "✗") \(name)")
+            if !pass { failures += 1 }
+        }
+        print("every model that held a pill is still on the card")
+        let moreIDs: (Provider) -> [String] = { p in (ModelLineup.more[p] ?? []).map(\.1) }
+        check("Claude Opus 5.5 is offered (under More options)", moreIDs(.claude).contains("claude-opus-5-5"))
+        for p in Provider.allCases {
+            let onCard = Set(p.tiers.map(\.1) + moreIDs(p))
+            let earlier = (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }
+            check("\(p.title): every earlier pill model is still pickable", earlier.allSatisfy { onCard.contains($0) })
+            check("\(p.title): More options never repeats a pill", Set(moreIDs(p)).isDisjoint(with: p.tiers.map(\.1)))
+        }
+
+        print("the card marks the model the engine runs")
+        check("on Opus 5.5: its row under More options is chosen", ModelLineup.active("claude-opus-5-5", provider: .claude) == .more(0))
+        check("on Fable 5.2: Smartest is chosen", ModelLineup.active("claude-fable-5-2", provider: .claude) == .tier(0))
+        check("on Haiku 5.5: Fastest is chosen", ModelLineup.active("claude-haiku-5-5", provider: .claude) == .tier(2))
+        check("a model One doesn't list is still shown as chosen, by its id", ModelLineup.active("claude-opus-4-8", provider: .claude) == .other)
+        let cfg = """
+            # model:
+            #   default: claude-haiku-5-5
+            agent:
+              fallback:
+                default: claude-sonnet-5
+            model:
+              # Default model to use
+              provider: "anthropic"
+              default: "claude-opus-5-5"  # set by One
+            terminal:
+              default: nope
+            """
+        check("the card reads model.default, not another section's default:", MeCard.configModel(cfg) == "claude-opus-5-5")
+        check("model.model works too, like the engine", MeCard.configModel("model:\n  model: claude-fable-5-2\n") == "claude-fable-5-2")
+        check("default wins over model, like the engine", MeCard.configModel("model:\n  model: a\n  default: b\n") == "b")
+        check("a plain model: line works too", MeCard.configModel("model: 'claude-sonnet-5-5'\n") == "claude-sonnet-5-5")
+        check("no model section reads as nothing", MeCard.configModel("agent:\n  default: x\n").isEmpty)
+
+        print("no id outside the maker's own list")
+        for p in Provider.allCases {
+            let list = ModelLineup.offered[p] ?? []
+            let used = p.tiers.map(\.1) + p.models + moreIDs(p) + (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }
+            let bad = used.filter { !list.contains($0) }
+            check("\(p.title): every pill, first-try and More options id is offered\(bad.isEmpty ? "" : " (not: \(bad))")", bad.isEmpty)
+            let moves = (ModelLineup.replacements[p.hermesID] ?? [:]).values.filter { !list.contains($0) }
+            check("\(p.title): every retired id moves to one that's offered\(moves.isEmpty ? "" : " (not: \(moves))")", moves.isEmpty)
+        }
+
+        print("old saved choices still map to a working model")
+        check(
+            "Opus 4.1 (gone) → Opus 4.8, which is offered",
+            ModelLineup.offered[.claude]?.contains(ModelLineup.replacement("claude-opus-4-1-20250805", provider: "anthropic") ?? "") == true)
+        check("Opus 5.5 is never moved", ModelLineup.replacement("claude-opus-5-5", provider: "anthropic") == nil)
+        check("Sonnet 5 is never moved (routines pin it)", ModelLineup.replacement("claude-sonnet-5", provider: "anthropic") == nil)
+        check(
+            "a light helper steps down from Opus 5.5 to Balanced",
+            Router.model(JobRoute(tier: 1), provider: .claude, current: "claude-opus-5-5") == "claude-sonnet-5-5")
+        return failures
     }
 }

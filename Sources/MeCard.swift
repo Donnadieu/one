@@ -20,8 +20,11 @@ struct MeCard: View {
         "Female": [("af_heart", "Warm"), ("af_bella", "Bright"), ("bf_emma", "British")],
         "Male": [("am_michael", "Calm"), ("am_fenrir", "Deep"), ("bm_george", "British")],
     ]
+    /// The model the engine runs: `model.default` in its config.yaml, the same key `hermes config set` writes.
     static func currentModel() -> String {
-        let y = (try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? ""
+        configModel((try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? "")
+    }
+    static func configModel(_ y: String) -> String {
         for l in y.split(separator: "\n") where l.trimmingCharacters(in: .whitespaces).hasPrefix("default:") {
             return l.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
         }

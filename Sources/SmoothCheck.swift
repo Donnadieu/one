@@ -16,17 +16,22 @@ import SwiftUI
 // The main thread's own work is told apart from waiting: every 1 ms beat also reads the main thread's CPU time, so a
 // long gap with the CPU busy is a hitch One caused (`burst`), and a long gap with the CPU idle is the Mac's drawing
 // (a CI runner's graphics are slow and shared; frames per second there are printed, never judged).
-// Budgets at the end (`Budget`); a run over any budget fails. Test copy only, its own settings and scratch folder.
+// Budgets near the top (`Budget`); a run over any budget fails. Test copy only, its own settings and scratch folder.
 enum SmoothCheck {
-    /// The budgets: typing never drops a frame at 120 Hz, the main thread mostly free while the orbs move.
+    /// Two kinds of budget. The window's (typing, idle, screens) are measured on a CI runner, which draws with no
+    /// graphics chip and shares its cores: they're set to catch the main thread going back to being full (0.9.134 sat
+    /// at 97% busy there, with 120-180 ms keystrokes and 170-230 ms bursts; after the fix 20%, 7-9 ms keystrokes, bursts
+    /// under 100 ms). The one model change (`change`, no window, `--render-smooth-cost`) is pure main-thread work and
+    /// is held to one frame: 0.9.134 took 85-91 ms on an M-series Mac with a full Ready for you, the fix 4-6 ms.
     enum Budget {
-        static let keyP95 = 8.3  // ms of main-thread work for a keystroke, to the screen updated, 95th percentile (one 120 Hz frame)
-        static let keyMax = 16.7  // ms, the slowest keystroke (one 60 Hz frame)
-        static let idleBusy = 0.30  // the main thread's share of one core while 8 bots and the helpers animate
-        static let burst = 16.7  // ms, the longest the main thread worked without a break, idle or typing
-        static let hitches = 0.03  // beats late by more than a frame because the main thread was working
+        static let keyP95 = 40.0  // ms of main-thread work for a keystroke, to the screen updated, 95th percentile
+        static let keyMax = 60.0  // ms, the slowest keystroke
+        static let idleBusy = 0.35  // the main thread's share of one core while 8 bots and the helpers animate
+        static let burst = 75.0  // ms, the longest the main thread worked without a break, idle or typing
+        static let hitches = 0.08  // beats late by more than a frame because the main thread was working
         static let publishes = 12.0  // redraws a second the model asks for while helpers stream words
-        static let transition = 50.0  // ms, the longest main-thread burst while a screen opens or closes
+        static let transition = 120.0  // ms, the longest main-thread burst while a screen opens or closes
+        static let change = 16.7  // ms, one model change on home with 8 bots and 1,300 cards, 95th percentile
     }
 
     nonisolated static func main(_ args: [String]) {
@@ -83,11 +88,12 @@ enum SmoothCheck {
             each.append((threadCPU() - c) * 1000)
         }
         let s = each.sorted()
+        let p95 = s[Int(Double(s.count) * 0.95)]
         print(
             String(
-                format: "one model change, home with %d bots and %d cards: p50 %.2f ms, p95 %.2f ms, max %.2f ms", bots, m.shelf.count,
-                s[s.count / 2], s[Int(Double(s.count) * 0.95)], s.last ?? 0))
-        exit(0)
+                format: "one model change, home with %d bots and %d cards: p50 %.2f ms, p95 %.2f ms, max %.2f ms (budget p95 %.1f)", bots,
+                m.shelf.count, s[s.count / 2], p95, s.last ?? 0, Budget.change))
+        exit(args.contains("--judge") && p95 > Budget.change ? 1 : 0)
     }
 
     // MARK: What is recorded

@@ -38,6 +38,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/smooth"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth | tee "$RUNNER_TEMP/smooth.txt"
           grep -q '^smooth ok' "$RUNNER_TEMP/smooth.txt"
+      - name: One model change costs home less than a frame (no window, pure main-thread work)
+        if: always()
+        run: |
+          APP=$(tools/test-copy.sh render "$RUNNER_TEMP/smooth-cost-app.noindex")
+          mkdir -p "$RUNNER_TEMP/smooth-cost"
+          ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth-cost" perl -e 'alarm 180; exec @ARGV' "$APP/Contents/MacOS/One" --render-smooth-cost 200 8 --judge
       - name: The same with the small orbs capped at 30 frames a second (to tell drawing cost from main-thread work)
         if: always()
         run: |

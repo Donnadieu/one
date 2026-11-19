@@ -23,6 +23,8 @@ struct BrainSection: View {
     private var tiers: [(String, String)] { builtIn?.tiers ?? [] }
     private var here: [Effort] { m.providerRaw == "local" ? [] : levels[model] ?? [] }
     private var tierIndex: Int? { tiers.firstIndex { $0.1 == model } }
+    /// Models still offered that no pill holds (Opus 5.5 on Claude), under More options.
+    private var more: [(String, String)] { builtIn.flatMap { ModelLineup.more[$0] } ?? [] }
     private var shownEffort: Effort? {
         guard let e = effort, !here.isEmpty else { return nil }
         if here.contains(e) { return e }
@@ -38,14 +40,22 @@ struct BrainSection: View {
                 Text(builtIn?.title ?? (aiName.isEmpty ? (m.providerRaw == "local" ? "On this Mac" : m.providerRaw) : aiName))
                     .font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.45))
             }
-            if tiers.isEmpty { oneRow } else { pills }
+            if tiers.isEmpty {
+                oneRow
+            } else {
+                pills
+                if tierIndex == nil && !model.isEmpty && !(open && more.contains { $0.1 == model }) { inUse }  // open: ✓ in Other models
+            }
             if builtIn == .openrouter || (builtIn == nil && m.providerRaw != "local") { anyModelList }
             Button {
                 open.toggle()
             } label: {
                 Text(open ? "More options ⌄" : "More options ›").font(.system(size: 12.5))
             }.buttonStyle(.plain).foregroundStyle(WorldLook.cream.opacity(0.6))
-            if open { thinking }
+            if open {
+                if !more.isEmpty { moreModels }
+                thinking
+            }
         }
         .disabled(busy)
         .task { await load() }
@@ -66,6 +76,43 @@ struct BrainSection: View {
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.vertical, 11)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(0.12)))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WorldLook.cream.opacity(0.55), lineWidth: 1))
+    }
+
+    /// The model the engine runs when no pill holds it, so the card always shows what's chosen.
+    private var inUse: some View {
+        let name = more.first { $0.1 == model }?.0 ?? model
+        return HStack {
+            Text(name).font(.system(size: 13.5, weight: .medium)).foregroundStyle(.white)
+            Spacer()
+            Text(name == model ? "in use" : model + " · in use").font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.5))
+        }
+        .lineLimit(1).padding(.horizontal, 14).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(WorldLook.cream.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WorldLook.cream.opacity(0.55), lineWidth: 1))
+    }
+
+    @ViewBuilder private var moreModels: some View {
+        Divider().overlay(WorldLook.cream.opacity(0.1))
+        Text("Other models").font(.system(size: 13, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.9))
+        VStack(spacing: 5) {
+            ForEach(more, id: \.1) { name, id in
+                Button {
+                    pick(id, tier: builtIn.flatMap { ModelLineup.tier(of: id, provider: $0) })
+                } label: {
+                    HStack(spacing: 0) {
+                        Text(name).font(.system(size: 12.5, weight: .semibold)).frame(width: 120, alignment: .leading)
+                        Text(id).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.55))
+                        Spacer()
+                        if model == id { Image(systemName: "checkmark").font(.system(size: 11)) }
+                    }
+                    .foregroundStyle(WorldLook.cream.opacity(model == id ? 1 : 0.8))
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(WorldLook.cream.opacity(model == id ? 0.12 : 0.03)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WorldLook.cream.opacity(model == id ? 0.55 : 0.1), lineWidth: 1))
+                }.buttonStyle(.plain)
+            }
+        }
     }
 
     @ViewBuilder private var anyModelList: some View {
@@ -135,7 +182,7 @@ struct BrainSection: View {
 
     private func load() async {
         guard BrainSection.still == nil else { return }
-        let ids = tiers.isEmpty ? [model] : tiers.map(\.1)
+        let ids = tiers.isEmpty ? [model] : tiers.map(\.1) + more.map(\.1) + (tierIndex == nil ? [model] : [])
         levels = await AICatalog.efforts(engineID, models: ids.filter { !$0.isEmpty })
         if builtIn == nil, m.providerRaw != "local" {
             aiName = (await AICatalog.providers()).first { $0.id == m.providerRaw }?.name ?? ""

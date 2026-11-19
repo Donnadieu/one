@@ -24,11 +24,32 @@ struct MeCard: View {
     static func currentModel() -> String {
         configModel((try? String(contentsOf: Env.hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)) ?? "")
     }
+    /// Read like the engine does: the top-level `model:` section's `default`, else its `model`, else its `name`; a
+    /// plain `model: <id>` line counts too. A `default:` in any other section is never the model.
     static func configModel(_ y: String) -> String {
-        for l in y.split(separator: "\n") where l.trimmingCharacters(in: .whitespaces).hasPrefix("default:") {
-            return l.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+        func value(_ s: Substring) -> String {
+            let v = s.split(separator: ":", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
+            let bare = v.range(of: " #").map { String(v[..<$0.lowerBound]) } ?? v
+            return bare.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
         }
-        return ""
+        var inModel = false
+        var keys: [String: String] = [:]
+        var depth: Int?
+        for l in y.split(separator: "\n", omittingEmptySubsequences: false) {
+            let t = l.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty || t.hasPrefix("#") { continue }
+            if !l.hasPrefix(" ") && !l.hasPrefix("\t") {
+                if inModel { break }
+                inModel = t.hasPrefix("model:")
+                if inModel, !value(l[...]).isEmpty { return value(l[...]) }
+                continue
+            }
+            let indent = l.prefix { $0 == " " || $0 == "\t" }.count
+            if inModel && depth == nil { depth = indent }
+            guard inModel, indent == depth, let k = t.split(separator: ":").first.map(String.init), keys[k] == nil else { continue }
+            keys[k] = value(t[...])
+        }
+        return [keys["default"], keys["model"], keys["name"]].compactMap { $0 }.first { !$0.isEmpty } ?? ""
     }
     static func allOpenRouter() -> [String] {
         guard let d = try? Data(contentsOf: Env.hermesHome.appendingPathComponent("models_dev_cache.json")),
@@ -50,6 +71,7 @@ struct MeCard: View {
                 }
                 if let sub {
                     Text(sub).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(2).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .foregroundStyle(on ? .white : WorldLook.cream.opacity(0.8))

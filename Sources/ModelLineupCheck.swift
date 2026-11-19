@@ -122,7 +122,7 @@ enum ModelLineupCheck {
         check("Claude Opus 5.5 is offered (under More options)", moreIDs(.claude).contains("claude-opus-5-5"))
         for p in Provider.allCases {
             let onCard = Set(p.tiers.map(\.1) + moreIDs(p))
-            let earlier = (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }
+            let earlier = (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }.filter { ModelLineup.replacement($0, provider: p.hermesID) == nil }
             check("\(p.title): every earlier pill model is still pickable", earlier.allSatisfy { onCard.contains($0) })
             check("\(p.title): More options never repeats a pill", Set(moreIDs(p)).isDisjoint(with: p.tiers.map(\.1)))
         }
@@ -154,7 +154,8 @@ enum ModelLineupCheck {
         print("no id outside the maker's own list")
         for p in Provider.allCases {
             let list = ModelLineup.offered[p] ?? []
-            let used = p.tiers.map(\.1) + p.models + moreIDs(p) + (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }
+            let kept = (ModelLineup.earlierTiers[p] ?? []).flatMap { $0 }.filter { ModelLineup.replacement($0, provider: p.hermesID) == nil }
+            let used = p.tiers.map(\.1) + p.models + moreIDs(p) + kept
             let bad = used.filter { !list.contains($0) }
             check("\(p.title): every pill, first-try and More options id is offered\(bad.isEmpty ? "" : " (not: \(bad))")", bad.isEmpty)
             let moves = (ModelLineup.replacements[p.hermesID] ?? [:]).values.filter { !list.contains($0) }

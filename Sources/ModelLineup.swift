@@ -55,8 +55,14 @@ enum ModelLineup {
         .openrouter: [["anthropic/claude-opus-5.5"], [], ["google/gemini-3-flash-preview"]],
     ]
 
-    /// Models still offered that no pill holds, shown under More options as (plain name, id).
-    static let more: [Provider: [(String, String)]] = [:]
+    /// Models still offered that no pill holds, shown under More options as (plain name, id): every model that held a
+    /// pill before and its maker still offers, so nobody's pick disappears from the card (0.9.133 dropped Opus 5.5).
+    static let more: [Provider: [(String, String)]] = [
+        .claude: [("Opus 5.5", "claude-opus-5-5"), ("Sonnet 5", "claude-sonnet-5")],
+        .chatgpt: [("GPT-6.1 Sol", "gpt-6.1-sol"), ("GPT-6 Sol", "gpt-6-sol")],
+        .grok: [("Grok 4.20 Reasoning", "grok-4.20-0309-reasoning")],
+        .openrouter: [("Claude Opus 5.5", "anthropic/claude-opus-5.5"), ("Gemini 3 Flash", "google/gemini-3-flash-preview")],
+    ]
 
     /// Every id each maker's own list returned on Nov 18 2026 (Anthropic GET /v1/models on Omar's account, the
     /// ChatGPT sign-in's Codex catalog, docs.x.ai/docs/models, OpenRouter /api/v1/models; only the ids One names).
@@ -90,6 +96,7 @@ enum ModelLineup {
     }
     static func active(_ model: String, provider: Provider) -> Choice {
         if let i = provider.tiers.firstIndex(where: { $0.1 == model }) { return .tier(i) }
+        if let i = more[provider]?.firstIndex(where: { $0.1 == model }) { return .more(i) }
         return .other
     }
 

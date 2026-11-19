@@ -16,10 +16,9 @@ struct Orb: View {
     /// The assistant is thinking or running steps. While its voice plays the rings follow the voice instead.
     var active = false
     @State private var ease = WorkEase()
-    @ObservedObject private var pace = Pace.shared
     var body: some View {
-        TimelineView(pace.home(quick: active)) { tl in
-            let t = tl.date.timeIntervalSince(WorldLook.start)
+        PaceClock(quick: active) { date in
+            let t = date.timeIntervalSince(WorldLook.start)
             let heard = Speaker.shared.heard()
             let work = ease.step(active && !heard.live ? 1 : 0, t: t)
             Presence(t: t, lean: .zero, voice: 0, energy: 0, wave: heard, work: work)
@@ -68,12 +67,11 @@ struct FloatingOrb: View {
     /// Working-breath blend for renders (nil = 1 when working, eased live).
     var fixedWork: Double? = nil
     @State private var ease = WorkEase()
-    @ObservedObject private var pace = Pace.shared
     var body: some View {
         if let t = fixedT {
             face(t)
         } else {
-            TimelineView(pace.orb(quick: state != .idle)) { tl in face(tl.date.timeIntervalSince(WorldLook.start)) }
+            PaceClock(quick: state != .idle, orb: true) { date in face(date.timeIntervalSince(WorldLook.start)) }
         }
     }
 

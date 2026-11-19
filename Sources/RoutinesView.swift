@@ -112,7 +112,7 @@ struct RoutinesPanel: View {
             if HomeView.still {
                 Presence(t: 30, lean: .zero, voice: 0, energy: 0)
             } else {
-                TimelineView(.animation(minimumInterval: pace.front ? 1 / 30 : Pace.calmBack, paused: !pace.homeSeen)) { tl in
+                TimelineView(pace.every(pace.front ? 1 / 30 : Pace.calmBack)) { tl in
                     Presence(t: tl.date.timeIntervalSince(WorldLook.start), lean: .zero, voice: 0, energy: 0)
                 }
             }
@@ -144,7 +144,7 @@ struct RoutinesPanel: View {
         if HomeView.still {
             draw(0)
         } else {
-            TimelineView(.animation(minimumInterval: pace.front ? 1 / 20 : Pace.calmBack, paused: !pace.homeSeen)) { tl in
+            TimelineView(pace.every(pace.front ? 1 / 20 : Pace.calmBack)) { tl in
                 draw(tl.date.timeIntervalSince(WorldLook.start))
             }
         }

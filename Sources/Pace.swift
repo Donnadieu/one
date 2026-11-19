@@ -32,6 +32,7 @@ import SwiftUI
     static let orbRest = 1.0 / 15
 
     private var voiceUntil = Date.distantPast
+    private weak var home: NSWindow?
     private var watching: [NSObjectProtocol] = []
 
     private init() {
@@ -57,8 +58,9 @@ import SwiftUI
 
     /// Reads the windows again. Called on every window and app notice, and by Floater when it shows or hides the orb.
     func update() {
-        let main = NSApp.windows.first { !($0 is NSPanel) && $0.canBecomeMain }
-        let seen = main.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? true
+        // A window tucked away or minimized can't become main, so it's remembered from when it could.
+        if let w = NSApp.windows.first(where: { !($0 is NSPanel) && $0.canBecomeMain }) { home = w }
+        let seen = home.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? true
         set(\.homeSeen, seen && !NSApp.isHidden)
         set(\.orbSeen, Floater.shared.orbShown && !NSApp.isHidden)
         set(\.front, NSApp.isActive)
@@ -80,7 +82,16 @@ import SwiftUI
 
     // MARK: Clocks for the views
 
-    /// A moving picture in the main window. `quick`: it shows work, listening or a voice.
+    /// Seconds between frames for a moving picture at rest, or nil when it runs on the screen's own clock (work, a
+    /// voice, listening, in front). Rest runs on a plain timer: the screen's clock (`.animation(minimumInterval:)`)
+    /// still wakes the window and lays the whole home screen out on every screen refresh, even when it skips drawing
+    /// (Nov 19 2026 CI: 120 layouts a second with 30 drawings).
+    func calm(quick: Bool, orb: Bool = false) -> Double? {
+        if quick || voice { return front || orb ? nil : Pace.quickBack }
+        if orb { return Pace.orbRest }
+        return front ? Pace.calmFront : Pace.calmBack
+    }
+    /// A moving picture in the main window (`quick`: it shows work, listening or a voice), paused while unseen.
     func home(quick: Bool) -> AnimationTimelineSchedule {
         .animation(minimumInterval: interval(quick: quick || voice), paused: !homeSeen)
     }
@@ -88,14 +99,27 @@ import SwiftUI
         if front { return quick ? Motion.every : max(Motion.every ?? 0, Pace.calmFront) }
         return quick ? max(Motion.every ?? 0, Pace.quickBack) : Pace.calmBack
     }
-    /// The floating orb's clock.
-    func orb(quick: Bool) -> AnimationTimelineSchedule {
-        .animation(minimumInterval: quick || voice ? Motion.every : Pace.orbRest, paused: !orbSeen)
-    }
     /// A slow periodic clock in the main window (words once a second, the stars): one still moment while unseen.
     func every(_ seconds: Double, from start: Date = WorldLook.start) -> PaceEvery { PaceEvery(start: start, seconds: seconds, on: homeSeen) }
     /// The stars twinkle 12 times a second in front, 4 behind another app.
     var starsEvery: Double { front ? 1 / Stars.fps : 1 / 4 }
+}
+
+/// The clock every moving picture uses: the screen's own clock only while it shows work or a voice, a plain timer at
+/// rest (`Pace.calm`), and nothing at all while its window (the main one, or the floating orb's) isn't on screen.
+struct PaceClock<Content: View>: View {
+    var quick = false
+    var orb = false
+    @ViewBuilder let content: (Date) -> Content
+    @ObservedObject private var pace = Pace.shared
+    var body: some View {
+        let seen = orb ? pace.orbSeen : pace.homeSeen
+        if let s = pace.calm(quick: quick, orb: orb) {
+            TimelineView(PaceEvery(start: WorldLook.start, seconds: max(s, Motion.every ?? 0), on: seen)) { tl in content(tl.date) }
+        } else {
+            TimelineView(.animation(minimumInterval: Motion.every, paused: !seen)) { tl in content(tl.date) }
+        }
+    }
 }
 
 /// `.periodic` that stops when `on` is false (TimelineView's own periodic clock can't be paused).

@@ -233,13 +233,12 @@ struct HelperMotion<Content: View>: View {
     var quick = false
     let seed: Double
     @ViewBuilder let content: (Double) -> Content
-    @ObservedObject private var pace = Pace.shared
     var body: some View {
         if calm {
             content(21.7)
         } else {
-            TimelineView(pace.home(quick: quick)) { tl in
-                let t = tl.date.timeIntervalSince(WorldLook.start)
+            PaceClock(quick: quick) { date in
+                let t = date.timeIntervalSince(WorldLook.start)
                 let _ = Motion.drew()
                 content(t).offset(x: sin(t * 0.23 + seed * 1.9) * 3, y: cos(t * 0.19 + seed * 2.7) * 3)
             }

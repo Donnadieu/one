@@ -6,6 +6,8 @@ import SwiftUI
 /// Which days are open, the search, the summary card and where to scroll, for the chat on screen (one at a time).
 @MainActor final class StarState: ObservableObject {
     static let shared = StarState()
+    /// The assistant's own summary card on home.
+    static let assistant = StarState()
     static let end = "star-end"
     @Published var chat = ""
     @Published var open: Set<String> = []  // earlier days opened by hand (the newest is always open)
@@ -14,6 +16,7 @@ import SwiftUI
     @Published var summaryOpen = false
     @Published var hit: String?  // the match search stepped to
     @Published var target: String?  // home scrolls here (a day's star, a message, the end)
+    @Published var lastJump: String?  // the day the dial last flew to (lit on the dial)
     /// The chat's days, as last drawn (search steps and the dial use them).
     var days: [StarDay] = []
     var memo: (key: String, days: [StarDay]) = ("", [])
@@ -28,6 +31,7 @@ import SwiftUI
         summaryOpen = false
         hit = nil
         target = nil
+        lastJump = nil
         memo = ("", [])
     }
     /// Its days, worked out once per change of the chat (home redraws often while helpers stream words).
@@ -45,6 +49,7 @@ import SwiftUI
     /// The dial: open that day and fly to its star.
     func jump(_ id: String) {
         if id != days.last?.id { open.insert(id) }
+        lastJump = id
         target = id == days.last?.id ? StarState.end : "day-\(id)"
     }
     /// Next (+1) or previous (-1) match: its day opens and home scrolls to it.
@@ -63,6 +68,7 @@ import SwiftUI
         query = ""
         searching = false
         hit = nil
+        lastJump = nil
         target = StarState.end
     }
     /// Something earlier is showing (Back to now appears).

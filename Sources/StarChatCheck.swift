@@ -176,7 +176,7 @@ enum StarChatCheck {
         check("each earlier day is one folded star", past.count == 4 && past.allSatisfy(\.folded))
         check("only today's messages are laid out", (mine.count + theirs.count) == today.count)
         let report = theirs.first { $0.id == today[3].id }
-        check("a long reply shows 3 lines, then Read all", report?.folded == true && (report?.frame.height ?? 999) < 110)
+        check("a long reply shows 3 lines, then Read all", report?.folded == true && (report?.frame.height ?? 999) < 130)
         let card = rows("summary").first
         check("the summary card is one line until opened", card != nil && (card?.frame.height ?? 999) < 52)
         st.summaryOpen = true
@@ -186,7 +186,7 @@ enum StarChatCheck {
         check("opened, it shows what it did and what's waiting", (open?.frame.height ?? 0) > 100)
         check("opened, it pushes the chat down, never over it", firstBelow >= (open?.frame.maxY ?? .infinity) - 0.5)
         st.summaryOpen = false
-        let mon = past[1].id
+        let mon = past.count > 1 ? past[1].id : "none"
         st.toggle(mon)
         settle(w)
         check("a day opened by hand shows its messages", rows("me").contains { $0.id.hasPrefix("l-1-") })

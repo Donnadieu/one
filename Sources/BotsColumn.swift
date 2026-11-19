@@ -330,97 +330,6 @@ struct BotThreads: View {
     }
 }
 
-/// The top of a bot's chat: its moon, name, room and job, the three quiet facts, and "What it did".
-struct BotHeader: View {
-    @ObservedObject var m: Model
-    let h: Helper
-    let b: BotInfo
-    var body: some View {
-        let days = Bots.days(b)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                BotMoon(hex: Bots.hex(b.color), size: 40, t: 21.7, needsYes: h.state == "needsYes" || m.stepWaiting(h))
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(b.name).font(.headline)
-                        Text("· " + BotsColumn.line(h, waiting: m.stepWaiting(h))).foregroundStyle(
-                            h.state == "needsYes" || m.stepWaiting(h) ? Color.orange : Color.secondary
-                        ).lineLimit(1)
-                    }
-                    Text("\(b.room) room · \(b.job)").font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                    Text(Bots.facts(b, remembered: Bots.remembered(b))).font(.system(size: 11.5)).foregroundStyle(WorldLook.cream.opacity(0.45))
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 4)
-                Menu {
-                    BotMenuItems(m: m, h: h)
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("About, edit, archive or delete \(b.name)")
-                Button {
-                    withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil }
-                } label: {
-                    Label(m.name, systemImage: "chevron.left")
-                }
-                .buttonStyle(.bordered).controlSize(.small).help("Back to \(m.name)")
-            }
-            if !days.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("WHAT IT DID").font(.system(size: 9.5, weight: .semibold)).tracking(1.1).foregroundStyle(WorldLook.cream.opacity(0.32))
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(days.indices, id: \.self) { i in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 0) {
-                                    Circle().fill(Color(hex: Bots.hex(b.color), i == days.count - 1 ? 1 : 0.55)).frame(width: 7, height: 7)
-                                    Rectangle().fill(WorldLook.cream.opacity(i == days.count - 1 ? 0 : 0.12)).frame(height: 1)
-                                }
-                                Text(days[i].day).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(WorldLook.cream.opacity(0.7))
-                                Text(days[i].what).font(.system(size: 10.5)).foregroundStyle(WorldLook.cream.opacity(0.45)).lineLimit(2)
-                                    .padding(.trailing, 10)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-            }
-            Rectangle().fill(WorldLook.cream.opacity(0.08)).frame(height: 1)
-        }
-    }
-}
-
-/// A bot's kept chat: its last few exchanges, oldest first (the engine keeps the whole conversation).
-struct BotThread: View {
-    let h: Helper
-    var body: some View {
-        let all = h.log ?? []
-        let log = Array(all.suffix(6))
-        VStack(alignment: .leading, spacing: 14) {
-            if all.count > log.count {
-                Text("Earlier messages are kept in its memory.").font(.system(size: 11)).foregroundStyle(WorldLook.cream.opacity(0.35))
-            }
-            ForEach(log.indices, id: \.self) { i in entry(log[i]) }
-            if h.state == "working", let a = h.asked, !a.isEmpty {
-                LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true)
-            }
-            if log.isEmpty && h.state != "working" {
-                Text("Nothing yet. Tell it what you need below.").foregroundStyle(.secondary)
-            }
-        }
-    }
-    @ViewBuilder func entry(_ e: String) -> some View {
-        let you = "**You:** "
-        if e.hasPrefix(you), let cut = e.range(of: "\n\n") {
-            LongFoldText(
-                text: String(e[e.index(e.startIndex, offsetBy: you.count)..<cut.lowerBound]), key: nil, size: ChatText.callout, plain: true,
-                accent: true)
-            ChatText(text: String(e[cut.upperBound...]), size: 14.5).frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            ChatText(text: e, size: 14.5).frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
 /// "Keep as a bot" on a finished helper: its name, a colour, its room. Then it stays on the left with its chat.
 struct KeepBotCard: View {
     @ObservedObject var m: Model
@@ -505,30 +414,5 @@ struct KeepBotCard: View {
             rooms = found
             if room == nil { room = (found.first { !$0.isPrivate } ?? found.first)?.path }
         }
-    }
-}
-
-/// While a bot's chat is open the assistant stays home: its orb small and dim above the chat; a tap goes back.
-struct IrisHome: View {
-    @ObservedObject var m: Model
-    var body: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.3)) { m.openHelper = nil }
-        } label: {
-            VStack(spacing: 2) {
-                Group {
-                    if HomeView.still {
-                        Presence(t: 30, lean: .zero, voice: 0, energy: 0).frame(width: 280, height: 280).scaleEffect(0.26)
-                    } else {
-                        Orb(size: 26)
-                    }
-                }
-                .frame(width: 74, height: 74)
-                Text("Back to \(m.name)").font(.system(size: 11, weight: .medium)).foregroundStyle(WorldLook.cream.opacity(0.5))
-            }
-            .opacity(0.75).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).help("Back to \(m.name)")
-        .anchorPreference(key: BotAnchors.self, value: .center) { ["orb": $0] }
     }
 }

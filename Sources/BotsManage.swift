@@ -340,6 +340,7 @@ extension Model {
         let steps = BotStore.delete(&hs, at: i, routines: Model.ownRoutines())
         helpers = hs
         saveHelpers()
+        BotChat.remove(id)  // its kept chat goes with it
         runRoutineSteps(steps)
         Helpers.log("bot \"\(name)\" deleted with \(steps.count) routine(s)")
     }

@@ -6,7 +6,10 @@ import SwiftUI
 // messages open) and a helper's chat. Everything here is invented; bots' rooms and memory go under ONE_SUPPORT_DIR.
 
 enum ChatTodayRender {
-    static let names = ["chat-today-bot", "chat-today-bot-end", "chat-today-iris", "chat-today-iris-history", "chat-today-helper"]
+    static let names = [
+        "star-bot", "star-bot-summary", "star-bot-search", "star-bot-day", "star-iris", "star-helper", "chat-today-bot", "chat-today-bot-end",
+        "chat-today-iris", "chat-today-iris-history", "chat-today-helper",
+    ]
 
     /// Draws `name` into `<path>`; false when the name isn't one of these.
     @MainActor static func draw(_ name: String, _ dir: String, _ path: String) -> Bool {
@@ -15,7 +18,45 @@ enum ChatTodayRender {
         let v = BotsRender.home("bots-chat", dir)  // the home with four bots, Growth bot open
         m.assistantName = "Iris"
         HomeView.stillHistory = false
+        let st = StarState.shared
+        let growth = m.helpers.first { $0.bot?.name == "Growth bot" }
+        st.chat = ""
+        st.reset(for: growth?.id.uuidString ?? "render")  // the chat opening finds it already set up, and keeps these states
+        StarState.assistant.chat = ""
+        StarState.assistant.reset(for: "render-\(name)")
+        if let g = growth { BotChat.still[g.id] = dated(14) }
         switch name {
+        case "star-bot", "star-bot-summary", "star-bot-search", "star-bot-day":
+            m.openHelper = growth?.id
+            HomeView.stillBottom = name != "star-bot-day"
+            st.summaryOpen = name == "star-bot-summary"
+            if name == "star-bot-search" {
+                st.searching = true
+                st.query = "county"
+            }
+            if name == "star-bot-day" {
+                _ = st.days(BotChat.still[growth!.id] ?? [])
+                st.toggle(st.days[st.days.count - 3].id)
+            }
+        case "star-iris":
+            m.openHelper = nil
+            m.bubbles = irisTurns
+            HomeView.stillBottom = true
+            StarState.assistant.summaryOpen = true
+        case "star-helper":
+            var h = Helper(title: "Business playbook", task: "Find a playbook", sid: "render-help", state: "needsYes", line: "Needs your yes")
+            let ask = "\n\nShould I check property tax appeals in 3 counties first?"
+            h.log = report.map { "**You:** \($0.0)\n\n\($0.1)" }
+            h.log?[2] += ask
+            h.reply = report[2].1 + ask + "\n\n[choices: Yes, check them | Not now]"
+            h.started = Date().addingTimeInterval(-3600)
+            h.seen = true
+            m.helpers.insert(h, at: 0)
+            m.openHelper = h.id
+            HomeView.stillBottom = true
+            st.chat = ""
+            st.reset(for: h.id.uuidString)
+            st.summaryOpen = true
         case "chat-today-bot", "chat-today-bot-end":
             if let i = m.helpers.firstIndex(where: { $0.bot?.name == "Growth bot" }) { m.helpers[i].log = botLog }
             HomeView.stillBottom = name == "chat-today-bot-end"
@@ -54,6 +95,30 @@ enum ChatTodayRender {
             "Here are 5 county-level problems with a deadline and money already owed: property tax appeals, unclaimed funds, permit renewals, small-claims filings and business license renewals. Property tax appeals look strongest."
         ),
     ]
+
+    /// A bot's whole chat with times: `days` days, a few exchanges each (BotChat.still).
+    static func dated(_ days: Int) -> [StarLine] {
+        let cal = Calendar.current
+        var out: [StarLine] = []
+        for d in 0..<days {
+            let day = cal.startOfDay(for: cal.date(byAdding: .day, value: d - days + 1, to: Date()) ?? Date())
+            for k in 0..<(d % 3 + 2) {
+                let at = cal.date(byAdding: .minute, value: 8 * 60 + k * 23, to: day) ?? day
+                let r = report[(d + k) % report.count]
+                let ms = Int(at.timeIntervalSince1970 * 1000)
+                if (d + k) % 4 == 0 {
+                    out.append(
+                        StarLine(
+                            id: "\(ms)-ai-\(out.count)", me: false,
+                            text: "**Morning check.** Your ads brought \(4 + d % 5) clicks yesterday, \(d % 3) from Oak Park.", date: at))
+                } else {
+                    out.append(StarLine(id: "\(ms)-me-\(out.count)", me: true, text: r.0, date: at))
+                    out.append(StarLine(id: "\(ms + 1)-ai-\(out.count)", me: false, text: r.1, date: at.addingTimeInterval(120)))
+                }
+            }
+        }
+        return out
+    }
 
     /// A bot's kept chat: 40 exchanges over two weeks, long reports among short ones.
     static let botLog: [String] = (0..<40).map { i in

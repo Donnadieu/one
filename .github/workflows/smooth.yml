@@ -49,7 +49,20 @@ jobs:
         run: |
           APP=$(tools/test-copy.sh smooth "$RUNNER_TEMP/smooth-app.noindex")
           mkdir -p "$RUNNER_TEMP/smooth2" "$RUNNER_TEMP/smooth-samples"
-          ONE_SMOOTH_SAMPLE="$RUNNER_TEMP/smooth-samples" ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth2" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth > "$RUNNER_TEMP/smooth-samples/run.txt" 2>&1 || true
+          D="$RUNNER_TEMP/smooth-samples"
+          ONE_SMOOTH_SAMPLE="$D" ONE_SUPPORT_DIR="$RUNNER_TEMP/smooth2" perl -e 'alarm 240; exec @ARGV' "$APP/Contents/MacOS/One" --test-smooth > "$D/run.txt" 2>&1 &
+          RUN=$!
+          # The check leaves <name>.want ("<pid> <seconds>") when it wants a profile; Apple's sample needs sudo here.
+          while kill -0 $RUN 2>/dev/null; do
+            for f in "$D"/*.want; do
+              [ -e "$f" ] || continue
+              read -r P SECS < "$f"; n=$(basename "$f" .want); rm -f "$f"
+              sudo /usr/bin/sample "$P" "$SECS" -mayDie -file "$D/$n.txt" >/dev/null 2>&1 &
+            done
+            sleep 0.5
+          done
+          wait || true
+          ls -la "$D"
       - name: Keep the profiles
         if: always()
         uses: actions/upload-artifact@v4

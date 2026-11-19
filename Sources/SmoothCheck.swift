@@ -13,16 +13,20 @@ import SwiftUI
 //   view to redraw;
 // - typing: 30 real keystrokes into the "Or say it your way…" box, each timed from the key to the drawn window;
 // - transitions: a bot's chat, Routines and Rooms opened and closed, the longest frame gap in each.
+// The main thread's own work is told apart from waiting: every 1 ms beat also reads the main thread's CPU time, so a
+// long gap with the CPU busy is a hitch One caused (`burst`), and a long gap with the CPU idle is the Mac's drawing
+// (a CI runner's graphics are slow and shared; frames per second there are printed, never judged).
 // Budgets at the end (`Budget`); a run over any budget fails. Test copy only, its own settings and scratch folder.
 enum SmoothCheck {
     /// The budgets: typing never drops a frame at 120 Hz, the main thread mostly free while the orbs move.
     enum Budget {
-        static let keyP95 = 8.3  // ms from a keystroke to the drawn window, 95th percentile (one 120 Hz frame)
+        static let keyP95 = 8.3  // ms of main-thread work for a keystroke, to the screen updated, 95th percentile (one 120 Hz frame)
         static let keyMax = 16.7  // ms, the slowest keystroke (one 60 Hz frame)
         static let idleBusy = 0.30  // the main thread's share of one core while 8 bots and the helpers animate
-        static let hitches = 0.03  // late frames, of all frames, idle and while typing
-        static let publishes = 12.0  // model changes a second while helpers stream words
-        static let transition = 50.0  // ms, the longest frame gap while a screen opens or closes
+        static let burst = 16.7  // ms, the longest the main thread worked without a break, idle or typing
+        static let hitches = 0.03  // beats late by more than a frame because the main thread was working
+        static let publishes = 12.0  // redraws a second the model asks for while helpers stream words
+        static let transition = 50.0  // ms, the longest main-thread burst while a screen opens or closes
     }
 
     nonisolated static func main(_ args: [String]) {
@@ -45,17 +49,19 @@ enum SmoothCheck {
     // MARK: What is recorded
 
     @MainActor static var frames: [CFTimeInterval] = []
-    @MainActor static var beats: [CFTimeInterval] = []
+    @MainActor static var beats: [(wall: CFTimeInterval, cpu: Double)] = []
     @MainActor static var publishes = 0
     @MainActor static var recording = false
     @MainActor static var cancel: AnyCancellable?
 
     struct Window {
         var frames: [Double]  // ms between frames
-        var longestBusy: Double  // ms
+        var longestBusy: Double  // ms, the longest gap between beats (working or waiting)
         var busy: Double  // main-thread CPU ÷ wall time
         var publishes: Double  // a second
         var period: Double  // ms per frame on this screen
+        var burst = 0.0  // ms of main-thread CPU in the longest gap between beats
+        var hitchShare = 0.0  // gaps longer than a frame with the main thread working most of it, per frame of time
         var late: Int { frames.filter { $0 > period * 1.5 }.count }
         var lateShare: Double { frames.isEmpty ? 1 : Double(late) / Double(frames.count) }
         var fps: Double { frames.isEmpty ? 0 : 1000 / (frames.reduce(0, +) / Double(frames.count)) }
@@ -77,21 +83,34 @@ enum SmoothCheck {
         return u + s
     }
 
-    @MainActor static func record(_ seconds: Double) async -> Window {
+    @MainActor static func start() -> (wall: CFTimeInterval, cpu: Double) {
         frames = []
         beats = []
         publishes = 0
-        let cpu0 = threadCPU()
-        let t0 = CACurrentMediaTime()
         recording = true
-        try? await Task.sleep(for: .seconds(seconds))
+        return (CACurrentMediaTime(), threadCPU())
+    }
+
+    @MainActor static func stop(_ from: (wall: CFTimeInterval, cpu: Double)) -> Window {
         recording = false
-        let wall = CACurrentMediaTime() - t0
-        let busy = (threadCPU() - cpu0) / max(wall, 0.001)
-        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
-        let blocks = zip(beats.dropFirst(), beats).map { ($0 - $1) * 1000 }
+        let wall = CACurrentMediaTime() - from.wall
+        let busy = (threadCPU() - from.cpu) / max(wall, 0.001)
         let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
-        return Window(frames: gaps, longestBusy: blocks.max() ?? 999, busy: busy, publishes: Double(publishes) / wall, period: 1000 / max(hz, 1))
+        let period = 1000 / max(hz, 1)
+        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
+        let pairs = zip(beats.dropFirst(), beats).map { (wall: ($0.wall - $1.wall) * 1000, cpu: ($0.cpu - $1.cpu) * 1000) }
+        let hitches = pairs.filter { $0.wall > period && $0.cpu > period * 0.8 }.count
+        var w = Window(
+            frames: gaps, longestBusy: pairs.map(\.wall).max() ?? 999, busy: busy, publishes: Double(publishes) / wall, period: period)
+        w.burst = pairs.map(\.cpu).max() ?? 999
+        w.hitchShare = Double(hitches) / max(1, wall * 1000 / period)
+        return w
+    }
+
+    @MainActor static func record(_ seconds: Double) async -> Window {
+        let from = start()
+        try? await Task.sleep(for: .seconds(seconds))
+        return stop(from)
     }
 
     // MARK: The made-up home
@@ -162,16 +181,13 @@ enum SmoothCheck {
         return w
     }
 
-    /// `ONE_SMOOTH_SAMPLE=<dir>`: a time profile of this run (Apple's `sample`) for `seconds`, saved as <dir>/<name>.txt.
-    static func profile(_ name: String, seconds: Int) {
+    /// `ONE_SMOOTH_SAMPLE=<dir>`: asks for a time profile of the next `seconds` by leaving <dir>/<name>.want; the
+    /// workflow's loop runs Apple's `sample` on this process for it (it needs the runner's sudo) and writes <name>.txt.
+    @MainActor static func profile(_ name: String, seconds: Int) async {
         guard let dir = ProcessInfo.processInfo.environment["ONE_SMOOTH_SAMPLE"] else { return }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")  // the CI runner's own sudo (no password there)
-        p.arguments = ["-n", "/usr/bin/sample", String(getpid()), String(seconds), "-mayDie", "-file", "\(dir)/\(name).txt"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
+        try? "\(getpid()) \(seconds)".write(toFile: "\(dir)/\(name).want", atomically: true, encoding: .utf8)
+        try? await Task.sleep(for: .milliseconds(700))  // the loop looks twice a second, and sample takes a moment to attach
     }
 
     static func textView(in v: NSView) -> NSTextView? {
@@ -200,7 +216,9 @@ enum SmoothCheck {
             }
         }
         // A fast heartbeat: a long gap between beats = the main thread was busy that long.
-        let beat = Timer(timeInterval: 0.001, repeats: true) { _ in MainActor.assumeIsolated { if recording { beats.append(CACurrentMediaTime()) } } }
+        let beat = Timer(timeInterval: 0.001, repeats: true) { _ in
+            MainActor.assumeIsolated { if recording { beats.append((CACurrentMediaTime(), threadCPU())) } }
+        }
         RunLoop.main.add(beat, forMode: .common)
         // Working helpers stream words the way the engine sends them: 4 helpers, about 10 pieces a second each.
         var k = 0
@@ -227,27 +245,33 @@ enum SmoothCheck {
         for n in bots {
             world(bots: n)
             try? await Task.sleep(for: .seconds(1.5))
-            if n == bots.max() { profile("idle-\(n)-bots", seconds: 3) }
+            if n == bots.max() { await profile("idle-\(n)-bots", seconds: 3) }
             let idle = await record(3)
             print(
                 String(
                     format:
-                        "bots %d, idle: main thread %.0f%% busy, %.0f fps, %d of %d frames late, longest frame %.1f ms, busy up to %.1f ms, %.1f model changes/s",
-                    n, idle.busy * 100, idle.fps, idle.late, idle.frames.count, idle.longestFrame, idle.longestBusy, idle.publishes))
-            if n == bots.max() { profile("typing-\(n)-bots", seconds: 3) }
+                        "bots %d, idle: main thread %.0f%% busy, longest burst %.1f ms, %.1f%% hitches; %.1f redraws/s asked; screen: %.0f fps, %d of %d frames late, longest %.1f ms",
+                    n, idle.busy * 100, idle.burst, idle.hitchShare * 100, idle.publishes, idle.fps, idle.late, idle.frames.count, idle.longestFrame))
+            if n == bots.max() { await profile("typing-\(n)-bots", seconds: 3) }
             let keys = await typing(win)
             print(
                 String(
-                    format: "bots %d, typing: key to drawn p50 %.1f ms, p95 %.1f ms, max %.1f ms; %d of %d frames late, busy up to %.1f ms",
-                    n, keys.p50, keys.p95, keys.max, keys.window.late, keys.window.frames.count, keys.window.longestBusy))
-            over(keys.p95 > Budget.keyP95, String(format: "bots %d: typing p95 %.1f ms (budget %.1f)", n, keys.p95, Budget.keyP95))
+                    format:
+                        "bots %d, typing: a keystroke's work p50 %.1f ms, p95 %.1f ms, max %.1f ms (to drawn on this runner p50 %.1f, p95 %.1f); longest burst %.1f ms, %.1f%% hitches; screen: %d of %d frames late",
+                    n, keys.p50, keys.p95, keys.max, keys.drawnP50, keys.drawnP95, keys.window.burst, keys.window.hitchShare * 100, keys.window.late,
+                    keys.window.frames.count))
+            over(keys.p95 > Budget.keyP95, String(format: "bots %d: a keystroke's work p95 %.1f ms (budget %.1f)", n, keys.p95, Budget.keyP95))
             over(keys.max > Budget.keyMax, String(format: "bots %d: slowest keystroke %.1f ms (budget %.1f)", n, keys.max, Budget.keyMax))
+            over(idle.burst > Budget.burst, String(format: "bots %d: a %.1f ms burst while idle (budget %.1f)", n, idle.burst, Budget.burst))
             over(
-                idle.lateShare > Budget.hitches,
-                String(format: "bots %d: %.0f%% of idle frames late (budget %.0f%%)", n, idle.lateShare * 100, Budget.hitches * 100))
+                keys.window.burst > Budget.burst,
+                String(format: "bots %d: a %.1f ms burst while typing (budget %.1f)", n, keys.window.burst, Budget.burst))
             over(
-                keys.window.lateShare > Budget.hitches,
-                String(format: "bots %d: %.0f%% of frames late while typing (budget %.0f%%)", n, keys.window.lateShare * 100, Budget.hitches * 100))
+                idle.hitchShare > Budget.hitches,
+                String(format: "bots %d: %.1f%% hitches while idle (budget %.0f%%)", n, idle.hitchShare * 100, Budget.hitches * 100))
+            over(
+                keys.window.hitchShare > Budget.hitches,
+                String(format: "bots %d: %.1f%% hitches while typing (budget %.0f%%)", n, keys.window.hitchShare * 100, Budget.hitches * 100))
             over(
                 idle.publishes > Budget.publishes,
                 String(format: "bots %d: %.0f model changes a second (budget %.0f)", n, idle.publishes, Budget.publishes))
@@ -269,18 +293,18 @@ enum SmoothCheck {
             ("Rooms opens", { RoomsWindow.show(m) }), ("Rooms closes", { RoomsWindow.panel?.close() }),
         ]
         for (what, act) in steps {
-            frames = []
-            beats = []
-            recording = true
-            if what.hasSuffix("opens") { profile(what.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "'", with: ""), seconds: 1) }
-            if ProcessInfo.processInfo.environment["ONE_SMOOTH_SAMPLE"] != nil { try? await Task.sleep(for: .milliseconds(400)) }
+            if what.hasSuffix("opens") {
+                await profile(what.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "'", with: ""), seconds: 1)
+            }
+            let from = start()
             withAnimation(.easeOut(duration: 0.3)) { act() }
-            let w = await record(0.8)
+            try? await Task.sleep(for: .seconds(0.8))
+            let w = stop(from)
             print(
                 String(
-                    format: "%@: longest frame %.1f ms, %d of %d frames late, busy up to %.1f ms", what, w.longestFrame, w.late, w.frames.count,
-                    w.longestBusy))
-            over(w.longestFrame > Budget.transition, String(format: "%@: a %.0f ms frame (budget %.0f)", what, w.longestFrame, Budget.transition))
+                    format: "%@: longest burst %.1f ms, main thread %.0f%% busy; screen: longest frame %.1f ms, %d of %d frames late", what, w.burst,
+                    w.busy * 100, w.longestFrame, w.late, w.frames.count))
+            over(w.burst > Budget.transition, String(format: "%@: a %.0f ms burst (budget %.0f)", what, w.burst, Budget.transition))
             try? await Task.sleep(for: .milliseconds(300))
         }
         win.close()
@@ -293,6 +317,8 @@ enum SmoothCheck {
         var p50: Double
         var p95: Double
         var max: Double
+        var drawnP50 = 0.0
+        var drawnP95 = 0.0
         var window: Window
     }
 
@@ -304,32 +330,31 @@ enum SmoothCheck {
         }
         win.makeFirstResponder(tv)
         try? await Task.sleep(for: .milliseconds(300))
-        var times: [Double] = []
-        frames = []
-        beats = []
-        publishes = 0
-        let cpu0 = threadCPU()
-        let t0 = CACurrentMediaTime()
-        recording = true
+        var work: [Double] = []
+        var drawn: [Double] = []
+        let from = start()
         for ch in "the quick brown fox jumps over" {
+            // The keystroke's own work: the box takes the letter, the screen's views and layout update, the window
+            // draws and hands its layers over. `work` is the main thread's CPU for all of it (the same on any Mac);
+            // `drawn` is the wall time, which on a CI runner includes waiting for its slow shared graphics.
             let a = CACurrentMediaTime()
+            let c = threadCPU()
             tv.insertText(String(ch), replacementRange: tv.selectedRange())
             root.layoutSubtreeIfNeeded()
             win.displayIfNeeded()
             CATransaction.flush()
-            times.append((CACurrentMediaTime() - a) * 1000)
+            work.append((threadCPU() - c) * 1000)
+            drawn.append((CACurrentMediaTime() - a) * 1000)
             try? await Task.sleep(for: .milliseconds(80))
         }
-        recording = false
-        let wall = CACurrentMediaTime() - t0
-        let gaps = zip(frames.dropFirst(), frames).map { ($0 - $1) * 1000 }
-        let blocks = zip(beats.dropFirst(), beats).map { ($0 - $1) * 1000 }
-        let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
-        let w = Window(
-            frames: gaps, longestBusy: blocks.max() ?? 999, busy: (threadCPU() - cpu0) / wall, publishes: Double(publishes) / wall, period: 1000 / hz)
+        let w = stop(from)
         tv.string = ""
         tv.didChangeText()
-        let s = times.sorted()
-        return Keys(p50: s[s.count / 2], p95: s[min(s.count - 1, Int(Double(s.count) * 0.95))], max: s.last ?? 999, window: w)
+        func pct(_ v: [Double], _ p: Double) -> Double {
+            let s = v.sorted()
+            return s[min(s.count - 1, Int(Double(s.count) * p))]
+        }
+        return Keys(
+            p50: pct(work, 0.5), p95: pct(work, 0.95), max: work.max() ?? 999, drawnP50: pct(drawn, 0.5), drawnP95: pct(drawn, 0.95), window: w)
     }
 }

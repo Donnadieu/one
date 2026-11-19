@@ -28,6 +28,9 @@ if "func helperStreamed(" not in src:
     (w / "SmoothCompat.swift").write_text(
         "import Foundation\n@MainActor extension Model {\n    func helperStreamed(_ id: UUID, _ s: String) {\n"
         "        helperUnderway(id)\n        update(id) { $0.reply += s }\n        pulseText(id, s)\n        saveTrail(id, force: false)\n    }\n}\n")
+if "enum Motion" not in src:
+    with open(w / "SmoothCompat.swift", "a") as f:
+        f.write("\nenum Motion {\n    nonisolated(unsafe) static var every: Double? = nil\n}\n")
 if "struct BotInfo" not in src:
     c = w / "SmoothCheck.swift"
     t = c.read_text()

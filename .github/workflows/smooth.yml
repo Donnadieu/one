@@ -25,7 +25,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 40 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - name: Use the newest Xcode on the runner
         run: |

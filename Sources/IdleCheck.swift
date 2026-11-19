@@ -209,10 +209,14 @@ enum IdleCheck {
         }
         if let four {
             over(four.main > Budget.workersMain, "4 at work: main thread \(pct(four.main)) (budget \(pct(Budget.workersMain)))")
-            // Their circling lights still move at the screen's full rate (the smoothness Omar asked for, Nov 18).
+            // Their circling lights still move at the screen's full rate (the smoothness Omar asked for, Nov 18), unless
+            // the Mac's Reduce Motion is on (then helpers hold still on purpose).
             let hz = Double(NSScreen.main?.maximumFramesPerSecond ?? 60)
+            let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            print("  (Reduce Motion \(still ? "on: helpers hold still" : "off"))")
             over(
-                four.homeDraws < 4 * hz * 0.4, "4 at work: drew only \(String(format: "%.0f", four.homeDraws)) a second (their lights at \(Int(hz)))")
+                !still && four.homeDraws < 4 * hz * 0.4,
+                "4 at work: drew only \(String(format: "%.0f", four.homeDraws)) a second (their lights at \(Int(hz)))")
         }
         working(0)
         try? await Task.sleep(for: .seconds(1))

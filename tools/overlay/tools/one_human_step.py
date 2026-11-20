@@ -33,6 +33,14 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+try:  # the helper's own tab (one_own_tab.py, copied next to this file); tests load both from tools/overlay
+    from tools import one_own_tab as _own
+except ImportError:
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("tools.one_own_tab", Path(__file__).with_name("one_own_tab.py"))
+    _own = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_own)
+
 MAX_AUTO_TRIES = 2
 WAIT_SECONDS = int(os.environ.get("ONE_HANDOFF_WAIT", "480"))
 HUMAN_KINDS = ("code", "security_key", "passkey", "approve", "check")
@@ -313,12 +321,14 @@ def find_session(url: str, exclude_port: int = 0) -> Optional[dict]:
     return None
 
 
-def pick_step_tab(host: str, port: int, kinds: tuple = HUMAN_KINDS, prefer_url: str = "") -> Optional[dict]:
-    """The open tab most clearly asking for a human step (highest score; the agent's own page wins ties)."""
+def pick_step_tab(host: str, port: int, kinds: tuple = HUMAN_KINDS, prefer_url: str = "", only: str = "",
+                  skip: frozenset = frozenset()) -> Optional[dict]:
+    """The open tab most clearly asking for a human step (highest score; the agent's own page wins ties). With
+    `only`, just that tab (the helper's own); `skip` = tabs other helpers are working in."""
     best: Optional[dict] = None
     for t in _pages(host, port):
         ws = t.get("webSocketDebuggerUrl")
-        if not ws:
+        if not ws or (only and t.get("id") != only) or t.get("id") in skip:
             continue
         step = page_step(ws)
         if step.get("kind") not in kinds:
@@ -711,8 +721,9 @@ def _open_request(target_id: str) -> Optional[dict]:
     return None
 
 
-def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait: Optional[float] = None) -> dict:
-    """Show the person the page (same browser, same tab) and wait for Done / I'm not at the Mac."""
+def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait: Optional[float] = None,
+             target_id: str = "") -> dict:
+    """Show the person the page (same browser, the helper's own tab) and wait for Done / I'm not at the Mac."""
     tid = task_id or "default"
     port = _local_port(tid)
     current = ""
@@ -730,6 +741,9 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                 "phone_fallback": phone_fallback(site, k),
                 "next": "Tell the person in one short line what the site needs and give them the phone_fallback. Never ask for a code in chat."}
     host, p = port
+    own = _own.own_tab(host, p, tid, target_id)
+    only, skip = (own["id"], frozenset()) if own else ("", _own.others_tabs(tid))
+    current = own.get("url", "") if own else current
     if kind in ("", "sign_in") and current:
         # Never ask the person for a sign-in another of One's own hidden browsers already has.
         found = find_session(current, exclude_port=p)
@@ -740,19 +754,19 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                              f"the person: open this same page there instead (http://127.0.0.1:{found['port']}/json/new?"
                              "<url>) and carry on the job on that tab. Never mix work between two different hidden "
                              "browsers mid-job; finish this task on the one that's signed in.")}
-    tab = pick_step_tab(host, p, prefer_url=current)
+    tab = pick_step_tab(host, p, prefer_url=current, only=only, skip=skip)
     # One decides the kind from the page, not from the helper's guess: a page with a code box is a code step (the card's
     # box), whatever was asked. Nov 11 2026: the DocuSign helper called its SMS code page "approve", so Omar got a
     # "tap to approve on your phone" ask and a window instead of the code box. A robot check stays a robot check.
     if kind != "check" and not (tab and tab.get("kind") == "check"):
-        seen = pick_step_tab(host, p, kinds=("code",), prefer_url=current)
+        seen = pick_step_tab(host, p, kinds=("code",), prefer_url=current, only=only, skip=skip)
         if seen is not None and seen.get("ws") and (not current or seen.get("url") == current or tab is None
                                                     or tab.get("target_id") == seen.get("target_id")):
             kind = "code"
     if kind == "code":
         # Never ask for a code the site hasn't sent: the page must show a code box. Nov 11 2026: DocuSign's SMS step
         # asks for a phone number first, at the same address the code box later appears on.
-        code_tab = pick_step_tab(host, p, kinds=("code",), prefer_url=current)
+        code_tab = pick_step_tab(host, p, kinds=("code",), prefer_url=current, only=only, skip=skip)
         if code_tab is None or not code_tab.get("ws"):
             site = _site(current or (tab or {}).get("url", "")) or "the site"
             return {"success": False, "error_type": "not_a_code_step", "site": site,
@@ -763,7 +777,7 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
         tab = code_tab
     if tab is None:
         # No tab looks like a human step: show the agent's own page (the person may see something the probe missed).
-        pages = _pages(host, p)
+        pages = [x for x in _pages(host, p) if (x.get("id") == only if only else x.get("id") not in skip)]
         t = next((x for x in pages if x.get("url") == current), pages[0] if pages else None)
         if t is None:
             return {"success": False, "error_type": "no_page", "error": "No open page to show."}
@@ -771,16 +785,20 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                "title": t.get("title", ""), "kind": kind or "check", "score": 0}
     k = kind if kind in ASKING else (tab["kind"] if tab["kind"] in ASKING else "check")
     site = _site(tab["url"]) or "the site"
+    forward = _own.bring_forward(host, p, tab["target_id"])
     if k == "code" and tab.get("ws"):
         with _person_wait():
             out = code_step(tab, site, p, why, WAIT_SECONDS if wait is None else wait, session=tid)
         _failures.pop(_key(tid, site), None)
+        if out.get("target_id") != tab["target_id"]:
+            _own.note(tid, out.get("target_id") or "", out.get("url") or "")
         return out
     req = _open_request(tab["target_id"])
     if req is None:
         req = {"id": secrets.token_hex(6), "created": time.time(), "site": site, "kind": k, "port": p,
                "target_id": tab["target_id"], "url": tab["url"], "title": tab.get("title", ""),
-               "line": line_for(site, k), "phone_fallback": phone_fallback(site, k), "why": why[:200], "session": tid}
+               "line": line_for(site, k), "phone_fallback": phone_fallback(site, k), "why": why[:200], "session": tid,
+               "own_tab": bool(own), "brought_forward": forward}
         _write_json(handoff_dir() / f"{req['id']}.request.json", req)
     start_url = tab["url"]
     # Every step is done in the real window: One closes the hidden browser for it and brings the page back in a new
@@ -814,6 +832,7 @@ def hand_off(kind: str = "", task_id: Optional[str] = None, why: str = "", wait:
                              f"didn't reopen. Open {ans.get('url') or start_url} again in a new tab and check it moved on; "
                              "if it still asks, tell the person plainly and stop.")}
         tab = {"target_id": new.get("id"), "ws": new.get("webSocketDebuggerUrl"), "url": new.get("url")}
+        _own.note(tid, tab["target_id"], tab["url"] or "")
         time.sleep(3)
     after = page_step(tab["ws"]) if tab.get("ws") else {"kind": "unknown"}
     moved = after.get("kind") not in HUMAN_KINDS or (after.get("url") and after.get("url") != start_url
@@ -1175,6 +1194,7 @@ def install(ns: dict) -> None:
         return json.dumps(res)
 
     ns["browser_vault_enter_code"] = enter_code
+    _own.wrap_browser_exec()  # each browser_exec call notes the tab this helper ends on (one_own_tab.py)
 
     schema = ns["BROWSER_VAULT_SCHEMA"]
     props = schema["parameters"]["properties"]
@@ -1184,12 +1204,14 @@ def install(ns: dict) -> None:
         props["action"]["enum"].append("find_session")
     props["kind"] = {"type": "string", "enum": list(ASKING),
                      "description": "hand_off only: what the site asks of the person (default: detected)."}
+    props["target_id"] = {"type": "string", "description": ("hand_off only: the tab to show, if you opened it outside "
+                          "browser_exec (default: the tab your last browser_exec call ended on; never another helper's).")}
     if "url" not in props:
         props["url"] = {"type": "string", "description": "find_session only: the page's URL (or just its site)."}
     schema["description"] += (
         " hand_off (kind optional): a step only the person can do (a code you can't enter, passkey, security key, "
         "approve on their device, CAPTCHA/Cloudflare check, OR SIMPLY A SIGN-IN WALL with no code/captcha — use "
-        "kind=sign_in there): One opens the person's real Chrome window on this very page with Done / I'm not at the Mac "
+        "kind=sign_in there): One opens the person's real Chrome window on this very page (your own tab: the one your last browser_exec call ended on, or target_id) with Done / I'm not at the Mac "
         "and the call waits, then reports moved_on (the page comes back in a NEW tab: carry on on the target_id it gives). "
         "One decides the kind from the page: a page with a code box is a code step whatever kind you pass. kind=code: "
         "the code is read from an inbox One can read, or One's card (or the person's phone chat) asks for it and it is "
@@ -1212,7 +1234,8 @@ def install(ns: dict) -> None:
     def handle_vault(args: dict, **kwargs) -> str:
         action = str(args.get("action") or "")
         if action == "hand_off":
-            return json.dumps(hand_off(str(args.get("kind") or ""), kwargs.get("task_id")))
+            return json.dumps(hand_off(str(args.get("kind") or ""), kwargs.get("task_id"),
+                                       target_id=str(args.get("target_id") or "")))
         if action == "find_session":
             url = str(args.get("url") or "")
             if not url:

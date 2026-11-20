@@ -92,9 +92,9 @@ for r in results:
     print("hand_off ->", json.dumps(r)[:300])
 ok = len(seen) == 2
 for req, front in seen:
-    ok = ok and req["target_id"] == a and req["url"].endswith("/login.html") and req.get("brought_forward") is True
-    if front != a:  # Chrome lists the most recently active tab first; told, not failed on (headless may not reorder)
-        print("note: tab A wasn't first in /json/list after the hand-off")
+    # Chrome lists the most recently active tab first: tab A must be in front of its browser (it was opened first).
+    ok = ok and req["target_id"] == a and req["url"].endswith("/login.html") and req.get("brought_forward") is True \
+        and front == a
 print("tab A (helper 1):", a, "| tab B (helper 2):", b)
 print("OWN TAB", "PASS" if ok else "FAIL")
 bu.stop_harness_daemons()

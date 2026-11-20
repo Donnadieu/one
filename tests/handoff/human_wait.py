@@ -68,14 +68,14 @@ hs.code_step = code_step
 hs._wait = wait
 
 print("A code hand-off waits inside the engine's human-wait window")
-hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="": dict(TAB)
+hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="", **_: dict(TAB)
 hs.hand_off(kind="code", task_id="t", why="test", wait=1)
 check("the code step ran with a human-wait window open", seen.get("code") == 1)
 check("the window closed when the hand-off returned", state["pending"] == 0)
 
 print("A window hand-off (sign-in, robot check) waits inside it too")
 plain = dict(TAB, kind="check", score=50)
-hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="": dict(plain) if "check" in kinds else None
+hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="", **_: dict(plain) if "check" in kinds else None
 hs.hand_off(kind="check", task_id="t", why="test", wait=1)
 check("the person's wait ran with a human-wait window open", seen.get("window") == 1)
 check("the window closed when the hand-off returned", state["pending"] == 0)
@@ -83,7 +83,7 @@ check("the window closed when the hand-off returned", state["pending"] == 0)
 print("Without the engine's module the hand-off still works")
 del sys.modules["tools.approval_human_wait"]
 seen.clear()
-hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="": dict(TAB)
+hs.pick_step_tab = lambda host, port, kinds=hs.HUMAN_KINDS, prefer_url="", **_: dict(TAB)
 r = hs.hand_off(kind="code", task_id="t", why="test", wait=1)
 check("the code step still ran", "code" in seen and r.get("moved_on") is True)
 

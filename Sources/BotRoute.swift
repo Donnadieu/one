@@ -133,7 +133,9 @@ enum BotRoute {
 @MainActor
 extension Model {
     /// The sign-in, code and robot-check cards for the chat that's open (BotRoute.steps).
-    var stepsHere: [HumanStepAsk] { BotRoute.steps(humanSteps, open: openHelper, in: helpers, helperFor: BlockedAsk.helperFor) }
+    var stepsHere: [HumanStepAsk] {
+        BotRoute.steps(humanSteps.filter { !RoutineCare.isAsk($0.id) }, open: openHelper, in: helpers, helperFor: BlockedAsk.helperFor)
+    }
     /// A step only they can do is waiting for this bot: the orange ring on its orb.
     func stepWaiting(_ h: Helper) -> Bool {
         h.bot != nil && humanSteps.contains { BotRoute.owner($0, in: helpers, helperFor: BlockedAsk.helperFor) == h.id }

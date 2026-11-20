@@ -342,7 +342,7 @@ enum Dial {
 // and skills (read only), with one made-up "want me to save…?" question so that moment shows.
 enum RoutinesRender {
     static func cli(_ args: [String]) {
-        guard let k = args.firstIndex(of: "--render-routines"), k + 1 < args.count else { return RoutinesCheck.cli(args) }
+        guard let k = args.firstIndex(of: "--render-routines"), k + 1 < args.count else { return RoutineCareCheck.cli(args) }
         MainActor.assumeIsolated { png(args[k + 1]) }
         exit(0)
     }

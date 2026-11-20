@@ -15,7 +15,9 @@ enum MessageHistoryCheck {
     static func launch() -> Bool {
         if LongPasteCheck.launch() { return true }
         // --test-chat-pages: earlier messages a page at a time (ChatPager.swift)
-        if ChatPagesCheck.launch() { return true }  // --test-long-paste, --render-long (long messages, LongText.swift)
+        if ChatPagesCheck.launch() { return true }
+        // --test-star-chat: the star path chat (StarPath.swift)
+        if StarChatCheck.launch() { return true }  // --test-long-paste, --render-long (long messages, LongText.swift)
         guard CommandLine.arguments.contains("--test-message-history") else { return false }
         TestWorld.enter()
         guard ProcessInfo.processInfo.environment["ONE_SUPPORT_DIR"] != nil else {

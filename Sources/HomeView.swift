@@ -68,7 +68,10 @@ struct HomeView: View {
             BotsColumn(m: m).transition(.move(edge: .leading))  // the bots on the left (BotsColumn.swift)
             VStack(spacing: 0) {
                 // Pinned above the scrolling part, so the greeting can never slide up under the title row.
-                if historyShown && m.openHelper == nil {
+                if let h = m.openedHelper {
+                    // A bot's or helper's chat: its header and summary card stay put while the chat scrolls (StarHelper.swift).
+                    StarHeader(m: m, h: h).starCalm().padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 6)
+                } else if historyShown {
                     // Going back: the greeting steps aside for the day you're looking at (+ Find), and the orb with it.
                     DayPill(day: HomeView.still ? ChatPager.longDay(historyRows.first?.date ?? Date()) : dayNow, finding: $finding)
                         .starCalm(feather: 20).padding(.top, 18).padding(.bottom, 10).frame(height: 66)
@@ -85,17 +88,19 @@ struct HomeView: View {
                             // boundary cuts a flat edge straight through the circular halo the moment there's
                             // nothing above it to scroll past (Omar, 2026-10-29: "we cannot desecrate the halo").
                             // The orb/HelperConstellation themselves are untouched — this is only breathing room.
-                            Color.clear.frame(height: historyShown && m.openHelper == nil ? 4 : 64).id("page-top")
+                            Color.clear.frame(height: historyShown || m.openHelper != nil ? 4 : 64).id("page-top")
                                 .background(
                                     GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in pager.pageTop = y } })
                             if m.openHelper == nil && !historyShown {
                                 ForEach(m.routineAsks) { a in RoutineAskCard(a: a).starCalm() }  // routines wait on you (RoutineCareTend.swift)
                             }
-                            if m.openedHelper?.bot != nil {
-                                IrisHome(m: m)  // a bot's chat is open: the assistant waits small and dim above it (BotsColumn.swift)
-                            } else if !(historyShown && m.openHelper == nil) {
+                            if m.openHelper != nil {
+                                EmptyView()  // a bot's or helper's chat: its pinned header leads back to the assistant (StarHelper.swift)
+                            } else if !historyShown {
                                 HelperConstellation(m: m, still: HomeView.still, pointed: HomeView.stillPointed)
                                 WeekLine(m: m)  // the plan's week, under the orbs (Budget.swift)
+                                // What I did today and what waits on you, one line until tapped (StarHelper.swift).
+                                IrisSummary(m: m).frame(maxWidth: 620).starCalm(floor: 0.2)
                             }
                             if m.openHelper == nil && !historyShown { HealthLine().starCalm(floor: 0.2) }  // the Mac's health (HealthView.swift)
                             if m.isReady && m.thinking && m.openHelper == nil && !historyShown {
@@ -190,18 +195,19 @@ struct HomeView: View {
                                     VStack(spacing: 8) {
                                         if !historyShown { HistoryStrip(m: m, turns: Array(olderTurns.suffix(1)), open: historyBinding) }
                                         Color.clear.frame(height: 0).id("now")
-                                        LongFoldText(text: ask.text, key: LongFold.key(ask), size: ChatText.callout, plain: true, center: true)
-                                            .opacity(0.55)
-                                            .frame(maxWidth: .infinity)
+                                        StarMine(text: ask.text, key: LongFold.key(ask)).frame(maxWidth: 620)  // your words, on the right
                                         // What they sent while this was being worked on, each tagged "Sent to …" or "Next up".
                                         FollowUpList(m: m, helper: nil, sent: m.bubbles.last.map { $0.fromMe ? [] : $0.followUps } ?? [])
                                         ForEach(sinceAsk) { r in
                                             let parts = Choices.split(Helpers.strip(r.text))
-                                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                                MiniOrb().alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                                                LongFoldText(
-                                                    text: parts.body, key: LongFold.key(r), size: 15, live: m.thinking && r.id == lastReply?.id
-                                                )
+                                            HStack(alignment: .top, spacing: 10) {
+                                                MiniOrb().padding(.top, r.id == sinceAsk.first?.id ? 1 : 3)
+                                                VStack(alignment: .leading, spacing: 5) {
+                                                    if r.id == sinceAsk.first?.id { StarName(name: m.name, date: r.date) }  // who's speaking
+                                                    LongFoldText(
+                                                        text: parts.body, key: LongFold.key(r), size: 15, live: m.thinking && r.id == lastReply?.id
+                                                    )
+                                                }
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                             }
                                             .frame(maxWidth: 620).padding(.horizontal, 4)
@@ -221,6 +227,8 @@ struct HomeView: View {
                         }.padding(.horizontal, 28).padding(.bottom, 8)
                     }
                     .coordinateSpace(name: "chat")
+                    .background(StarScroller(state: StarState.shared, proxy: proxy))  // the star path's days and matches
+                    .overlay(alignment: .trailing) { StarDialLayer(m: m).padding(.trailing, 34).padding(.vertical, 18) }
                     .background(
                         GeometryReader { g in
                             Color.clear.onAppear { chatHeight = g.size.height }.onChange(of: g.size.height) { _, h in chatHeight = h }
@@ -240,6 +248,8 @@ struct HomeView: View {
                     .overlay(alignment: .bottom) {
                         if historyShown && m.openHelper == nil && !HomeView.still {
                             BackToNow { pager.close() }.padding(.bottom, 10).transition(.opacity)
+                        } else if m.openHelper != nil {
+                            StarBackToNow(state: StarState.shared).padding(.bottom, 10)
                         }
                     }
                     .onePopup(

@@ -149,29 +149,23 @@ struct HelperCard: View {
     var body: some View {
         let parts = Choices.split(Helpers.strip(h.reply))  // a stray [helper: …] line never shows
         VStack(alignment: .leading, spacing: 12) {
-            if let b = h.bot {
-                BotHeader(m: m, h: h, b: b)  // its moon, room, what it uses and remembers, what it did
-                BotFiles(m: m, h: h)  // what it saved in its folder (BotRoute.swift)
-                BotThread(h: h)  // its kept chat, oldest first
+            // Its header (name, search, summary card) is pinned above the chat (StarHelper.swift); here, its star path.
+            if h.bot != nil { BotFiles(m: m, h: h) }  // what it saved in its folder (BotRoute.swift)
+            let lines = StarLines.of(h)
+            if lines.isEmpty && h.state != "working" {
+                Text(h.state == "stopped" ? h.line : h.bot != nil ? "Nothing yet. Tell it what you need below." : "Nothing yet.").foregroundStyle(
+                    .secondary)
             } else {
-                titleRow
+                StarChat(speaker: .of(h), lines: lines, state: StarState.shared)
             }
-            if h.bot == nil, let a = h.asked, !a.isEmpty { LongFoldText(text: a, key: nil, size: ChatText.callout, plain: true, accent: true) }
-            if h.bot != nil && h.state != "working" {
-                EmptyView()  // its newest answer is the end of its thread
-            } else if h.state == "working" {
+            if h.state == "working" {
                 HelperProgressView(m: m, h: h)  // the real step, its time, its plan line; Nudge when it's gone quiet
                 RepoQueueNote(h: h, indent: m.pulses[h.id] != nil)  // waiting its turn on main (RepoQueue.swift)
                 if let g = m.goals[h.id.uuidString], g.active { GoalLine(g: g, stop: nil) }  // its standing goal (Goals.swift)
                 if !h.reply.isEmpty { ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading) }
-            } else if h.reply.isEmpty {
-                Text(h.state == "stopped" ? h.line : "Nothing yet.").foregroundStyle(.secondary)
-            } else {
-                ChatText(text: parts.body, size: 15).frame(maxWidth: .infinity, alignment: .leading)
-                if h.state == "stopped" {
-                    // Its orb says "tap to see what it did"; in here they already see it.
-                    Text(h.line.components(separatedBy: " · ").first ?? h.line).font(.callout).foregroundStyle(.secondary)
-                }
+            } else if h.state == "stopped", !lines.isEmpty {
+                // Its orb says "tap to see what it did"; in here they already see it.
+                Text(h.line.components(separatedBy: " · ").first ?? h.line).font(.callout).foregroundStyle(.secondary)
             }
             if !parts.choices.isEmpty && h.state != "working" && h.state != "stopped" {
                 ChoiceRow(choices: parts.choices, disabled: m.paused || !m.isReady) { c in
@@ -182,9 +176,11 @@ struct HelperCard: View {
             BudgetRow(m: m, h: h)  // its share of the week; when paused at it, the three choices (Budget.swift)
             buttons
         }
-        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18).padding(.trailing, 30).frame(maxWidth: .infinity, alignment: .leading)  // room for the day dial
         .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color(hex: 0xF0A04B, h.state == "needsYes" ? 0.55 : 0), lineWidth: 1.2))
+        .onAppear { StarHeader.opened(h) }
+        .onChange(of: h.id) { StarHeader.opened(h) }
+        .onChange(of: StarLines.of(h).count) { if !StarState.shared.away { StarState.shared.target = StarState.end } }
     }
 
     var titleRow: some View {

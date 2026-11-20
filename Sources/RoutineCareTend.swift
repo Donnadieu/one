@@ -26,7 +26,7 @@ enum RoutineCareRun {
             tabs[b.key] = p.target
             return p.target
         }
-        let t = await HumanCheck.openTab(port: b.port, url: b.loginURL)
+        let t = await HumanCheck.openTab(port: b.port, url: b.login ?? "https://\(b.site)/")
         tabs[b.key] = t
         return t
     }

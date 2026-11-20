@@ -177,6 +177,62 @@ check("first copy: Chrome's cookies, nothing else", code == 0 and rows(cookies) 
 code, out = run("restore", str(dst))
 check("restore with nothing kept changes nothing and says so", code == 1 and rows(cookies) == {(h, n): v.encode() for h, n, v, _ in CHROME})
 
+
+# Nov 20 2026: a helper ran "use my Chrome" twice (9:07 and 9:11 AM) and X was signed out of the hidden
+# browser both times, though the merge above was in. Their Chrome opens x.com as a guest every day, so its
+# x.com cookies (ct0, guest_id...) were NEWER than the hidden browser's sign-in: per cookie "newer wins" put
+# Chrome's guest ct0 next to the hidden browser's auth_token, and X ended the session. And their Chrome's
+# rows are sealed with another key (v10) than the hidden browser's own (v11): the hidden browser can't read
+# them and drops them on start, so a site whose rows came from Chrome loses them all (x.com, google.com,
+# youtube.com: 55 rows each time). A site is kept whole, from one side, never mixed.
+def scenario(chrome_rows, hidden_rows):
+    make_db(src / "Default/Network/Cookies", chrome_rows)
+    if dst.exists():
+        shutil.rmtree(dst)
+    make_db(dst / "Default/Network/Cookies", hidden_rows)
+    (dst / ".hermes-snapshot-complete").write_text("Default")
+    MODE["v"] = "ok"
+    code, out = run("chrome", str(dst), "--src", str(src))
+    return code, out, rows(cookies)
+
+
+print("Their Chrome visited X as a guest AFTER the hidden browser signed in")
+code, out, after = scenario(
+    [(".x.com", "guest_id", "chrome-guest", 900), (".x.com", "ct0", "chrome-guest-ct0", 900), (".x.com", "gt", "chrome-gt", 900)],
+    [(".x.com", "auth_token", "hidden-auth", 200), (".x.com", "ct0", "hidden-ct0", 200), (".x.com", "twid", "hidden-twid", 200),
+     (".x.com", "guest_id", "hidden-guest", 100)],
+)
+check("the copy worked (exit 0)", code == 0)
+check("X keeps the hidden browser's whole sign-in (auth_token, ct0, twid)",
+      [after.get((".x.com", n)) for n in ("auth_token", "ct0", "twid")] == [b"hidden-auth", b"hidden-ct0", b"hidden-twid"])
+check("no guest cookie from their Chrome mixed into the signed-in X", after.get((".x.com", "gt")) is None
+      and after.get((".x.com", "guest_id")) == b"hidden-guest")
+
+print("Any site signed in only in the hidden browser, with newer guest cookies in their Chrome")
+code, out, after = scenario(
+    [(".shop.example", "visitor", "chrome-visitor", 900), (".shop.example", "csrf", "chrome-csrf", 900)],
+    [(".shop.example", "sessionid", "hidden-session", 200), (".shop.example", "csrf", "hidden-csrf", 200)],
+)
+check("its sign-in stays, with its own csrf", after.get((".shop.example", "sessionid")) == b"hidden-session"
+      and after.get((".shop.example", "csrf")) == b"hidden-csrf" and (".shop.example", "visitor") not in after)
+
+print("Both signed in to Google, their Chrome newer: Chrome's whole Google, not a mix")
+code, out, after = scenario(
+    [(".google.com", "SID", "chrome-sid", 300), (".google.com", "HSID", "chrome-hsid", 300)],
+    [(".google.com", "SID", "hidden-sid", 10), (".google.com", "HSID", "hidden-hsid", 10), (".google.com", "__Secure-3PSIDTS", "hidden-ts", 10)],
+)
+check("Chrome's newer Google sign-in wins", after.get((".google.com", "SID")) == b"chrome-sid" and after.get((".google.com", "HSID")) == b"chrome-hsid")
+check("none of the hidden browser's older Google cookies mixed in", (".google.com", "__Secure-3PSIDTS") not in after)
+
+print("Their Chrome's cookies are sealed with a key the hidden browser doesn't use (v10 vs v11)")
+code, out, after = scenario(
+    [(".x.com", "auth_token", "v10chrome-auth", 900), (".x.com", "ct0", "v10chrome-ct0", 900), (".amazon.com", "at-main", "v10chrome-amazon", 900)],
+    [(".x.com", "auth_token", "v11hidden-auth", 200), (".x.com", "ct0", "v11hidden-ct0", 200), (".x.com", "twid", "v11hidden-twid", 200)],
+)
+check("X keeps the rows the hidden browser can read", [after.get((".x.com", n)) for n in ("auth_token", "ct0", "twid")]
+      == [b"v11hidden-auth", b"v11hidden-ct0", b"v11hidden-twid"])
+check("a site only Chrome has still comes in", after.get((".amazon.com", "at-main")) == b"v10chrome-amazon")
+
 shutil.rmtree(tmp, ignore_errors=True)
 print("chrome copy ok" if not fails else f"chrome copy FAILED: {fails}")
 sys.exit(1 if fails else 0)

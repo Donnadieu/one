@@ -222,15 +222,17 @@ extension RoutineCare {
         return s.open.contains { b in j.map { covers(b, $0, needs: needs()) } ?? false }
     }
 
-    /// The open blocker's ask is up: written again when it aged out (HumanStep shows a request for an hour), never
-    /// when they answered this one (it comes back at the next reminder).
-    static func keepAsk(_ b: Blocker, target: String) {
+    /// The open blocker's ask should be written again: it's missing or aging out (HumanStep shows a request for an
+    /// hour). Never when they answered this one (it comes back at the next reminder).
+    static func askStale(_ b: Blocker) -> Bool {
         let id = askID(b, n: b.asks)
         let fm = FileManager.default
         let req = HumanStep.dir.appendingPathComponent("\(id).request.json")
-        if fm.fileExists(atPath: HumanStep.dir.appendingPathComponent("\(id).answer.json").path) { return }
-        if let a = try? fm.attributesOfItem(atPath: req.path), let m = a[.modificationDate] as? Date, Date().timeIntervalSince(m) < 1800 { return }
-        writeAsk(b, target: target)
+        if fm.fileExists(atPath: HumanStep.dir.appendingPathComponent("\(id).answer.json").path) { return false }
+        if let a = try? fm.attributesOfItem(atPath: req.path), let m = a[.modificationDate] as? Date, Date().timeIntervalSince(m) < 1800 {
+            return false
+        }
+        return true
     }
 
     /// 10 PM to 8 AM: the item stays on screen, but nothing goes to the phone.

@@ -174,7 +174,7 @@ enum RoutineCare {
             let first = s.handled[j.id] == nil
             guard s.handled[j.id] != j.lastRunISO, !j.lastRunISO.isEmpty else { continue }
             s.handled[j.id] = j.lastRunISO
-            if first, !j.failed || (j.lastRun.map { now.timeIntervalSince($0) > 6 * 3600 } ?? true) { continue }  // seen at launch
+            if first, !j.failed || (j.lastRun.map { now.timeIntervalSince($0) > 2 * 3600 } ?? true) { continue }  // seen at launch
             e += j.failed ? failed(&s, j, jobs: jobs, needs: needs, signedIn: signedIn, now: now, quiet: quiet) : worked(&s, j, now: now)
         }
         // Pre-flight: an hour before each run, its sign-ins.

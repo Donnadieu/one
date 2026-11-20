@@ -13,14 +13,22 @@ enum RoutineCareRun {
         RoutineCare.append(line, to: Env.hermesHome.appendingPathComponent("logs/one-routine-care.log"))
     }
 
-    /// A tab on the site's sign-in page in that hidden browser (an open one is used again), so the window and the
-    /// phone's link both open on it.
-    static func target(_ b: RoutineCare.Blocker) async -> String? {
+    /// The tab each blocker's window opens on, kept so a tab is opened once, not every minute.
+    @MainActor static var tabs: [String: String] = [:]
+
+    /// A tab on the site's sign-in page in that hidden browser (the one opened before, or an open sign-in page), so
+    /// the window and the phone's link both open on it. Nil when the browser isn't answering.
+    @MainActor static func target(_ b: RoutineCare.Blocker) async -> String? {
         let pages = await BlockedAsk.pages(port: b.port)
+        guard !pages.isEmpty else { return nil }
+        if let t = tabs[b.key], pages.contains(where: { $0.target == t }) { return t }
         if let p = pages.first(where: { $0.url.lowercased().contains(b.site) && ($0.url.contains("login") || $0.url.contains("flow")) }) {
+            tabs[b.key] = p.target
             return p.target
         }
-        return await HumanCheck.openTab(port: b.port, url: b.login ?? "https://\(b.site)/")
+        let t = await HumanCheck.openTab(port: b.port, url: b.loginURL)
+        tabs[b.key] = t
+        return t
     }
 }
 
@@ -42,7 +50,8 @@ extension Model {
             var s = start
             let effects = RoutineCare.step(&s, jobs: jobs, needs: needs, signedIn: signed, now: now, quiet: RoutineCare.quiet(now))
             var targets: [String: String] = [:]
-            for b in s.open { targets[b.key] = await RoutineCareRun.target(b) ?? "" }
+            let asking = Set(effects.filter { $0.kind == "ask" }.map(\.blocker))
+            for b in s.open where asking.contains(b.key) || RoutineCare.askStale(b) { targets[b.key] = await RoutineCareRun.target(b) ?? "" }
             // Done in the window but still signed out: the item comes back at once (no new phone message).
             for k in s.blockers.indices where s.blockers[k].cleared == nil && signed[s.blockers[k].key] == false {
                 if HumanStep.answerOf(RoutineCare.askID(s.blockers[k], n: s.blockers[k].asks)) == "done" { s.blockers[k].asks += 1 }
@@ -66,7 +75,7 @@ extension Model {
                 },
                 target: { targets[$0.key] })
             RoutineCare.perform(effects, state: s, doer: doer, now: now)
-            for b in s.open { RoutineCare.keepAsk(b, target: targets[b.key] ?? "") }
+            for b in s.open where RoutineCare.askStale(b) { RoutineCare.writeAsk(b, target: targets[b.key] ?? "") }
             let byID = Dictionary(jobs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             RoutineCareRun.cards = Dictionary(
                 s.open.map { b in

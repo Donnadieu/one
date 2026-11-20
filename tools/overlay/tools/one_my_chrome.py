@@ -18,6 +18,7 @@ Never a cookie value.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -136,8 +137,58 @@ def _unique_cols(c: sqlite3.Connection, schema: str) -> list[str]:
     return []
 
 
+# Nov 20 2026: per cookie "newer wins" still signed X out. Their Chrome visits x.com as a guest every day, so
+# its guest ct0 was newer and landed next to the hidden browser's auth_token, and X ended the session. And
+# their Chrome's rows are sealed with another key (v10) than the hidden browser's own (v11): the hidden
+# browser can't read them and drops them when it starts, so any site that took Chrome's rows lost them all.
+# So each site comes whole from ONE side: the hidden browser's when it's signed in there and Chrome isn't,
+# when its sign-in is newer, or when Chrome's rows are sealed with a key the hidden browser doesn't use.
+_SEAL = re.compile(rb"v\d\d")
+_AUTH = re.compile(r"sess|auth|token|login|sid|user|uid|twid|li_at|jwt|remember", re.I)
+_SIGN_NAMES = {(d.lstrip(".").lower(), n) for _s, d, n in SIGNS}
+
+
+def _site(host: str) -> str:
+    """Cookies of one site together: accounts.google.com and .google.com are both google.com."""
+    p = host.lstrip(".").lower().split(".")
+    return ".".join(p[-2:]) if len(p) > 2 else ".".join(p)
+
+
+def _site_rows(c: sqlite3.Connection, schema: str, key: list[str], stamp: str) -> dict:
+    """site -> [(rowid, unique key, name, expires, stamp, seal)]. Reads the seal (first 3 bytes), never a value."""
+    out: dict = {}
+    ks = ", ".join(key)
+    q = f"select rowid, {ks}, name, expires_utc, {stamp}, substr(encrypted_value, 1, 3), host_key from {schema}.cookies"
+    for r in c.execute(q):
+        k = tuple(r[1 : 1 + len(key)])
+        name, exp, at, seal, host = r[1 + len(key) :]
+        seal = bytes(seal) if isinstance(seal, (bytes, memoryview)) else str(seal or "").encode()
+        out.setdefault(_site(host), []).append((r[0], k, name, exp, at, seal))
+    return out
+
+
+def _signed(site: str, rows: list) -> list:
+    """The rows that look like a live sign-in on this site."""
+    now = int((time.time() + 11644473600) * 1_000_000)
+    return [r for r in rows if (r[3] == 0 or r[3] > now) and ((site, r[2]) in _SIGN_NAMES or _AUTH.search(r[2]))]
+
+
+def _side(site: str, hidden: list, chrome: list, seals: set):
+    """Which side a site present in both comes from: "hidden", "chrome", or None (nobody signed in: per cookie)."""
+    if seals and any(_SEAL.fullmatch(r[5]) and r[5] not in seals for r in chrome):
+        return "hidden"  # the hidden browser couldn't read Chrome's rows and would drop the site
+    hs, cs = _signed(site, hidden), _signed(site, chrome)
+    if hs and not cs:
+        return "hidden"
+    if cs and not hs:
+        return "chrome"
+    if hs and cs:
+        return "hidden" if max(r[4] for r in hs) > max(r[4] for r in cs) else "chrome"
+    return None
+
+
 def merge(dst: str) -> int:
-    """After a copy that worked: add back the kept cookies their Chrome doesn't have, or has older. Returns how many."""
+    """After a copy that worked: put back the hidden browser's sites, each whole (see _side). Returns rows put back."""
     total = 0
     for rel in COOKIE_FILES:
         b, f = os.path.join(kept_dir(dst), rel), os.path.join(dst, rel)
@@ -152,13 +203,32 @@ def merge(dst: str) -> int:
             cols = [x for x in new_cols if x in old_cols]
             if not key or any(k not in old_cols for k in key) or len(cols) < len(new_cols):
                 continue  # Chrome changed its table: keep their Chrome's copy as it is rather than guess
-            on = " and ".join(f"m.{k} = o.{k}" for k in key)
-            newer = "o.last_update_utc > m.last_update_utc" if "last_update_utc" in cols else "o.creation_utc > m.creation_utc"
-            # The same cookie in both: the hidden browser's wins only when it's newer.
-            c.execute(f"delete from main.cookies where rowid in (select m.rowid from main.cookies m join old.cookies o on {on} where {newer})")
+            stamp = "last_update_utc" if "last_update_utc" in cols else "creation_utc"
+            old, new = _site_rows(c, "old", key, stamp), _site_rows(c, "main", key, stamp)
+            seals = {r[5] for rs in old.values() for r in rs if _SEAL.fullmatch(r[5])}  # keys the hidden browser writes
+            drop, add = [], []  # main rowids to delete, old rowids to insert
+            for site, o in old.items():
+                m = new.get(site, [])
+                side = _side(site, o, m, seals) if m else "hidden"
+                if side == "hidden":  # the hidden browser's whole site, nothing of Chrome's mixed in
+                    drop += [r[0] for r in m]
+                    add += [r[0] for r in o]
+                elif side is None:  # nobody signed in there: the same cookie in both, the newer one wins
+                    mine = {r[1]: r for r in m}
+                    for r in o:
+                        t = mine.get(r[1])
+                        if t is None or r[4] > t[4]:
+                            drop += [t[0]] if t else []
+                            add.append(r[0])
             sel = ", ".join(cols)
-            cur = c.execute(f"insert or ignore into main.cookies ({sel}) select {sel} from old.cookies")
-            total += cur.rowcount if cur.rowcount > 0 else 0
+            for i in range(0, len(drop), 500):
+                part = drop[i : i + 500]
+                c.execute(f"delete from main.cookies where rowid in ({','.join('?' * len(part))})", part)
+            for i in range(0, len(add), 500):
+                part = add[i : i + 500]
+                q = f"insert or ignore into main.cookies ({sel}) select {sel} from old.cookies where rowid in ({','.join('?' * len(part))})"
+                cur = c.execute(q, part)
+                total += cur.rowcount if cur.rowcount > 0 else 0
             c.commit()
         except sqlite3.Error:
             c.rollback()

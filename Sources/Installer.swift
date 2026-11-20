@@ -83,18 +83,20 @@ enum Installer {
             logger.warning("one_human_step not installed: %s", _one_exc)
 
         """
-    /// Copies the hand-off module into the engine and hooks it into browser_vault (idempotent).
+    /// Copies the hand-off modules into the engine and hooks them into browser_vault (idempotent). `one_own_tab`
+    /// makes a hand-off show the asking helper's own tab, never another helper's (Nov 19 2026).
     @discardableResult static func applyHumanStep() -> Bool {
         let fm = FileManager.default
         let tools = Env.engineDir.appendingPathComponent("tools")
         let vault = tools.appendingPathComponent("browser_vault_tool.py")
-        guard let src = Bundle.main.url(forResource: "one_human_step", withExtension: "py"),
-            fm.fileExists(atPath: vault.path)
-        else { return false }
-        let dst = tools.appendingPathComponent("one_human_step.py")
-        if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
-            try? fm.removeItem(at: dst)
-            guard (try? fm.copyItem(at: src, to: dst)) != nil else { return false }
+        guard fm.fileExists(atPath: vault.path) else { return false }
+        for name in ["one_own_tab", "one_human_step"] {
+            guard let src = Bundle.main.url(forResource: name, withExtension: "py") else { return false }
+            let dst = tools.appendingPathComponent(name + ".py")
+            if (try? Data(contentsOf: dst)) != (try? Data(contentsOf: src)) {
+                try? fm.removeItem(at: dst)
+                guard (try? fm.copyItem(at: src, to: dst)) != nil else { return false }
+            }
         }
         guard var t = try? String(contentsOf: vault, encoding: .utf8) else { return false }
         if t.contains("_one_human_step_install") { return true }

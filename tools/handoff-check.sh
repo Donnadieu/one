@@ -44,6 +44,13 @@ mkdir -p "$S/loop-handoff"
   ONE_TEST_SCRIPT="$REPO/tests/handoff/e2e_code_loop.py" \
   perl -e 'alarm 360; exec @ARGV' "$ENG/.hermes/bin/hermes" --run-module one_handoff_run > "$S/loop.txt" 2>&1 )
 lrc=$?
+# A hand-off shows the asking helper's own tab, never another helper's (Nov 19 2026): its own handoff folder too.
+mkdir -p "$S/own-handoff"
+( cd "$ENG" && HERMES_RUNTIME_DIR="$SUP/hermes/tools" HERMES_HOME="$S/hh" OVERLAY="$REPO/tools/overlay/tools/one_human_step.py" \
+  ONE_HANDOFF_DIR="$S/own-handoff" ONE_HANDOFF_CDP=http://127.0.0.1:$PORT ONE_TEST_WEB=$WEBP \
+  ONE_TEST_SCRIPT="$REPO/tests/handoff/e2e_own_tab.py" \
+  perl -e 'alarm 300; exec @ARGV' "$ENG/.hermes/bin/hermes" --run-module one_handoff_run > "$S/own.txt" 2>&1 )
+orc=$?
 python3 tests/handoff/phone_replies.py > "$S/phone.txt" 2>&1
 prc=$?
 python3 tests/handoff/human_wait.py > "$S/wait.txt" 2>&1
@@ -51,6 +58,7 @@ wrc=$?
 echo "One's half:"; cat "$S/one.txt"
 echo "Engine half:"; grep -v '^hermes:\|Preparing\|Installing' "$S/engine.txt"
 echo "Code hand-off ways out:"; grep -v '^hermes:\|Preparing\|Installing' "$S/loop.txt"
+echo "The asking helper's own tab:"; grep -v '^hermes:\|Preparing\|Installing' "$S/own.txt"
 echo "Phone replies:"; cat "$S/phone.txt"
 echo "Waiting on the person:"; cat "$S/wait.txt"
 grep "human check:\|hidden browser:" "$S/support/selftest-hermes/logs/one-browser-keeper.log" 2>/dev/null | tail -8 | sed 's/^/  keeper: /'
@@ -60,6 +68,6 @@ kill $CHR 2>/dev/null
 for p in $(pgrep -f -- "--user-data-dir=$S/chrome" 2>/dev/null); do kill "$p" 2>/dev/null; done
 kill $WEB 2>/dev/null
 defaults delete ai.forjado.one.handoff-test >/dev/null 2>&1
-[ $rc = 0 ] && [ $erc = 0 ] && [ $lrc = 0 ] && [ $prc = 0 ] && [ $wrc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" && grep -q "CODE LOOP PASS" "$S/loop.txt" \
-  && { echo "PASS handoff"; exit 0; }
-echo "FAIL handoff (one=$rc engine=$erc loop=$lrc phone=$prc)"; exit 1
+[ $rc = 0 ] && [ $erc = 0 ] && [ $lrc = 0 ] && [ $orc = 0 ] && [ $prc = 0 ] && [ $wrc = 0 ] && grep -q "E2E PASS" "$S/engine.txt" \
+  && grep -q "CODE LOOP PASS" "$S/loop.txt" && grep -q "OWN TAB PASS" "$S/own.txt" && { echo "PASS handoff"; exit 0; }
+echo "FAIL handoff (one=$rc engine=$erc loop=$lrc own=$orc phone=$prc)"; exit 1

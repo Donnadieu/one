@@ -430,6 +430,9 @@ grep "✗" "$T/rtn/out.txt" 2>/dev/null | sed 's/^/    /'
 mkdir -p "$T/rtl"
 check "the routines are constellations (no box, no pop-up card), never over the skills or the dial, even with 55; every routine has a plain name, a line saying what it does, its next run and last result; grouped, one open at a time, a picked one opens in place; leftovers can go (asks first)" bash -c "ONE_SUPPORT_DIR=$T/rtl $TBIN --test-routines-list | tee $T/rtl/out.txt | grep -q '^routines list ok'"
 grep "✗" "$T/rtl/out.txt" 2>/dev/null | sed 's/^/    /'
+mkdir -p "$T/rcare"
+check "a routine that fails on a sign-in raises one needs-you item and one phone ping, a pre-flight an hour before catches a missing cookie, later failures stay quiet while it's open, reminders never at night, and a fix catches the missed runs up one at a time" bash -c "ONE_SUPPORT_DIR=$T/rcare $TBIN --test-routine-care | tee $T/rcare/out.txt | grep -q '^routine care ok'"
+grep "✗" "$T/rcare/out.txt" 2>/dev/null | sed 's/^/    /'
 
 # Screens: the renders read the real brain, so they say nothing on a runner, and `[ $CI = 0 ] && mine`
 # meant no venue ever ran them. A visual change is rendered on purpose and shown before it lands —

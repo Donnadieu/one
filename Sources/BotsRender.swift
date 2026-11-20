@@ -7,7 +7,10 @@ import SwiftUI
 
 enum BotsRender {
     static let names =
-        ["bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines", "bots-asks", "bots-asks-home"]
+        [
+            "bots-home", "bots-collapsed", "bots-make", "bots-keep", "bots-chat", "bots-first", "bots-routines", "bots-asks", "bots-asks-home",
+            "routine-ask",
+        ]
         + BotsManageRender.names
 
     /// Draws `name` into `<out>-<name>.png`; false when the name isn't one of these.
@@ -95,7 +98,7 @@ enum BotsRender {
 
     @MainActor static func home(_ name: String, _ dir: String) -> AnyView {
         let m = Model.shared
-        HomeView.stillBottom = name != "bots-chat" && name != "bots-asks"  // the chat under the orb, not the top
+        HomeView.stillBottom = name != "bots-chat" && name != "bots-asks" && name != "routine-ask"  // the chat under the orb, not the top
         m.thinking = false
         m.working = nil
         m.goals = [:]
@@ -157,6 +160,12 @@ enum BotsRender {
                     port: 9224, target: "t", url: "", session: f.growth.sid ?? "")
             ]
             m.openHelper = name == "bots-asks" ? f.growth.id : nil
+        case "routine-ask":
+            // Routines wait on a sign-in: the one needs-you item at the top of home (RoutineCareTend.swift).
+            let b = RoutineCare.Blocker(key: "sign_in:x.com@9224", site: "x.com", routines: ["a", "b", "c"], missed: ["b": [Date()], "c": [Date()]])
+            let id = RoutineCare.askID(b, n: 1)
+            RoutineCareRun.cards = [String(id.dropLast(1)): (RoutineCare.title(b), RoutineCare.detail(b, byID: [:]))]
+            m.humanSteps = [HumanStepAsk(id: id, site: "x.com", kind: "sign_in", line: RoutineCare.title(b), port: 9224, target: "t", url: "")]
         default:
             break
         }

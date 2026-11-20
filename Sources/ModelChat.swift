@@ -415,7 +415,7 @@ extension Model {
         }
         guard var c = compose(text) else { return }
         if !hidden { c.engine += blockedYes(text, helper: nil) }
-        if !hidden { c.engine += folderHeard(text) }  // a typed "yes" to the folder ask (no card tap needed)
+        if !hidden { c.engine += folderHeard(text) + RoutineCare.weekNote(text) }  // a typed "yes" to the folder ask (no card tap needed)
         if !hidden && FrictionLog.matches(text) { FrictionLog.add(text, context: bubbles.last { !$0.fromMe }?.text ?? "") }
         if !hidden { BrowserGuard.heard(text, after: bubbles.last { !$0.fromMe }?.text ?? "") }
         // Busy, talking, stopped, getting ready (StartupGate.swift) or something already waiting: it goes at the back of the one line (SayQueue.swift),

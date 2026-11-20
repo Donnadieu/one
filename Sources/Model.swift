@@ -88,10 +88,12 @@ final class Model: ObservableObject {
             // A run that crashed has no answer, only its error: said too, so no routine fails without a word.
             guard let t = try? String(contentsOf: f, encoding: .utf8), let (title, body) = Routines.report(t) else { continue }
             if routineToBot(title: title, body: body, job: f.deletingLastPathComponent().lastPathComponent) { continue }  // a bot's: its chat
+            if RoutineCare.hushed(job: f.deletingLastPathComponent().lastPathComponent, body: body) { continue }  // its blocker is up (RoutineCare)
             Floater.shared.note(body.hasPrefix("It didn't work.") ? "\(title) didn't work." : "\(title) is done.")
             enqueue(.line(bubble: "**\(title)**\n\n\(body)", spoken: body))  // after whatever is being said, never into it
         }
         reviveRoutines()
+        tendRoutineCare()  // a failed routine gets a fixer; a missing sign-in gets ONE needs-you item (RoutineCareTend.swift)
     }
 
     /// A routine the engine switched off for good after a cut-off run (RoutineRevive): turn it back on, and say so.

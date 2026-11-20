@@ -88,6 +88,9 @@ struct HomeView: View {
                             Color.clear.frame(height: historyShown && m.openHelper == nil ? 4 : 64).id("page-top")
                                 .background(
                                     GeometryReader { g in Color.clear.onChange(of: g.frame(in: .named("chat")).minY) { _, y in pager.pageTop = y } })
+                            if m.openHelper == nil && !historyShown {
+                                ForEach(m.routineAsks) { a in RoutineAskCard(a: a).starCalm() }  // routines wait on you (RoutineCareTend.swift)
+                            }
                             if m.openedHelper?.bot != nil {
                                 IrisHome(m: m)  // a bot's chat is open: the assistant waits small and dim above it (BotsColumn.swift)
                             } else if !(historyShown && m.openHelper == nil) {

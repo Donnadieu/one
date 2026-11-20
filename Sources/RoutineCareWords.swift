@@ -77,7 +77,7 @@ extension RoutineCare {
             + "2. Try every fix that needs nobody: re-check the sign-ins it uses (`One --browser-check`, and browser_vault find_session "
             + "for the site across One's hidden browsers; never port 9333). When the cause looks passing (a rate limit, the network, "
             + "a browser not answering, a run cut off by a restart or sleep), retry once with a backoff: wait 2 minutes, or an hour "
-            + "for a rate limit, and only while it's still the same day. Never run `One --connect-chrome`, never sign in with a "
+            + "for a rate limit, and only while it's still the same day; never run `One --connect-chrome`, never sign in with a "
             + "password form, never restart One or a browser.\n"
             + "3. If it's fixed, make up the missed run once: `hermes cron run \(j.id)` in the background (terminal background=true, "
             + "notify=true, output to a log file; it runs the whole job), within its daily limits, never repeating what already "

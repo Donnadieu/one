@@ -206,6 +206,33 @@ extension RoutineCare {
 
     nonisolated(unsafe) static var standIn: ((Need) -> Bool?)?
 
+    /// Helpers put away since `since`, from their trail files (`Support/One/helpers/<id>.md`, HelperTrail.swift): title,
+    /// job and start time. The ones still on screen (`skip`) come from the helpers list instead. Call off the main thread.
+    static func trailHelpers(skip: Set<String>, since: Date) -> [HelperRef] {
+        let dir = Env.support.appendingPathComponent("helpers", isDirectory: true)
+        let fm = FileManager.default
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        var out: [HelperRef] = []
+        for n in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where n.hasSuffix(".md") && !skip.contains(String(n.dropLast(3))) {
+            let u = dir.appendingPathComponent(n)
+            guard let m = (try? fm.attributesOfItem(atPath: u.path))?[.modificationDate] as? Date, m >= since,
+                let t = try? String(contentsOf: u, encoding: .utf8), t.hasPrefix("# ")
+            else { continue }
+            let lines = t.components(separatedBy: "\n")
+            let title = String(lines[0].dropFirst(2))
+            let started = lines.first { $0.hasPrefix("Started: ") }.flatMap { f.date(from: String($0.dropFirst(9))) } ?? m
+            var task = ""
+            if let a = t.range(of: "\n## The job\n\n") {
+                let rest = t[a.upperBound...]
+                task = String(rest[..<(rest.range(of: "\n\n## Steps so far")?.lowerBound ?? rest.endIndex)])
+            }
+            out.append(HelperRef(title: title, task: task, started: started, state: "done"))
+        }
+        return out
+    }
+
     /// The routines as the step reads them, from `cron/jobs.json`. Call off the main thread.
     static func liveJobs(at cron: URL = Routines.cron) -> [Job] {
         guard let d = try? Data(contentsOf: cron.appendingPathComponent("jobs.json")), let top = try? JSONSerialization.jsonObject(with: d)

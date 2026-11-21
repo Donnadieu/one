@@ -86,7 +86,23 @@ enum RoutineCare {
         var fixers: [String: Date] = [:]  // job id → when its fixer started
         var failedSince: [String: Date] = [:]  // job id → its first failure not yet fixed
         var catchUp: [CatchUp] = []
+        var onIt: [String: OnIt]?  // job id → the helper that already took its failed run on (no fixer started)
         var open: [Blocker] { blockers.filter { $0.cleared == nil } }
+    }
+
+    /// A helper as the fixer check reads it: the ones on screen, and the put-away ones from their trail files.
+    struct HelperRef: Equatable {
+        var title: String
+        var task: String
+        var started: Date
+        var state: String  // working, needsYes, done, stopped
+    }
+
+    /// A helper that already took a failed run on, so no fixer was started for that run.
+    struct OnIt: Codable, Equatable {
+        var run: String  // the run's last_run_at
+        var helper: String
+        var started: Date
     }
 
     /// One thing for One to do: ask (the needs-you item and its hand-off request), ping (phone), pause, resume,
@@ -158,7 +174,7 @@ enum RoutineCare {
     /// answer: nothing is decided on it). `quiet`: 10 PM to 8 AM, no messages.
     static func step(
         _ s: inout State, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false,
-        inbox: [[String: String]]? = nil
+        inbox: [[String: String]]? = nil, helpers: [HelperRef] = []
     ) -> [Effect] {
         var e: [Effect] = []
         let byID = Dictionary(jobs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -175,7 +191,9 @@ enum RoutineCare {
             guard s.handled[j.id] != j.lastRunISO, !j.lastRunISO.isEmpty else { continue }
             s.handled[j.id] = j.lastRunISO
             if first, !j.failed || (j.lastRun.map { now.timeIntervalSince($0) > 2 * 3600 } ?? true) { continue }  // seen at launch
-            e += j.failed ? failed(&s, j, jobs: jobs, needs: needs, signedIn: signedIn, now: now, quiet: quiet) : worked(&s, j, now: now)
+            e +=
+                j.failed
+                ? failed(&s, j, jobs: jobs, needs: needs, signedIn: signedIn, now: now, quiet: quiet, helpers: helpers) : worked(&s, j, now: now)
         }
         // Pre-flight: an hour before each run, its sign-ins.
         for j in jobs where j.enabled {
@@ -204,7 +222,8 @@ enum RoutineCare {
     }
 
     static func failed(
-        _ s: inout State, _ j: Job, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false
+        _ s: inout State, _ j: Job, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false,
+        helpers: [HelperRef] = []
     ) -> [Effect] {
         var e: [Effect] = []
         let cause = self.cause(j.why)
@@ -233,14 +252,34 @@ enum RoutineCare {
                 s.blockers[k].missed[j.id, default: []].append(j.lastRun ?? now)
             }
         }
-        // Every failure gets one fixer, once per routine every 6 hours.
+        // Every failure gets one fixer, once per routine every 6 hours, unless a helper already took this run on (Nov 20
+        // 2026: "Resume vaccines upload" finished the upload at 8:22, then "Fix Then It Clicked:" started for the same run).
         if now.timeIntervalSince(s.fixers[j.id] ?? .distantPast) > fixerAgain {
             s.fixers[j.id] = now
+            if let h = onIt(j, helpers: helpers) {
+                s.onIt = (s.onIt ?? [:]).merging([j.id: OnIt(run: j.lastRunISO, helper: h.title, started: h.started)]) { $1 }
+                record(Event(at: now, job: j.id, kind: "fixer_skipped", cause: h.title))
+                return e + [Effect(kind: "note", job: j.id, text: onItLine(s, job: j.id, run: j.lastRunISO) ?? "", blocker: h.title)]
+            }
             let b = s.open.first { $0.routines.contains(j.id) }
             e.append(Effect(kind: "fixer", job: j.id, text: fixerBrief(j, blocker: b), blocker: "Fix " + short(j.title)))
             record(Event(at: now, job: j.id, kind: "fixer", cause: cause))
         }
         return e
+    }
+
+    /// A helper already on this failed run: started that day, after the run (5 min grace), not stopped, and its title or
+    /// job names the routine (its id or its whole name). The earliest one.
+    static func onIt(_ j: Job, helpers: [HelperRef]) -> HelperRef? {
+        guard let run = j.lastRun else { return nil }
+        let id = j.id.lowercased()
+        let name = j.title.lowercased()
+        return helpers.filter { h in
+            guard h.state != "stopped", h.started >= run.addingTimeInterval(-300), Calendar.current.isDate(h.started, inSameDayAs: run)
+            else { return false }
+            let t = (h.title + "\n" + h.task).lowercased()
+            return t.contains(id) || (name.count >= 8 && t.contains(name))
+        }.min { $0.started < $1.started }
     }
 
     static func worked(_ s: inout State, _ j: Job, now: Date) -> [Effect] {

@@ -93,6 +93,12 @@ extension RoutineCare {
         return t
     }
 
+    /// The routine's report when a helper already took its failed run on: who, and that no fixer was started.
+    static func onItLine(_ s: State, job: String, run: String) -> String? {
+        guard let o = s.onIt?[job], o.run == run, !run.isEmpty else { return nil }
+        return "“\(o.helper)” took this run on at \(Routines.clock(Routines.minutes(o.started))), so no fixer was started."
+    }
+
     // MARK: the weekly health line
 
     static func duration(_ m: Int) -> String {

@@ -12,6 +12,7 @@ import Foundation
 ///  5. Reminders at sensible times, never at night; a fix clears the item and catches the missed runs up, one
 ///     routine at a time, today's missed runs only.
 ///  6. The weekly routine health line for a good morning or status report.
+///  7. A helper already on that same failed run (working or finished, that day) means no fixer: one helper per run.
 enum RoutineCareCheck {
     static func cli(_ args: [String]) {
         guard args.contains("--test-routine-care") else { return RoutinesCheck.cli(args) }
@@ -197,6 +198,49 @@ enum RoutineCareCheck {
         _ = RoutineCare.cli(["One", "--routine-care", "need", "abc", "x.com", "9224", "auth_token,ct0,twid", "https://x.com/i/flow/login"])
         check("`One --routine-care need` writes the declaration", RoutineCare.needs()["abc"] == [x])
         check("the assistant is told to declare them", RoutineCare.note.contains("--routine-care need"))
+        // 9. Nov 20 2026: "Resume vaccines upload" finished the long video's upload at 8:22, then a fixer started for
+        //    the same failed run anyway ("Fix Then It Clicked:"). Two helpers on one run; there must be one.
+        print("9. a helper already on the same failed run")
+        let long = "Then It Clicked: long video (Tue/Fri)"
+        var v = RoutineCare.State()
+        v.handled = ["tic": at(-96)]
+        let upload = job("tic", long, last: -0.7, next: 90, failed: "Partly done: the video is made but never finished uploading.")
+        let run = noon.addingTimeInterval(-0.7 * 3600)
+        let resume = RoutineCare.HelperRef(
+            title: "Resume vaccines upload", task: "Resume the interrupted YouTube upload. The Friday long-video routine tic made it.",
+            started: run.addingTimeInterval(15 * 60), state: "done")
+        var onRun: [String] = [resume.title]  // the helpers on that run: the one already there
+        let d9 = RoutineCare.Doer(cron: { _ in }, fixer: { t, _ in onRun.append(t) }, say: { _ in }, target: { _ in nil })
+        e = RoutineCare.step(&v, jobs: jobs([upload]), needs: [:], signedIn: [:], now: noon, helpers: [resume])
+        RoutineCare.perform(e, state: v, doer: d9, now: noon)
+        check("one helper on the failed run: no fixer starts when one already took it on", onRun.count == 1 && count(e, "fixer") == 0)
+        e = RoutineCare.step(&v, jobs: jobs([upload]), needs: [:], signedIn: [:], now: noon.addingTimeInterval(60), helpers: [resume])
+        RoutineCare.perform(e, state: v, doer: d9, now: noon)
+        check("nor a minute later", onRun.count == 1)
+        let line = RoutineCare.onItLine(v, job: "tic", run: at(-0.7)) ?? ""
+        check("the routine's report names the helper already on it", line.contains("Resume vaccines upload") && line.contains("no fixer"))
+        check("and the log says the fixer was skipped", RoutineCare.events().contains { $0.kind == "fixer_skipped" && $0.job == "tic" })
+        RoutineCare.save(v)
+        let card = Routines.routine(upload, dir: Routines.cron, now: noon)
+        check("the routine's card on the dial says who's on it", card?.onIt?.contains("Resume vaccines upload") == true)
+        check("the next run's card doesn't", RoutineCare.onItLine(v, job: "tic", run: at(90)) == nil)
+        // Not the same run: another routine's helper, one from the day before, or one they stopped. The fixer starts.
+        let others = [
+            RoutineCare.HelperRef(title: "Daily post", task: "Post today's build on X.", started: run.addingTimeInterval(600), state: "working"),
+            RoutineCare.HelperRef(title: resume.title, task: resume.task, started: run.addingTimeInterval(-86400), state: "done"),
+            RoutineCare.HelperRef(title: resume.title, task: resume.task, started: run.addingTimeInterval(600), state: "stopped"),
+        ]
+        var w = RoutineCare.State()
+        w.handled = ["tic": at(-96)]
+        e = RoutineCare.step(&w, jobs: jobs([upload]), needs: [:], signedIn: [:], now: noon, helpers: others)
+        check("a helper on another routine, an earlier day, or stopped doesn't count: one fixer", count(e, "fixer") == 1)
+        let named = RoutineCare.HelperRef(
+            title: "Upload fix", task: "The “\(long)” run failed; finish it.", started: run.addingTimeInterval(60), state: "working")
+        var n9 = RoutineCare.State()
+        n9.handled = ["tic": at(-96)]
+        e = RoutineCare.step(&n9, jobs: jobs([upload]), needs: [:], signedIn: [:], now: noon, helpers: [named])
+        check("a helper naming the routine (not its id) and still working counts too", count(e, "fixer") == 0)
+
         Messenger.standIn = nil
         print(fails == 0 ? "routine care ok" : "routine care: \(fails) failed")
         return fails == 0 ? 0 : 1

@@ -12,6 +12,7 @@ import Foundation
 /// - one page: One attaches to that one tab's own DevTools socket (never the browser's), streams its picture and
 ///   passes on only taps, scrolls, typed text and Enter/Backspace/Tab (`allowed`); anything else is dropped and
 ///   logged. If the tab goes to another site (not the step's own site or its sign-in hosts), the stream ends;
+///   a sign-in window the page itself opens (Google, Apple, Microsoft) is shown too, until it closes;
 /// - a short life: the link works for 10 minutes, or until the step is done (Done, the page moved on, or answered
 ///   at the Mac); then the server and the tunnel stop and the phone chat message says it ended;
 /// - one phone: the first phone to open it is the only one (PhoneServer refuses a second);
@@ -109,11 +110,17 @@ enum PhoneHandoff {
         "microsoft.com": ["login.microsoftonline.com", "login.live.com"], "live.com": ["login.microsoftonline.com", "login.live.com"],
         "github.com": [], "amazon.com": [], "claude.ai": ["accounts.google.com"], "anthropic.com": ["accounts.google.com"],
     ]
-    /// May the phone keep watching this page? Its own site, or that site's sign-in hosts. Anything else ends it.
+    /// The sign-in hosts any site may send them through ("Continue with Google / Apple / Microsoft").
+    static let providers: Set<String> = ["accounts.google.com", "appleid.apple.com", "login.microsoftonline.com", "login.live.com"]
+    /// May the phone keep watching this page? Its own site, that site's sign-in hosts, or a sign-in provider. Anything else ends it.
     static func stays(_ url: URL, stepSite: String) -> Bool {
         guard let host = url.host?.lowercased() else { return url.scheme == "about" }
-        if site(host) == stepSite { return true }
+        if site(host) == stepSite || providers.contains(host) { return true }
         return signIn[stepSite]?.contains(host) == true
+    }
+    /// A sign-in window the provider gave up on (Google: accounts.google.com/info/sessionexpired).
+    static func expired(_ url: URL) -> Bool {
+        url.host?.lowercased() == "accounts.google.com" && url.path.lowercased().contains("sessionexpired")
     }
 
     // MARK: The link and the seal

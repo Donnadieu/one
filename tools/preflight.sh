@@ -89,6 +89,7 @@ part 1 "Bundle"
 check "version matches VERSION" bash -c "[ \"\$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' $APP/Contents/Info.plist)\" = \"\$(tr -d '[:space:]' < VERSION)\" ]"
 check "Hermes version pinned" test -s "$APP/Contents/Resources/hermes-commit.txt"
 check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
+check "a KeePass login fills on its own site's sign-in hosts (google.com on accounts.google.com), never another site" /usr/bin/python3 tools/keepass-origins-check.py
 check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
 check "the missed-messages plugin bundled" test -f "$APP/Contents/Resources/one-missed-messages/__init__.py"
 check "the phone-tags plugin bundled" test -f "$APP/Contents/Resources/one-phone-tags/__init__.py"

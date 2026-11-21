@@ -38,6 +38,28 @@ def find_cli(cfg: Optional[dict] = None) -> Optional[str]:
     return None
 
 
+
+_SHORT_SUFFIXES = ("co.uk", "com.au", "co.jp", "com.br", "co.nz", "com.mx", "co.in")
+_SIGN_IN_LABELS = ("", "www", "accounts", "login", "signin", "auth", "account", "id")
+
+
+def sign_in_origins(origin: str) -> tuple:
+    """The saved origin first, then the sign-in hosts of the same site (https only, same port rules as the
+    saved one): https://google.com -> also https://www.google.com, https://accounts.google.com, ...
+    An IP address or localhost keeps only itself."""
+    try:
+        scheme, rest = origin.split("://", 1)
+    except ValueError:
+        return (origin,)
+    host, _, port = rest.partition(":")
+    labels = host.lower().split(".")
+    if scheme != "https" or port or len(labels) < 2 or all(x.isdigit() for x in labels):
+        return (origin,)
+    keep = 3 if ".".join(labels[-2:]) in _SHORT_SUFFIXES else 2
+    site = ".".join(labels[-keep:])
+    out = [origin] + [f"https://{(lab + '.') if lab else ''}{site}" for lab in _SIGN_IN_LABELS]
+    return tuple(dict.fromkeys(out))
+
 class KeePassLoginBackend(LoginBackend):
     name = "keepass"
     display_name = "KeePass"
@@ -113,6 +135,10 @@ class KeePassLoginBackend(LoginBackend):
         return r.stdout or ""
 
     # -- listing ---------------------------------------------------------
+    # Nov 20 2026: the Google entry is saved for google.com, but Google asks for the password on
+    # accounts.google.com, so fill found no tab on its one origin, fell back to a blank tab and said
+    # "Could not determine the current page origin". Each entry may fill its own site's sign-in hosts
+    # too (same registrable domain only, never a parent or another company): see sign_in_origins.
     def list_items(self) -> list[VaultItemMeta]:
         if not self.is_unlocked():
             return []
@@ -140,7 +166,7 @@ class KeePassLoginBackend(LoginBackend):
             out.append(VaultItemMeta(
                 id=f"{self.prefix}{path}", kind="login", label=row.get("Title") or path, origin=origin,
                 created_at=row.get("Created") or "", identifier_type="username" if user else None,
-                identifier=user, has_otp=bool((row.get("TOTP") or "").strip()), allowed_origins=(origin,)))
+                identifier=user, has_otp=bool((row.get("TOTP") or "").strip()), allowed_origins=sign_in_origins(origin)))
             row.clear()
         del raw
         self._cache = out

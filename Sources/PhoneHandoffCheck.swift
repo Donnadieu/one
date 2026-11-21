@@ -210,7 +210,106 @@ enum PhoneHandoffCheck {
         check("the tab going to another site ends the link", s2.ended?.hasPrefix("the page went to another site") == true)
         s2.stop("check over")
         page2.stop()
+
+        // 7. Nov 20: X's "Continue with Google" opened Google as a pop-up and the phone kept showing X, frozen.
+        await popups(check)
         print(fails == 0 ? "phone handoff ok" : "phone handoff: \(fails) failed")
         return fails == 0 ? 0 : 1
+    }
+
+    /// A stand-in tab that records the DevTools calls it gets.
+    static func tab(_ id: String) -> (PhoneServer, UInt16, Box<[String]>, Box<PhoneSocket?>) {
+        let s = PhoneServer(room: "unused", page: "")
+        s.socketPath = "/devtools/page/\(id)"
+        let calls = Box<[String]>([])
+        let sock = Box<PhoneSocket?>(nil)
+        s.onPhone = { k, _ in
+            sock.v = k
+            k.onMessage = { d in
+                if let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let m = j["method"] as? String { calls.v.append(m) }
+            }
+        }
+        return (s, s.start() ?? 0, calls, sock)
+    }
+
+    static func popups(_ check: (String, Bool) -> Void) async {
+        let (xs, xp, xCalls, xSock) = tab("XTAB")
+        let (gs, gp, gCalls, gSock) = tab("GPOP")
+        let (os, op, oCalls, _) = tab("OTHER")
+        let list = Box<[[String: Any]]>([
+            ["id": "XTAB", "type": "page", "url": "https://x.com/i/flow/login"],
+            ["id": "OTHER", "type": "page", "url": "https://www.greenhouse.io/job"],
+        ])
+        PhoneSession.targets = { _ in list.v }
+        PhoneSession.pageURL = { _, id in URL(string: "ws://127.0.0.1:\(id == "GPOP" ? gp : id == "OTHER" ? op : xp)/devtools/page/\(id)") }
+        let lastLink = Box<String?>(nil)
+        PhoneSession.send = { _, u in
+            lastLink.v = u
+            return 7
+        }
+        let s = PhoneSession(
+            ask: HumanStepAsk(id: "h3", site: "x.com", kind: "sign_in", line: "", port: Int(xp), target: "XTAB", url: "https://x.com/i/flow/login"),
+            title: "X stays signed in")
+        _ = s.start()
+        func send(_ sock: Box<PhoneSocket?>, _ j: [String: Any]) { sock.v?.send(try! JSONSerialization.data(withJSONObject: j), op: 1) }
+        guard let link = lastLink.v, let base = link.split(separator: "/h/").first,
+            let port = UInt16(base.split(separator: ":").last ?? ""), let room = link.split(separator: "/h/").last?.split(separator: "#").first,
+            let k = Data(
+                base64Encoded: String(link.split(separator: "#k=").last!).replacingOccurrences(of: "-", with: "+").replacingOccurrences(
+                    of: "_", with: "/") + "=")
+        else { return check("the pop-up check's link reads back", false) }
+        let key = SymmetricKey(data: k)
+        let ph = phone(port, String(room))
+        try? await Task.sleep(for: .milliseconds(800))
+        check("the X page is shown", xCalls.v.contains("Page.startScreencast"))
+        // X opens Google's sign-in as a pop-up: a new tab appears, the page says so.
+        list.v.append(["id": "GPOP", "type": "page", "url": "https://accounts.google.com/v3/signin/accountchooser"])
+        send(xSock, ["method": "Page.windowOpen", "params": ["url": "https://accounts.google.com/gsi/select", "windowName": "g"]])
+        try? await Task.sleep(for: .milliseconds(1200))
+        check("a sign-in pop-up the page opens is shown at once (Google's account chooser)", gCalls.v.contains("Page.startScreencast"))
+        check("the X page's picture stops while it's up", xCalls.v.contains("Page.stopScreencast"))
+        check("never another helper's tab", !oCalls.v.contains("Page.startScreencast"))
+        try? await ph.send(sealed(["t": "tap", "x": 0.5, "y": 0.2], key))
+        try? await Task.sleep(for: .milliseconds(600))
+        check("taps go to the pop-up", gCalls.v.contains("Input.dispatchMouseEvent") && !xCalls.v.contains("Input.dispatchMouseEvent"))
+        // Google gives up on it ("session expired"): closed for them, back to X, and the phone says what to do.
+        let starts = xCalls.v.filter { $0 == "Page.startScreencast" }.count
+        send(gSock, ["method": "Page.frameNavigated", "params": ["frame": ["id": "g", "url": "https://accounts.google.com/info/sessionexpired"]]])
+        try? await Task.sleep(for: .milliseconds(1000))
+        check("a timed-out Google window is closed", gCalls.v.contains("Page.close"))
+        check("and the phone goes back to the X page", xCalls.v.filter { $0 == "Page.startScreencast" }.count == starts + 1 && s.ended == nil)
+        var said = false
+        for _ in 0..<6 {
+            guard case .data(let d)? = try? await ph.receive(),
+                let j = PhoneHandoff.open(d, key).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+            else { break }
+            if j["t"] as? String == "say" {
+                said = true
+                break
+            }
+        }
+        check("telling them to tap the sign-in button again", said)
+        // A second pop-up that closes by itself (signed in): back to X, the link still on.
+        list.v.removeAll { $0["id"] as? String == "GPOP" }
+        let (g2s, g2p, g2Calls, _) = tab("GPOP2")
+        PhoneSession.pageURL = { _, id in URL(string: "ws://127.0.0.1:\(id == "GPOP2" ? g2p : id == "OTHER" ? op : xp)/devtools/page/\(id)") }
+        list.v.append(["id": "GPOP2", "type": "page", "url": "about:blank"])
+        send(xSock, ["method": "Page.windowOpen", "params": ["url": "https://accounts.google.com/gsi/select", "windowName": "g"]])
+        try? await Task.sleep(for: .milliseconds(1200))
+        check("a second pop-up is followed too", g2Calls.v.contains("Page.startScreencast"))
+        g2s.stop()
+        try? await Task.sleep(for: .milliseconds(1000))
+        check(
+            "when it closes, the phone is back on the X page and the link stays on",
+            s.ended == nil && xCalls.v.filter { $0 == "Page.startScreencast" }.count == starts + 2)
+        // A window to another site is never shown.
+        list.v.append(["id": "EVIL", "type": "page", "url": "https://evil.example/"])
+        send(xSock, ["method": "Page.windowOpen", "params": ["url": "https://evil.example/", "windowName": "e"]])
+        try? await Task.sleep(for: .milliseconds(800))
+        let audit = (try? String(contentsOf: HumanStep.dir.appendingPathComponent("h3.audit.jsonl"), encoding: .utf8)) ?? ""
+        check("a window to another site isn't shown", audit.contains("a window to another site not shown"))
+        ph.cancel()
+        s.stop("check over")
+        for x in [xs, gs, os] { x.stop() }
     }
 }

@@ -67,51 +67,123 @@ final class PhoneSession: @unchecked Sendable {
         attach()
     }
 
-    // MARK: That one tab
+    // MARK: That one tab, and the sign-in pop-ups it opens
+
+    /// Nov 20 2026: X's "Continue with Google" opened Google's sign-in as a pop-up tab, but the phone kept showing only
+    /// the X tab, so it looked frozen; by the time a second hand-off showed the pop-up, Google said "session expired".
+    /// Now a pop-up the shown page itself opens (`Page.windowOpen`) is followed at once, if it stays on the step's site
+    /// or a sign-in host; when it closes, the phone goes back to the page. A pop-up Google timed out is closed for them.
+    private var opener: URLSessionWebSocketTask?  // the step's own tab, while a pop-up it opened is shown
+    private var known: Set<String> = []  // page tabs there before the phone opened: never a pop-up
+    /// Checks put stand-ins in place of the browser's tab list and of where a tab's socket lives.
+    nonisolated(unsafe) static var targets: (Int) async -> [[String: Any]] = { port in
+        guard let u = URL(string: "http://127.0.0.1:\(port)/json/list"), let (d, _) = try? await URLSession.shared.data(from: u) else { return [] }
+        return (try? JSONSerialization.jsonObject(with: d) as? [[String: Any]]) ?? []
+    }
+    nonisolated(unsafe) static var pageURL: (Int, String) -> URL? = { port, id in URL(string: "ws://127.0.0.1:\(port)/devtools/page/\(id)") }
 
     private func attach() {
-        guard let u = URL(string: "ws://127.0.0.1:\(ask.port)/devtools/page/\(ask.target)") else { return stop("no page") }
+        Task { [weak self] in
+            guard let self else { return }
+            self.known = Set(await Self.targets(self.ask.port).compactMap { $0["id"] as? String })
+        }
+        guard open(ask.target) else { return stop("no page") }
+    }
+    private func open(_ target: String) -> Bool {
+        guard let u = Self.pageURL(ask.port, target) else { return false }
         let t = URLSession.shared.webSocketTask(with: u)
         t.maximumMessageSize = 16 << 20
         cdp = t
         t.resume()
-        receive()
+        receive(t)
         call("Page.enable", [:])
         call("Page.startScreencast", ["format": "jpeg", "quality": 60, "maxWidth": 780, "maxHeight": 1600, "everyNthFrame": 1])
+        return true
     }
-    private func call(_ method: String, _ params: [String: Any]) {
+    private func call(_ method: String, _ params: [String: Any], on t: URLSessionWebSocketTask? = nil) {
         let msg: [String: Any] = ["id": nextID, "method": method, "params": params]
         nextID += 1
         guard let d = try? JSONSerialization.data(withJSONObject: msg) else { return }
-        cdp?.send(.string(String(decoding: d, as: UTF8.self))) { _ in }
+        (t ?? cdp)?.send(.string(String(decoding: d, as: UTF8.self))) { _ in }
     }
-    private func receive() {
-        cdp?.receive { [weak self] r in
-            guard let self, self.ended == nil else { return }
+    private func receive(_ t: URLSessionWebSocketTask) {
+        t.receive { [weak self] r in
+            guard let self, self.ended == nil, t === self.cdp || t === self.opener else { return }
             if case .success(let m) = r {
-                if case .string(let s) = m { self.fromPage(Data(s.utf8)) }
-                if case .data(let d) = m { self.fromPage(d) }
-                self.receive()
+                if case .string(let s) = m { self.fromPage(Data(s.utf8), t) }
+                if case .data(let d) = m { self.fromPage(d, t) }
+                self.receive(t)
+            } else if t === self.cdp, self.opener != nil {
+                self.back("the sign-in window closed")
             } else {
                 self.stop("the page closed")
             }
         }
     }
-    private func fromPage(_ d: Data) {
+    /// A pop-up the shown page opened: find its tab (new since the phone opened) and show it instead.
+    private func follow(_ url: URL) {
+        guard opener == nil else { return }
+        Task { [weak self] in
+            for _ in 0..<20 {
+                guard let self, self.ended == nil, self.opener == nil else { return }
+                let pages = await Self.targets(self.ask.port).filter { $0["type"] as? String == "page" }
+                // A new tab, on the step's site, a sign-in host, or still blank: never another helper's page.
+                let fresh = pages.filter { t in
+                    let u = (t["url"] as? String).flatMap(URL.init(string:))
+                    return !self.known.contains(t["id"] as? String ?? "") && t["id"] as? String != self.ask.target
+                        && (u.map { PhoneHandoff.stays($0, stepSite: self.stepSite) } ?? true)
+                }
+                if let id = fresh.first?["id"] as? String {
+                    PhoneHandoff.audit(self.ask.id, "followed a sign-in window it opened", ["to": url.host ?? ""])
+                    self.call("Page.stopScreencast", [:])
+                    self.opener = self.cdp
+                    if !self.open(id) { self.back("couldn't show the sign-in window") }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+        }
+    }
+    /// Back to the step's own page (the pop-up closed, timed out or left the sign-in hosts).
+    private func back(_ why: String, say: String? = nil) {
+        guard let o = opener else { return }
+        PhoneHandoff.audit(ask.id, "back to the page", ["why": why])
+        let popup = cdp
+        opener = nil
+        cdp = o
+        popup?.cancel(with: .normalClosure, reason: nil)
+        call("Page.startScreencast", ["format": "jpeg", "quality": 60, "maxWidth": 780, "maxHeight": 1600, "everyNthFrame": 1])
+        if let say { toPhone(["t": "say", "s": say]) }
+    }
+    private func fromPage(_ d: Data, _ from: URLSessionWebSocketTask) {
         guard let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let method = j["method"] as? String,
             let p = j["params"] as? [String: Any]
         else { return }
         if method == "Page.screencastFrame", let data = p["data"] as? String, let sid = p["sessionId"] {
-            call("Page.screencastFrameAck", ["sessionId": sid])
+            call("Page.screencastFrameAck", ["sessionId": sid], on: from)
+            guard from === cdp else { return }
             if let meta = p["metadata"] as? [String: Any], let w = meta["deviceWidth"] as? Double, let h = meta["deviceHeight"] as? Double {
                 size = (w, h)
             }
             toPhone(["t": "frame", "d": data])
+        } else if method == "Page.windowOpen", from === cdp, let s = p["url"] as? String, let u = URL(string: s) {
+            if PhoneHandoff.stays(u, stepSite: stepSite) {
+                follow(u)
+            } else {
+                PhoneHandoff.audit(ask.id, "a window to another site not shown", ["to": u.host ?? ""])
+            }
         } else if method == "Page.frameNavigated", let f = p["frame"] as? [String: Any], f["parentId"] == nil,
             let s = f["url"] as? String, let u = URL(string: s)
         {
             PhoneHandoff.audit(ask.id, "page moved", ["to": u.host ?? ""])
-            if !PhoneHandoff.stays(u, stepSite: stepSite) {
+            if from === cdp, opener != nil {  // the pop-up
+                if PhoneHandoff.expired(u) {
+                    call("Page.close", [:])
+                    back("the sign-in window timed out", say: "That sign-in window timed out, so I closed it. Tap the sign-in button again.")
+                } else if !PhoneHandoff.stays(u, stepSite: stepSite) {
+                    back("the sign-in window went to another site (\(u.host ?? "?"))")
+                }
+            } else if !PhoneHandoff.stays(u, stepSite: stepSite) {
                 toPhone(["t": "left"])
                 stop("the page went to another site (\(u.host ?? "?"))")
             }
@@ -146,6 +218,7 @@ final class PhoneSession: @unchecked Sendable {
         ended = why
         call("Page.stopScreencast", [:])
         cdp?.cancel(with: .normalClosure, reason: nil)
+        opener?.cancel(with: .normalClosure, reason: nil)
         server?.stop()
         tunnel.stop()
         if let id = messageID { Self.edit(id, why == "done on the phone" ? "Done. \(title) is carrying on." : "This link has ended.") }

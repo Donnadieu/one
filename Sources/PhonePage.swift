@@ -64,6 +64,7 @@ enum PhonePage {
               const nu = URL.createObjectURL(new Blob([u8], {type: 'image/jpeg'})); img.src = nu; if (url) URL.revokeObjectURL(url); url = nu;
             } else if (j.t === 'thanks') { done = true; note('Thanks, ' + document.body.dataset.title + ' is carrying on.'); }
             else if (j.t === 'left') { done = true; note('This page went somewhere else, so this link has ended.'); }
+            else if (j.t === 'say') { const n = document.getElementById('note'); note(j.s); setTimeout(() => { if (!done) n.style.display = 'none'; }, 4000); }
           };
           ws.onclose = () => { if (!done) note('This link has ended.'); };
           img.addEventListener('pointerup', (e) => { const r = img.getBoundingClientRect();

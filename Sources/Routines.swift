@@ -44,6 +44,8 @@ struct Routine: Identifiable, Equatable {
     var shownName: String?
     var shownLine: String?
     var room: String?
+    /// Its failed last run already had a helper on it, so no fixer was started (RoutineCare): who, in plain words.
+    var onIt: String?
 
     /// How the panel draws it. Only a real failure gets the alarm (orange, an X); a routine that finished on purpose,
     /// a paused one, a missed time (the Mac asleep or closed) and one that never ran yet each look calm.

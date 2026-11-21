@@ -86,7 +86,23 @@ enum RoutineCare {
         var fixers: [String: Date] = [:]  // job id → when its fixer started
         var failedSince: [String: Date] = [:]  // job id → its first failure not yet fixed
         var catchUp: [CatchUp] = []
+        var onIt: [String: OnIt]?  // job id → the helper that already took its failed run on (no fixer started)
         var open: [Blocker] { blockers.filter { $0.cleared == nil } }
+    }
+
+    /// A helper as the fixer check reads it: the ones on screen, and the put-away ones from their trail files.
+    struct HelperRef: Equatable {
+        var title: String
+        var task: String
+        var started: Date
+        var state: String  // working, needsYes, done, stopped
+    }
+
+    /// A helper that already took a failed run on, so no fixer was started for that run.
+    struct OnIt: Codable, Equatable {
+        var run: String  // the run's last_run_at
+        var helper: String
+        var started: Date
     }
 
     /// One thing for One to do: ask (the needs-you item and its hand-off request), ping (phone), pause, resume,
@@ -158,7 +174,7 @@ enum RoutineCare {
     /// answer: nothing is decided on it). `quiet`: 10 PM to 8 AM, no messages.
     static func step(
         _ s: inout State, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false,
-        inbox: [[String: String]]? = nil
+        inbox: [[String: String]]? = nil, helpers: [HelperRef] = []
     ) -> [Effect] {
         var e: [Effect] = []
         let byID = Dictionary(jobs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -175,7 +191,9 @@ enum RoutineCare {
             guard s.handled[j.id] != j.lastRunISO, !j.lastRunISO.isEmpty else { continue }
             s.handled[j.id] = j.lastRunISO
             if first, !j.failed || (j.lastRun.map { now.timeIntervalSince($0) > 2 * 3600 } ?? true) { continue }  // seen at launch
-            e += j.failed ? failed(&s, j, jobs: jobs, needs: needs, signedIn: signedIn, now: now, quiet: quiet) : worked(&s, j, now: now)
+            e +=
+                j.failed
+                ? failed(&s, j, jobs: jobs, needs: needs, signedIn: signedIn, now: now, quiet: quiet, helpers: helpers) : worked(&s, j, now: now)
         }
         // Pre-flight: an hour before each run, its sign-ins.
         for j in jobs where j.enabled {
@@ -204,7 +222,8 @@ enum RoutineCare {
     }
 
     static func failed(
-        _ s: inout State, _ j: Job, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false
+        _ s: inout State, _ j: Job, jobs: [Job], needs: [String: [Need]], signedIn: [String: Bool], now: Date, quiet: Bool = false,
+        helpers: [HelperRef] = []
     ) -> [Effect] {
         var e: [Effect] = []
         let cause = self.cause(j.why)

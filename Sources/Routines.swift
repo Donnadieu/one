@@ -166,6 +166,9 @@ enum Routines {
         r.times = rep?["times"] as? Int
         r.quiet = quietLately(dir.appendingPathComponent("output/\(id)"))
         r.script = !((j["script"] as? String) ?? "").isEmpty
+        if st == .failed, dir.standardizedFileURL == cron.standardizedFileURL {
+            r.onIt = RoutineCare.onItLine(RoutineCare.load(), job: id, run: j["last_run_at"] as? String ?? "")
+        }
         return r
     }
 

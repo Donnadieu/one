@@ -252,14 +252,34 @@ enum RoutineCare {
                 s.blockers[k].missed[j.id, default: []].append(j.lastRun ?? now)
             }
         }
-        // Every failure gets one fixer, once per routine every 6 hours.
+        // Every failure gets one fixer, once per routine every 6 hours, unless a helper already took this run on (Nov 20
+        // 2026: "Resume vaccines upload" finished the upload at 8:22, then "Fix Then It Clicked:" started for the same run).
         if now.timeIntervalSince(s.fixers[j.id] ?? .distantPast) > fixerAgain {
             s.fixers[j.id] = now
+            if let h = onIt(j, helpers: helpers) {
+                s.onIt = (s.onIt ?? [:]).merging([j.id: OnIt(run: j.lastRunISO, helper: h.title, started: h.started)]) { $1 }
+                record(Event(at: now, job: j.id, kind: "fixer_skipped", cause: h.title))
+                return e + [Effect(kind: "note", job: j.id, text: onItLine(s, job: j.id, run: j.lastRunISO) ?? "", blocker: h.title)]
+            }
             let b = s.open.first { $0.routines.contains(j.id) }
             e.append(Effect(kind: "fixer", job: j.id, text: fixerBrief(j, blocker: b), blocker: "Fix " + short(j.title)))
             record(Event(at: now, job: j.id, kind: "fixer", cause: cause))
         }
         return e
+    }
+
+    /// A helper already on this failed run: started that day, after the run (5 min grace), not stopped, and its title or
+    /// job names the routine (its id or its whole name). The earliest one.
+    static func onIt(_ j: Job, helpers: [HelperRef]) -> HelperRef? {
+        guard let run = j.lastRun else { return nil }
+        let id = j.id.lowercased()
+        let name = j.title.lowercased()
+        return helpers.filter { h in
+            guard h.state != "stopped", h.started >= run.addingTimeInterval(-300), Calendar.current.isDate(h.started, inSameDayAs: run)
+            else { return false }
+            let t = (h.title + "\n" + h.task).lowercased()
+            return t.contains(id) || (name.count >= 8 && t.contains(name))
+        }.min { $0.started < $1.started }
     }
 
     static func worked(_ s: inout State, _ j: Job, now: Date) -> [Effect] {

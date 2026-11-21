@@ -47,6 +47,7 @@ extension RoutinesPanel {
                 "Last", last, color: failed ? Color(hex: 0xF6B46E) : WorldLook.cream.opacity(0.85),
                 sub: partly && !r.notes.did.isEmpty ? nil : r.reason)
             if partly || r.caughtUpAt != nil { outcomeFacts(r) }
+            if let h = r.onIt { fact("On it", h) }  // a helper already took this failed run on (RoutineCare)
             if let l = r.leftover { fact("Looks done", l) }
             if let room = r.room { fact("Room", room) }
             if let b = owner(r)?.bot { fact("Belongs to", b.name, color: Color(hex: Bots.hex(b.color))) }

@@ -42,13 +42,19 @@ extension Model {
         Task {
             defer { RoutineCareRun.busy = false }
             let now = Date()
-            let (jobs, needs, start) = await Task.detached { (RoutineCare.liveJobs(), RoutineCare.needs(), RoutineCare.load()) }.value
+            // Every helper today, on screen or put away: one already on a failed run means no fixer for it.
+            let live = helpers.map { RoutineCare.HelperRef(title: $0.title, task: $0.task, started: $0.started ?? .distantPast, state: $0.state) }
+            let shown = Set(helpers.map(\.id.uuidString))
+            let (jobs, needs, start, put) = await Task.detached {
+                (RoutineCare.liveJobs(), RoutineCare.needs(), RoutineCare.load(), RoutineCare.trailHelpers(skip: shown, since: now - 2 * 86400))
+            }.value
             var signed: [String: Bool] = [:]
             for n in RoutineCare.wanted(start, jobs: jobs, needs: needs, now: now) {
                 if let v = await RoutineCare.signedIn(n) { signed[n.key] = v }
             }
             var s = start
-            let effects = RoutineCare.step(&s, jobs: jobs, needs: needs, signedIn: signed, now: now, quiet: RoutineCare.quiet(now))
+            let effects = RoutineCare.step(
+                &s, jobs: jobs, needs: needs, signedIn: signed, now: now, quiet: RoutineCare.quiet(now), helpers: live + put)
             var targets: [String: String] = [:]
             let asking = Set(effects.filter { $0.kind == "ask" }.map(\.blocker))
             for b in s.open where asking.contains(b.key) || RoutineCare.askStale(b) { targets[b.key] = await RoutineCareRun.target(b) ?? "" }

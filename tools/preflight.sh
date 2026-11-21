@@ -301,6 +301,8 @@ mkdir -p "$T/br"
 check "same profile and port, hidden, never from a test copy; Claude sign-in read from its cookie" bash -c "ONE_SUPPORT_DIR=$T/br $TBIN --test-browser | tee $T/br/out.txt | grep -q '^browser ok'"
 grep "FAIL" "$T/br/out.txt" 2>/dev/null | sed 's/^/    /'
 check "copying their Chrome again never loses the hidden browser's own sign-ins; a failed copy leaves its cookies untouched (Nov 18: X)" /usr/bin/python3 tools/chrome-copy-check.py
+LIMIT=240 check "a real hidden Chrome keeps its X and Google sign-ins through a copy of their Chrome and a restart (Nov 20: v10 rows)" bash -c "/usr/bin/python3 tools/chrome-copy-live-check.py > $T/br/live.txt 2>&1"
+grep -E "✗|lost:" "$T/br/live.txt" 2>/dev/null | sed 's/^/    /'
 
 part 3 "A hidden browser never shows in the Dock or Stage Manager and never comes to the front"
 mkdir -p "$T/hb"

@@ -159,9 +159,9 @@ after = rows(cookies)
 check("the copy worked (exit 0)", code == 0 and '"ok": true' in out)
 check("X stays signed in (it lives only in the hidden browser)", after.get((".x.com", "auth_token")) == b"hidden-auth")
 check("the same cookie in both: the newer one wins (the hidden browser's X ct0)", after.get((".x.com", "ct0")) == b"hidden-ct0")
-check("the same cookie in both: the newer one wins (Chrome's Google sign-in)", after.get((".google.com", "SID")) == b"chrome-sid")
+check("a sign-in the hidden browser has is never replaced, even by a newer one in their Chrome (Google)", after.get((".google.com", "SID")) == b"hidden-sid")
 check("sites only Chrome has come in", after.get((".amazon.com", "at-main")) == b"chrome-amazon")
-check("the report counts the kept sign-ins", '"kept": 3' in out)
+check("the report counts the rows put back", '"kept": 4' in out and '"merged": true' in out)
 
 print("Putting the cookies from before the copy back (the Mac's keychain said no)")
 code, out = run("restore", str(dst))
@@ -216,22 +216,35 @@ code, out, after = scenario(
 check("its sign-in stays, with its own csrf", after.get((".shop.example", "sessionid")) == b"hidden-session"
       and after.get((".shop.example", "csrf")) == b"hidden-csrf" and (".shop.example", "visitor") not in after)
 
-print("Both signed in to Google, their Chrome newer: Chrome's whole Google, not a mix")
+print("Both signed in to Google, their Chrome newer: the hidden browser's whole Google stays, not a mix")
 code, out, after = scenario(
     [(".google.com", "SID", "chrome-sid", 300), (".google.com", "HSID", "chrome-hsid", 300)],
     [(".google.com", "SID", "hidden-sid", 10), (".google.com", "HSID", "hidden-hsid", 10), (".google.com", "__Secure-3PSIDTS", "hidden-ts", 10)],
 )
-check("Chrome's newer Google sign-in wins", after.get((".google.com", "SID")) == b"chrome-sid" and after.get((".google.com", "HSID")) == b"chrome-hsid")
-check("none of the hidden browser's older Google cookies mixed in", (".google.com", "__Secure-3PSIDTS") not in after)
+check("the hidden browser's Google sign-in stays (a copy never takes one away)", after.get((".google.com", "SID")) == b"hidden-sid" and after.get((".google.com", "HSID")) == b"hidden-hsid")
+check("all of it, nothing of their Chrome's mixed in", after.get((".google.com", "__Secure-3PSIDTS")) == b"hidden-ts")
 
 print("Their Chrome's cookies are sealed with a key the hidden browser doesn't use (v10 vs v11)")
 code, out, after = scenario(
-    [(".x.com", "auth_token", "v10chrome-auth", 900), (".x.com", "ct0", "v10chrome-ct0", 900), (".amazon.com", "at-main", "v10chrome-amazon", 900)],
+    [(".x.com", "auth_token", "v10chrome-auth", 900), (".x.com", "ct0", "v10chrome-ct0", 900), (".amazon.com", "at-main", "v10chrome-amazon", 900),
+     (".etsy.com", "session-key-www", "v11chrome-etsy", 900)],
     [(".x.com", "auth_token", "v11hidden-auth", 200), (".x.com", "ct0", "v11hidden-ct0", 200), (".x.com", "twid", "v11hidden-twid", 200)],
 )
 check("X keeps the rows the hidden browser can read", [after.get((".x.com", n)) for n in ("auth_token", "ct0", "twid")]
       == [b"v11hidden-auth", b"v11hidden-ct0", b"v11hidden-twid"])
-check("a site only Chrome has still comes in", after.get((".amazon.com", "at-main")) == b"v10chrome-amazon")
+check("a site only Chrome has comes in when the hidden browser can read it", after.get((".etsy.com", "session-key-www")) == b"v11chrome-etsy")
+check("and not when it can't (it would only be dropped on start)", (".amazon.com", "at-main") not in after)
+
+print("A copy whose merge can't run (their Chrome's cookie table is a version ahead)")
+make_db(src / "Default/Network/Cookies", [(".x.com", "guest_id", "chrome-guest", 900)])
+c = sqlite3.connect(str(src / "Default/Network/Cookies"))
+c.execute("alter table cookies add column newer integer not null default 0")
+c.commit()
+c.close()
+reset_copy()
+code, out = run("chrome", str(dst), "--src", str(src))
+check("the hidden browser's cookies are back exactly as before the copy", rows(cookies) == {(h, n): v.encode() for h, n, v, _ in HIDDEN})
+check("and the report says the merge didn't run", '"merged": false' in out)
 
 shutil.rmtree(tmp, ignore_errors=True)
 print("chrome copy ok" if not fails else f"chrome copy FAILED: {fails}")

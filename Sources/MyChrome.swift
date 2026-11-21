@@ -11,6 +11,9 @@ import Foundation
 /// assistant leaves `browser/resync`, never on a plain restart: sign-ins made in the hidden browser itself
 /// (X, through One's window) live only there, and copying Chrome over them signed X out twice on Nov 18 2026.
 /// A copy keeps those sign-ins (one_my_chrome.py merges them back), and a failed one leaves them untouched.
+/// Since 0.9.142 a copy never takes away a sign-in the hidden browser has, and never brings in rows it can't
+/// read (their Chrome seals v10, the hidden browser v11: one such row and Chrome drops the whole site on start).
+/// Proved with a real Chrome in tools/chrome-copy-live-check.py.
 enum MyChrome {
     static var copyDir: URL { Env.support.appendingPathComponent("browser/my-chrome") }
     static var resyncFile: URL { Env.support.appendingPathComponent("browser/resync") }
@@ -76,7 +79,8 @@ enum MyChrome {
         }
         if code == 0, j["ok"] as? Bool == true {
             let n = (j["signs"] as? [Any])?.count ?? 0
-            BrowserKeeper.log("copied Chrome's sign-ins (profile \(j["profile"] as? String ?? "?"), \(n) known sign-ins) into \(copyDir.path)")
+            let kept = j["merged"] as? Bool == false ? "; couldn't merge, so the hidden browser's own cookies were put back as they were" : ""
+            BrowserKeeper.log("copied Chrome's sign-ins (profile \(j["profile"] as? String ?? "?"), \(n) known sign-ins) into \(copyDir.path)\(kept)")
             return nil
         }
         let why = (j["error"] as? String) ?? String(out.suffix(300))

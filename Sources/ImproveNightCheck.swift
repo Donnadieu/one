@@ -218,6 +218,9 @@ enum ImproveNightCheck {
         ImproveSeenCheck.run(check, roots: [mine.path])
         check("prepare names a recipe only when it may take a lesson", idle.contains("- alpha: "))
 
+        // 11. Recipes stay small by themselves; lessons in their own file, repeats merged (RecipeTidyCheck.swift).
+        RecipeTidyCheck.run(check, root: mine, now: now)
+
         print(fails == 0 ? "nightly ok" : "nightly failed: \(fails)")
         return fails == 0 ? 0 : 1
     }

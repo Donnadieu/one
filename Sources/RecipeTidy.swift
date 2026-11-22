@@ -351,14 +351,16 @@ enum RecipeTidy {
         return r
     }
 
-    /// Every recipe under the roots, kept in `improve/tidy/<date>.json` for the morning line.
-    @discardableResult static func tend(roots: [String], date: String, limit: Int = limit) -> [RecipeTidyResult] {
+    /// Every recipe under the roots, kept in `improve/tidy/<morning>.json` for that morning's line (`morning`: the
+    /// date of the brief that should tell it; the night's own date by default).
+    @discardableResult static func tend(roots: [String], date: String, morning: String? = nil, limit: Int = limit) -> [RecipeTidyResult] {
         let out = recipes(roots).compactMap { tidy($0, date: date, limit: limit) }
         guard !out.isEmpty else { return out }
         try? FileManager.default.createDirectory(at: recordDir, withIntermediateDirectories: true)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try? enc.encode(record(date) + out).write(to: recordDir.appendingPathComponent("\(date).json"), options: .atomic)
+        let day = morning ?? date
+        try? enc.encode(record(day) + out).write(to: recordDir.appendingPathComponent("\(day).json"), options: .atomic)
         return out
     }
     static func record(_ date: String) -> [RecipeTidyResult] {
@@ -392,16 +394,22 @@ enum RecipeTidy {
         return line + "."
     }
 
-    /// `One --improve recipes tidy [--root DIR]… [--date D]`: what the night does before the review, by hand.
-    static func cli(_ a: [String]) -> Int32 {
+    /// The morning brief that will next tell about something done now: today's before 5 AM, else tomorrow's.
+    static func nextMorning(_ now: Date) -> String {
+        Calendar.current.component(.hour, from: now) < 5 ? Improve.dayKey(now) : Improve.dayKey(now.addingTimeInterval(86400))
+    }
+
+    /// `One --improve recipes tidy [--root DIR]… [--date D]`: what the night does before the review, by hand. The
+    /// next morning brief says what it did.
+    static func cli(_ a: [String], now: Date = Date()) -> Int32 {
         guard a.first == "tidy" else {
             print("usage: One --improve recipes tidy [--root DIR]... [--date YYYY-MM-DD]")
             return 2
         }
         var roots: [String] = []
         for (i, x) in a.enumerated() where x == "--root" && i + 1 < a.count { roots.append(a[i + 1]) }
-        let date = ImproveCLI.value(a, "--date") ?? Improve.dayKey(Date())
-        let out = tend(roots: roots.isEmpty ? LearnedDirs.wanted() : roots, date: date)
+        let date = ImproveCLI.value(a, "--date") ?? Improve.dayKey(now)
+        let out = tend(roots: roots.isEmpty ? LearnedDirs.wanted() : roots, date: date, morning: nextMorning(now))
         for r in out {
             if let e = r.error {
                 print("\(r.skill): \(e)")

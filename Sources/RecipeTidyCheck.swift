@@ -143,7 +143,18 @@ enum RecipeTidyCheck {
         let line = RecipeTidy.morningLine(date: "2099-03-01") ?? ""
         check("one line, no question", line.contains("I split 1 recipe") && line.contains("big") && !line.contains("?") && !line.contains("\n"))
 
-        // 4. The nightly review does it by itself, before it runs, and says so in the morning.
+        // 4. By hand (`One --improve recipes tidy`) at noon: the next morning's brief tells it.
+        let byHand = root.appendingPathComponent("byhand")
+        ImproveCheck.write(bigRecipe("byhand"), byHand.appendingPathComponent("SKILL.md"))
+        let noon = Calendar.current.date(from: DateComponents(year: 2099, month: 5, day: 1, hour: 12)) ?? now
+        let handCode = RecipeTidy.cli(["tidy", "--root", root.path], now: noon)
+        check(
+            "a split by hand is told in the next morning's brief",
+            handCode == 0 && RecipeTidy.morningLine(date: "2099-05-02")?.contains("byhand") == true
+                && fm.fileExists(atPath: byHand.appendingPathComponent("SKILL.md.bak-2099-05-01").path))
+        try? fm.removeItem(at: byHand)
+
+        // 5. The nightly review does it by itself, before it runs, and says so in the morning.
         try? fm.removeItem(at: spoilt)
         let giant = root.appendingPathComponent("giant")
         ImproveCheck.write(bigRecipe("giant"), giant.appendingPathComponent("SKILL.md"))

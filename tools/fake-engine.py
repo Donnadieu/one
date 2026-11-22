@@ -4,7 +4,8 @@
 It speaks the same ACP JSON-RPC over stdin/stdout as the real engine, costs nothing and answers in seconds.
 Every helper job the check sends contains `STRESSJOB <id> secs=<n>`: the stand-in takes a step, says it is
 working (partial words, like a real helper mid-job), waits n seconds and only then ends with `DONE <id>`.
-`ask=1` after secs ends the job with a [choices: …] line (needs their yes). `STRESSCLOSE <title>` answers with
+`ask=1` after secs ends the job with a [choices: …] line (needs their yes; with `askjob=<id>` its first choice is
+`Go STRESSJOB <id> secs=30`, so a tap starts a long job). `STRESSCLOSE <title>` answers with
 a [close-helper: <title>] line, `STRESSDONE <title>` with a [done-helper: <title>] line. `STRESSQUOTED <a> <b>` answers with three helper lines quoting
 [close-helper: <a>], [stop-helper: all], [stop-helper: <b>] and [choices: …] inside their jobs. A message to the assistant containing `STRESSSPAWN <n> secs=<a,b,...>` answers with n helper lines, the
 first one written twice, and the whole reply delivered twice (how the real engine doubled a reply on
@@ -104,7 +105,7 @@ def prompt(rid, sid, text):
     m = re.search(r"STRESSSLOWMAIN (\S+) steps=(\d+) secs=(\d+(?:\.\d+)?)", text)
     if m:  # Nov 17 (corrections check): a main-chat turn that takes a while and several steps, then answers in full
         tag, steps, secs = m.group(1), int(m.group(2)), float(m.group(3))
-        log(ev="main-start", sid=sid, kind="slow", title=tag)
+        log(ev="main-start", sid=sid, kind="slow", title=tag, text=text[:400])  # what went: the restart-replay check reads it
         for i in range(steps):
             call = tool(sid, "terminal: step %d of %d" % (i + 1, steps))
             end = time.time() + secs / steps
@@ -119,9 +120,9 @@ def prompt(rid, sid, text):
         log(ev="main-end", sid=sid, kind="slow", title=tag)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?", text)
+    m = re.search(r"STRESSJOB (\S+) secs=(\d+(?:\.\d+)?)( ask=1)?(?: askjob=(\S+))?", text)
     if m:
-        job, secs, ask = m.group(1), float(m.group(2)), bool(m.group(3))
+        job, secs, ask, askjob = m.group(1), float(m.group(2)), bool(m.group(3)), m.group(4)
         resumed = "interrupted by a restart" in text or "were interrupted" in text
         log(ev="start", job=job, sid=sid, resumed=resumed)
         call = tool(sid, "terminal: sleep %g" % secs)
@@ -134,7 +135,9 @@ def prompt(rid, sid, text):
                 return
             time.sleep(0.1)
         tool_done(sid, call)  # the step ends, like the real engine's tool_call_update
-        chunk(sid, "DONE %s" % job + ("\nGo ahead?\n[choices: Yes, go ahead | Not now]" if ask else ""))  # ask=1: needs their yes
+        # ask=1: needs their yes; askjob=<id>: its first choice, tapped, is a job of its own (the restart-replay check)
+        choices = ("Go STRESSJOB %s secs=30" % askjob) if askjob else "Yes, go ahead"
+        chunk(sid, "DONE %s" % job + ("\nGo ahead?\n[choices: %s | Not now]" % choices if ask else ""))
         log(ev="end", job=job, sid=sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return

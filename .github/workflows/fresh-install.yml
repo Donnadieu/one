@@ -78,6 +78,8 @@ jobs:
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/browser-guard-engine-check.sh
       - name: The real engine's Telegram adapter turns a reply's choices line into tap buttons (one-phone-tags)
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/phone-choices-engine-check.sh
+      - name: "The real engine never tells a person their turn 'will not be run again'; a phone message a restart cut goes again exactly once (one-restart-replay)"
+        run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/restart-replay-engine-check.sh
       - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)
         run: |
           cd "$RUNNER_TEMP/fresh"

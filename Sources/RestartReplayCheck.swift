@@ -44,6 +44,11 @@ extension HelperStress {
         _ = await wait(20) { events().contains { $0.ev == "steer" && ($0.text ?? "").contains("STEERMSG ANS1") } }
         check("the answer went into the working helper's turn", events().contains { $0.ev == "steer" && ($0.text ?? "").contains("STEERMSG ANS1") })
         m.openHelper = nil
+        let saved = TurnJournal.read()
+        check("on disk: the main chat's turn", saved?.main?.c.engine.hasPrefix(replayMain) == true)
+        check(
+            "and the waiting ones",
+            saved.map { j in j.queued.contains { $0.engine.hasPrefix(replayNext) } && j.queued.contains { $0.helper != nil } } == true)
         print(fails == 0 ? "READY-TO-QUIT" : "replay FAILED (\(fails))")
         fflush(stdout)
         exit(fails == 0 ? 0 : 1)  // killed mid-turn: no clean quit, nothing more saved (the engine goes with it)
@@ -77,6 +82,8 @@ extension HelperStress {
             "no 'will not be run again', no 'send it again' anywhere",
             !m.bubbles.contains { $0.text.contains("will not be run") || $0.text.lowercased().contains("send it again") })
         if let w = h("Working") { m.stopHelper(w.id) }  // its 45 s job: not needed any more
+        _ = await wait(10) { TurnJournal.read().map { $0.main == nil && $0.queued.isEmpty } == true }
+        check("nothing left on disk", TurnJournal.read().map { $0.main == nil && $0.queued.isEmpty } == true)
         Engine.shared.stop()
         print(fails == 0 ? "replay-after ok" : "replay-after FAILED (\(fails))")
         return fails == 0 ? 0 : 1

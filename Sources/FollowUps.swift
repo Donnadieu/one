@@ -11,7 +11,7 @@ import SwiftUI
 // a new message never stops anything.
 
 /// What `compose` makes of what was typed or said.
-struct Composed {
+struct Composed: Codable, Equatable {
     var display: String
     var engine: String
     var images: [String]
@@ -20,13 +20,15 @@ struct Composed {
 }
 
 /// A message sent while busy.
-struct FollowUp: Identifiable, Equatable {
-    enum State { case next, sending, sent }
-    let id = UUID()
+struct FollowUp: Identifiable, Equatable, Codable {
+    enum State: String, Codable { case next, sending, sent }
+    var id = UUID()
     var c: Composed
     var helper: UUID?
     var hidden = false
     var state: State = .next
+    /// Sent again after a restart cut its turn (TurnJournal.swift): how many times so far.
+    var tries = 0
     var display: String { c.display }
     var engine: String { c.engine }
 

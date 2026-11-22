@@ -3,6 +3,28 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A turn a restart cuts is picked back up at the root, on every surface (0.9.146, Nov 22 2026)
+
+**Problem.** Nov 10-22, One's nightly review saw "your answer was lost to a restart" 12 times, after PR 150 (0.9.134)
+too. Evidence (state.db, gateway.log, one-gateway-guard.log): 40 engine stops, ~20 of them One update installs; each
+ran the engine's drain with `agent.restart_drain_timeout: 0`, settled every person's turn in flight `interrupted`
+(333 admissions) and wrote "this turn was interrupted and will not be run again. Send your message again" into the
+conversation and onto the stream (`owner_stop_notice`). The engine never runs that turn again. PR 150 only hid those
+words on One's screen and carried a helper's own words into its pick-up: the conversation still said them (so the
+review kept counting), the phone chat was never covered (Nov 11 "Yes go ahead" was lost), and the main chat's retry and
+every Next up message (taps included) lived in memory only, so a One restart dropped them.
+
+**Picked.** Durable before the turn starts, replayed once after any restart: One writes the main chat's turn and
+everything waiting to `<support>/turns/pending.json` (fsync'd) before it goes to the engine and sends what's left again
+once at launch (`TurnJournal.swift`; the engine's own record decides "answered after all"; 2 pick-ups max; stale after
+2 h). The engine plugin `one-restart-replay` replaces the engine's words at their one source with One's line, keeps a
+phone-chat turn the restart cut on disk and sends it again once when Telegram is back. **Rejected:** a non-zero
+`restart_drain_timeout` (updates and quits would hang on long helper turns, and a kill still cuts them); patching the
+engine's admission state machine to re-queue interrupted turns (deep, version-bound, and One already re-sends its own
+turns, so ACP turns would run twice); hiding the words again in more places (PR 150's approach). **Evidence:**
+`tools/restart-replay-check.sh`, `tools/restart-replay-plugin-check.py`, `tools/restart-replay-engine-check.sh`,
+`TurnJournalCheck` in `One --test-helpers`.
+
 ## Recipes stay small by themselves; lessons live next to them (0.9.145, Nov 22 2026)
 
 **Problem.** Recipes (SKILL.md) only grow. The nightly review could add a lesson only to a recipe under 12 KB and

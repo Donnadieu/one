@@ -136,6 +136,7 @@ extension Model {
     /// whenever a helper finishes. Tells the person once per helper, in the chat, on the orb and out loud.
     /// Each one sleeps (`waking`) until its conversation is re-attached, then wakes; the last one opens One.
     func resumeInterrupted() {
+        if Engine.shared.running { replayPending() }  // the main chat's and Next up's, once per launch (TurnJournal.swift)
         guard Engine.shared.running, !paused, helpers.contains(where: { $0.resumeQueued == true }) else { return }
         let picked = HelperTrail.pick(&helpers) { Helpers.brief(assistant: self.assistantName, user: self.userName, task: $0) }
         waking.formUnion(picked.map(\.id))

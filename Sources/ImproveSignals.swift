@@ -102,6 +102,8 @@ enum JobPlace: String {
 /// One tool step's result, read the strict way (design appendix): a step failed when it says so.
 enum StepCheck {
     static let cutOff = "Gateway shutting down: this turn was interrupted"
+    /// The same cut-off in One's words (engine plugin one-restart-replay, 0.9.146): counted the same way.
+    static let cutOffOne = RestartNotice.resumed
     /// One's own note when it picks a helper back up after a restart (HelperTrail).
     static let pickedBack = "You were interrupted by a restart"
 

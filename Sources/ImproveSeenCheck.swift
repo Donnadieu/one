@@ -44,7 +44,7 @@ enum ImproveSeenCheck {
             ImproveCheck.write("---\nname: huge\n---\n" + String(repeating: "A long recipe line.\n", count: 900), big)
             let tb = ImproveSeen.tooBig(roots: roots)
             check("a recipe over 12 KB is listed as too big", tb.contains { $0.0 == "huge" })
-            check("and the review is told never to edit it", ImproveSeen.tooBigSection(roots: roots).contains("never edit these"))
+            check("and the review is told never to edit it", ImproveSeen.tooBigSection(roots: roots).contains("never edit their SKILL.md"))
             try? FileManager.default.removeItem(at: big.deletingLastPathComponent())
         }
 

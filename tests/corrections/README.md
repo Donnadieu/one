@@ -38,3 +38,4 @@ Nov 17 2026. His words are quoted as he wrote them, swear words trimmed.
 | 2026-11-17 | "if it's a lot of routines… it is going over our list or our cluster of skills" | the routines list ran over the skills | --test-routines-list |
 | 2026-11-17 | "Again Ek is they/them. I have told you this several times." | a person's pronouns forgotten | rule: My Brain/assistant/how-to-work-with-me.md |
 | 2026-11-17 | (routine) "X is signed out in the hidden browser" (also Nov 13) | X sign-in lost in the hidden browser | none yet |
+| 2026-11-22 | (through his assistant) recipes grow without limit: he wants the long-term fix, not a one-off split | one-assistant-dev reached 98 KB, so the nightly review could never add a lesson to it, and a repeated lesson would be a new line each time | --test-nightly |

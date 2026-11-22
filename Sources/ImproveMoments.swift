@@ -129,7 +129,7 @@ enum ImproveCLI {
         guard let k = args.firstIndex(of: "--improve") else { return nil }
         let a = Array(args[(k + 1)...])
         let usage =
-            "usage: One --improve collect [--date YYYY-MM-DD | --since YYYY-MM-DD] | score [--week] | moments [--date D] [--max 20] | settings [show | set <key> <value>] | night …"
+            "usage: One --improve collect [--date YYYY-MM-DD | --since YYYY-MM-DD] | score [--week] | moments [--date D] [--max 20] | settings [show | set <key> <value>] | night … | recipes tidy | lesson add …"
         switch a.first ?? "" {
         case "collect":
             let today = Date()
@@ -165,6 +165,10 @@ enum ImproveCLI {
             return ImproveNightRun.cli(Array(a.dropFirst()))  // the nightly review (ImproveNightRun.swift)
         case "ask":
             return ImproveAsk.cli(Array(a.dropFirst()))  // its one question: show | yes | no (ImproveAsk.swift)
+        case "recipes":
+            return RecipeTidy.cli(Array(a.dropFirst()))  // the size limit and split (RecipeTidy.swift)
+        case "lesson":
+            return RecipeLessons.cli(Array(a.dropFirst()))  // a lesson into LESSONS.md, repeats merged (RecipeLessons.swift)
         default:
             print(usage)
             return 2

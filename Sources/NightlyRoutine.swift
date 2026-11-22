@@ -12,7 +12,7 @@ import Foundation
 enum NightlyRoutine {
     static let name = "Nightly review"
     static let schedule = "30 3 * * *"
-    static let version = 2  // bump when the prompt or script changes; the next launch updates the routine in place
+    static let version = 3  // bump when the prompt or script changes; the next launch updates the routine in place
     static let scriptName = "one-nightly-review.sh"
     static var scriptFile: URL { Env.hermesHome.appendingPathComponent("scripts/\(scriptName)") }
     static var markerFile: URL { Improve.dir.appendingPathComponent("routine.json") }
@@ -52,18 +52,18 @@ enum NightlyRoutine {
         "Incident" (a one-off burst) is one lesson about its cause, never many. HELD EDITS are evidence too: one \
         that says the same as a ledger lesson counts as a sighting of it.
         3. MODE suggest: change no recipe, note or setting at all. MODE edit: only for lessons with status "rule", add \
-        or edit ONE bullet under a "## Lessons" heading at the end of that recipe's SKILL.md (never one listed under TOO \
-        BIG FOR A LESSON) (make the heading if it's \
-        missing), like "- [L-<key>] <rule> (seen <dates>)". Stay within the number of recipes MODE allows, one change \
-        per recipe, small edits in place, never rewrite a recipe, never make a new one, never touch SOUL, policy.yaml, \
-        AGENTS.md, room notes or the person's own stated rules. Keep each SKILL.md under 12 KB and its Lessons under \
-        25 lines (merge or retire one first if it's full). In edit mode you may also trim repeated lines in the notes \
-        file listed, only when it's over 90% full.
+        each one with the LESSON COMMAND from the Script Output (--key is the lesson key, --rule the one short rule), \
+        into a recipe from "Recipes you may add a lesson to". It keeps the lesson in the LESSONS.md next to that \
+        recipe and merges a repeat of the same key into its line by itself: never write a lesson into SKILL.md \
+        yourself, never add a second line for a key. Stay within the number of recipes MODE allows, never rewrite \
+        or split a recipe (One keeps every SKILL.md under 12 KB by itself, before you run), never make a new one, \
+        never touch SOUL, policy.yaml, AGENTS.md, room notes or the person's own stated rules. In edit mode you may \
+        also trim repeated lines in the notes file listed, only when it's over 90% full.
         4. Write the REVIEW FILE as JSON: {"date", "mode", "lessons": [{"key", "skill", "rule", "status", "evidence", \
         "applied": true or false}], "ask": {"key": "...", "text": "...", "title": "...", "job": "...", "choices": ["Yes", \
         "Not now"]} or null}. "ask" is at most one thing that needs the person's yes (a new recipe from 2 or more real \
-        jobs, a routine, a change to One itself, a setting, splitting a recipe that's too big, a rule of theirs that \
-        names a feature One took back), in plain words. "key" is the lesson key (reuse it for the same topic); never \
+        jobs, a routine, a change to One itself, a setting, a rule of theirs that names a feature One took \
+        back), in plain words. "key" is the lesson key (reuse it for the same topic); never \
         ask a key listed under ASKS ALREADY MADE. A yes sends a helper: "title" is 2 to 4 words saying its purpose, \
         "job" is the whole job with every detail it needs (for a change to One: repo Donnadieu/one, test first: a \
         check that fails before the fix and passes after).

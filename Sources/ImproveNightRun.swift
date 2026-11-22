@@ -84,6 +84,9 @@ enum ImproveNightRun {
         Improve.collect(from: Improve.defaultSince(), to: now)
         let judged = verdicts(now: now)
         let s = Improve.settings()
+        // Recipes over the size limit are split, and old Lessons sections moved to LESSONS.md, before the night's copy
+        // (RecipeTidy.swift): lossless and checked, so it runs on suggestion nights too and is never undone with them.
+        let tidied = RecipeTidy.tend(roots: LearnedDirs.wanted(), date: date)
         let r = ImproveNight.begin(date: date, now: now)
         let yesterday = Improve.dayKey(Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now)
         var out = "# One's nightly review, \(date)\n\n"
@@ -91,15 +94,14 @@ enum ImproveNightRun {
             "MODE: \(s.mode) (\(s.mode == "edit" ? "safe edits on: at most \(s.maxEditsPerNight) recipes tonight, \(s.maxEditsPerSkill) change each" : "suggestions only: change nothing"))\n"
         out += "REVIEW FILE (write it): \(ImproveNight.reviewFile(date).path)\n"
         out += "LESSONS LEDGER (append to it): \(Improve.lessonsFile.path)\n"
+        out +=
+            "LESSON COMMAND (the only way to add a lesson to a recipe): \"\(Bridge.exe)\" --improve lesson add --skill \"<recipe's SKILL.md path>\" "
+            + "--key <key> --rule \"<rule>\" --date \(date)\n"
         out += "WHEN DONE, RUN: \"\(Bridge.exe)\" --improve night end\n"
         out += "Copied before the review (\(r.roots.count) folders), so tonight can be undone.\n\n"
-        out += "## Recipes you may add a lesson to\n"
-        for root in r.roots.values.sorted() {
-            for name in ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []).sorted() where !name.hasPrefix(".") {
-                let f = URL(fileURLWithPath: root).appendingPathComponent(name).appendingPathComponent("SKILL.md")
-                let size = (try? FileManager.default.attributesOfItem(atPath: f.path))?[.size] as? Int
-                if let size, size <= ImproveSeen.recipeLimit { out += "- \(name): \(f.path)\n" }  // too big: listed below
-            }
+        out += "## Recipes you may add a lesson to (with the LESSON COMMAND; lessons go to the LESSONS.md next to each)\n"
+        for dir in RecipeTidy.recipes(r.roots.values.sorted()) {
+            out += "- \(dir.lastPathComponent): \(dir.appendingPathComponent("SKILL.md").path)\n"
         }
         if s.mode == "edit" { out += "- notes (the assistant's MEMORY.md): \(Env.hermesHome.appendingPathComponent("memories/MEMORY.md").path)\n" }
         out += "\n## The lessons ledger so far (newest last)\n"
@@ -109,6 +111,10 @@ enum ImproveNightRun {
         // their rules that name a feature One took back, and every ask it already made.
         let last = ImproveNight.dates().filter { $0 != date }.compactMap { ImproveNight.read($0)?.began }.max()
         out += ImproveSeen.heldSection(since: last ?? now.timeIntervalSince1970 - 86400)
+        if !tidied.isEmpty {
+            out += "\n## Recipes One tidied before this review (done; nothing for you to do)\n"
+            out += tidied.map { "- \($0.skill): " + ($0.error ?? "\($0.before / 1024) KB to \($0.after / 1024) KB") }.joined(separator: "\n") + "\n"
+        }
         out += ImproveSeen.tooBigSection(roots: Array(r.roots.values))
         out += ImproveSeen.staleSection()
         out += ImproveAsk.section()
@@ -228,6 +234,7 @@ enum ImproveNightRun {
             out.append(v)
         }
         if let score = ImproveScore.brief(lastWeek: false, today: now).first { out.append(score) }
+        if let tidy = RecipeTidy.morningLine(date: date) { out.append(tidy) }  // recipes it split (RecipeTidy.swift)
         return out
     }
     static func short(_ items: [String]) -> String {

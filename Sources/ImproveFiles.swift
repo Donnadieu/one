@@ -211,7 +211,7 @@ enum ImproveFiles {
                 let size = ((try? fm.attributesOfItem(atPath: u.path))?[.size] as? Int) ?? 0
                 let name = dir.lastPathComponent
                 names[name, default: []].append(rel(dir, root))
-                if size > 12 * 1024 {
+                if size > ImproveSeen.recipeLimit {
                     out.append(ImproveEvent("health", "skill_too_big", at: now, title: name, quote: "\(name) is \(size / 1024) KB (limit 12 KB)"))
                 }
             }

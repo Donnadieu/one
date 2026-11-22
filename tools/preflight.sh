@@ -165,7 +165,7 @@ grep "✗" "$T/imp/out.txt" 2>/dev/null | sed 's/^/    /'
 
 part 3 "Nightly review: what one night may change, its undo, only when nothing else is working"
 mkdir -p "$T/night"
-check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once; it sees the same mistake again, held edits, too-big recipes and stale rules" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
+check "suggestions-only nights change nothing, edit nights within limits, undo, the 7-day check, the gate, the morning lines, the routine made once; it sees the same mistake again, held edits, too-big recipes and stale rules; oversize recipes split with no line lost, lessons in LESSONS.md merged by id" bash -c "ONE_SUPPORT_DIR=$T/night $TBIN --test-nightly | tee $T/night/out.txt | grep -q '^nightly ok'"
 grep "✗" "$T/night/out.txt" 2>/dev/null | sed 's/^/    /'
 
 part 2 "Omar's corrections: each one names its guard (tests/corrections/README.md)"

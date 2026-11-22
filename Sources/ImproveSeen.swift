@@ -4,14 +4,14 @@ import Foundation
 // Four things the review never looked at, so it could not learn from them:
 // - the skill edits the learning cap held back (`improve/held-review-edits.jsonl`, LearningCap.swift): 235 of them
 //   between Nov 5 and Nov 18, "for the nightly review to weigh", and the review never opened the file;
-// - which recipes are too big to take a lesson (over 12 KB): the most used ones, so their rules were never written;
+// - which recipes are over 12 KB (since RecipeTidy.swift they are split before the review; this lists any left over);
 // - the person's own rules that still name a feature One took back (the 0.9.116 "main chat is always free to talk"
 //   rule stayed in how-to-work-with-me.md after the 0.9.126 revert);
 // - the asks it already made and how they were answered (ImproveAsk.swift), so it never asks the same thing again.
 
 enum ImproveSeen {
     static var heldFile: URL { Improve.dir.appendingPathComponent("held-review-edits.jsonl") }
-    /// The size over which the review may not add a lesson (NightlyRoutine.prompt says the same).
+    /// The size limit for every SKILL.md: over it, the night splits the recipe before the review (RecipeTidy.swift).
     static let recipeLimit = 12 * 1024
 
     struct Held {
@@ -56,16 +56,14 @@ enum ImproveSeen {
         return out
     }
 
-    /// Recipes in the folders a night may edit that are over the size limit, biggest first: (name, KB).
+    /// Recipes in the folders a night may edit still over the size limit (the split couldn't make them fit, or
+    /// failed its no-line-lost check), biggest first: (name, KB).
     static func tooBig(roots: [String]) -> [(String, Int)] {
         var out: [(String, Int)] = []
-        let fm = FileManager.default
-        for root in roots {
-            for name in ((try? fm.contentsOfDirectory(atPath: root)) ?? []) where !name.hasPrefix(".") {
-                let f = URL(fileURLWithPath: root).appendingPathComponent(name).appendingPathComponent("SKILL.md")
-                guard let size = (try? fm.attributesOfItem(atPath: f.path))?[.size] as? Int, size > recipeLimit else { continue }
-                out.append((name, size / 1024))
-            }
+        for dir in RecipeTidy.recipes(roots) {
+            let f = dir.appendingPathComponent("SKILL.md")
+            guard let size = (try? FileManager.default.attributesOfItem(atPath: f.path))?[.size] as? Int, size > recipeLimit else { continue }
+            out.append((dir.lastPathComponent, size / 1024))
         }
         return out.sorted { $0.1 > $1.1 }
     }
@@ -73,8 +71,9 @@ enum ImproveSeen {
     static func tooBigSection(roots: [String]) -> String {
         let big = tooBig(roots: roots)
         guard !big.isEmpty else { return "" }
-        return "\n## TOO BIG FOR A LESSON (over 12 KB; never edit these)\n" + big.map { "- \($0.0): \($0.1) KB" }.joined(separator: "\n")
-            + "\nA rule that belongs to one of these goes in the ask instead: \"move its long parts into references/ so lessons fit\".\n"
+        return "\n## STILL OVER 12 KB (One's split couldn't make these fit; never edit their SKILL.md)\n"
+            + big.map { "- \($0.0): \($0.1) KB" }.joined(separator: "\n")
+            + "\nTheir lessons still go in with the LESSON COMMAND (LESSONS.md has no size limit). One tries the split again every night.\n"
     }
 
     // MARK: The person's rules that name a feature One took back

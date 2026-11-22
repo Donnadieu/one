@@ -3,6 +3,23 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Recipes stay small by themselves; lessons live next to them (0.9.145, Nov 22 2026)
+
+**Problem.** Recipes (SKILL.md) only grow. The nightly review could add a lesson only to a recipe under 12 KB and
+listed the rest as "too big", so the most used ones never learned: one-assistant-dev reached 98 KB and 26 of the
+brain's recipes were over the limit. A lesson that came back was written as a new line each time.
+
+**Picked.** A size limit in code (12 KB, `RecipeTidy.limit`). Before every nightly review, on suggestion nights too,
+any recipe over it is split: `SKILL.md.bak-<date>` first, long sections word for word into new `references/<topic>.md`
+files (never written over), the frontmatter, overview, key-rule sections that fit and a one-line index left in
+SKILL.md. Every non-empty line of the old SKILL.md must be in the new files, checked in memory and again from disk;
+otherwise it is put back exactly as it was. Lessons live in `LESSONS.md` next to the recipe, linked from it, one line
+per lesson id: `One --improve lesson add` merges a repeat (dates widen, count goes up), and it is the review's only way
+to add one. Old `## Lessons` sections move there. One line in the morning brief, no question. **Rejected:** asking
+the person before each split (he asked for it to happen by itself), summarising sections (loses words), and capping
+lessons inside SKILL.md (they'd still compete with the recipe for space). **Evidence:** `RecipeTidyCheck` in
+`One --test-nightly` (preflight), red on the stub commit, green after.
+
 ## Bots: a helper you keep, as moons on the left (0.9.123, Nov 17 2026)
 
 **Problem.** Omar's friends use Grok Bot, Meta's Muse and OpenAI's dots; his friend Danny keeps a Growth bot and an

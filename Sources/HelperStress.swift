@@ -102,6 +102,7 @@ enum HelperStress {
         let resumed: Bool?
         let sid: String?
         var text: String? = nil
+        var title: String? = nil
     }
     static func events() -> [Event] {
         let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
@@ -228,7 +229,10 @@ enum HelperStress {
 
     @MainActor
     static func run(_ phase: String) async -> Int32 {
-        guard let m = await setUp(watching: !["phone", "restartwait", "restartwait-after", "corrections"].contains(phase)) else { return 2 }
+        guard
+            let m = await setUp(
+                watching: !["phone", "restartwait", "restartwait-after", "corrections", "replay", "replay-after", "replay-again"].contains(phase))
+        else { return 2 }
         let t0 = Date()
         func at() -> String { String(format: "%5.1fs", Date().timeIntervalSince(t0)) }
         let fm = FileManager.default
@@ -243,6 +247,9 @@ enum HelperStress {
             return await restartWaitCheck(m)  // RestartWaitCheck.swift: a helper waiting for One to restart
         case "restartwait-after":
             return await restartWaitAfter(m)  // the same, after One really quit and opened again
+        case "replay": return await replayCheck(m)  // RestartReplayCheck.swift: what they sent survives One going away mid-turn
+        case "replay-after": return await replayAfter(m)
+        case "replay-again": return await replayAgain(m)
         case "start":
             m.helpers = []
             m.bubbles = []

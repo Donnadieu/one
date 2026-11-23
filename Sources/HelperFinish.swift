@@ -30,8 +30,11 @@ enum HelperEnd: Equatable {
         if s.hasPrefix("error") {
             return cutWords.contains { s.contains($0) } ? .cutOff : .failed(String(stop.dropFirst(7)))
         }
-        // The gateway's own words when it stopped mid-turn, delivered as an ordinary reply.
-        if said.contains("Gateway shutting down") || said.contains("this turn was interrupted") { return .cutOff }
+        // The gateway's own words when it stopped mid-turn, delivered as an ordinary reply (since 0.9.146 One's line,
+        // from the engine plugin one-restart-replay: TurnJournal.swift).
+        if said.contains("Gateway shutting down") || said.contains("this turn was interrupted") || RestartNotice.cut(said) {
+            return .cutOff
+        }
         switch s {
         case "cancelled", "max_tokens", "max_turn_requests": return .cutOff
         case "refusal": return .failed("the AI refused to go on")
@@ -55,6 +58,12 @@ enum RestartNotice {
         let l = line.trimmingCharacters(in: .whitespaces)
         if l.contains("will not be run again") || l.contains("Send your message again once Hermes") { return true }
         return l.hasPrefix("Operation interrupted:") || l == failed || l == partial
+    }
+    /// The turn ended on the engine's restart line (the engine plugin one-restart-replay writes `resumed` in place of
+    /// "will not be run again", as the turn's last words): it was cut off, and One picks it back up. Only a reply whose
+    /// last line is exactly that counts, so an answer that mentions it stays an answer.
+    static func cut(_ text: String) -> Bool {
+        text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty } == resumed
     }
     static func has(_ text: String) -> Bool { text.components(separatedBy: "\n").contains(where: engineLine) }
 

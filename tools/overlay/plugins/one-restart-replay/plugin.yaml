@@ -1,0 +1,6 @@
+name: one-restart-replay
+version: "1.0.0"
+description: "One: a turn the engine's restart cut off is picked back up, never 'will not be run again'. The engine's restart words become One's line ('One restarted; picking this back up.') in the conversation and on the stream, so One's app picks the turn back up; a phone-chat message the restart cut is kept on disk and sent again once when the chat reconnects; the phone hears plain words, never 'send any message'."
+author: "One (Donnadieu/one)"
+provides_hooks:
+  - transform_llm_output

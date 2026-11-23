@@ -218,7 +218,7 @@ final class Model: ObservableObject {
         didSet { if oldValue && !thinking { Task { @MainActor in self.nextUpReady() } } }
     }
     /// Messages sent while busy: "Sent to <name>" (went into the running turn) or "Next up" (waiting).
-    @Published var followUps: [FollowUp] = []
+    @Published var followUps: [FollowUp] = [] { didSet { TurnJournal.save(self) } }  // on disk: a restart never loses one
     @Published var editingFollowUp: UUID?
     /// The main conversation's turn is with the engine right now, and has started answering.
     var turnLive = false

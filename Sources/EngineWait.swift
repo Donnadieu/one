@@ -59,7 +59,7 @@ extension Engine {
 
     /// True when a turn failed because the background helper went away under it (not a real error).
     static func dropped(_ stop: String, text: String, gatewayBefore: pid_t?) -> Bool {
-        if text.contains("Gateway shutting down") || text.contains("this turn was interrupted") { return true }
+        if text.contains("Gateway shutting down") || text.contains("this turn was interrupted") || RestartNotice.cut(text) { return true }
         guard stop.hasPrefix("error") else { return false }
         let e = stop.lowercased()
         if ["shutting down", "interrupted", "draining", "not_ready", "stopped"].contains(where: { e.contains($0) }) { return true }

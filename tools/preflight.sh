@@ -250,6 +250,9 @@ check "phone messages sent while One was off: the last 2 hours answered, older o
 check "helper lines in a phone-chat reply (engine): handed to One once, never shown (a receipt instead), the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news; a reply that says a job is starting with no line is logged, told next turn, and shown when it hangs (the Nov 17 replies)" /usr/bin/python3 tools/phone-tags-check.py
 check "choices in a Telegram reply (engine plugin): One's own cut, tap buttons under the reply, a tap is typing that answer once, old buttons stop, nobody else can tap, other chats untouched" /usr/bin/python3 tools/phone-choices-check.py
 # The real engine and the missed-messages plugin: runs in .github/workflows/fresh-install.yml (tools/missed-messages-engine-check.sh).
+check "a turn the engine's restart cut (engine plugin): One's line, never 'will not be run again'; a phone message kept on disk and sent again exactly once when Telegram is back (cut again: once more, then one plain line); stale or moved-on ones left alone; plain shutdown words on the phone" /usr/bin/python3 tools/restart-replay-plugin-check.py
+check "the restart-replay plugin bundled" test -f "$APP/Contents/Resources/one-restart-replay/__init__.py"
+# The real engine and the restart-replay plugin: runs in .github/workflows/fresh-install.yml (tools/restart-replay-engine-check.sh).
 
 part 3 "Tell me when I learn (decisions on a made-up skill log)"
 mkdir -p "$T/lrn"
@@ -336,6 +339,12 @@ LIMIT=240 check "a folder granted or a restart asked, then its turn ends: Waitin
   bash -c "tools/restart-wait-check.sh --no-build > '$T/rw.txt' 2>&1"
 grep -e "✗" -e "^   \[" "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
 grep -q "restart-wait-check ok" "$T/rw.txt" 2>/dev/null || grep -q "✗" "$T/rw.txt" 2>/dev/null || tail -12 "$T/rw.txt" 2>/dev/null | sed 's/^/    /'
+
+part 4 "What they sent survives One going away mid-turn (stand-in engine, no cost; Nov 10-22 replayed)"
+LIMIT=400 check "the main chat's turn in flight, a message typed during it, a choice tapped on an asking helper and an answer sent into a working helper's turn, then One killed: each goes again exactly once when One opens, nothing shows twice, and a third open runs nothing" \
+  bash -c "tools/restart-replay-check.sh --no-build > '$T/rr.txt' 2>&1"
+grep -e "✗" -e "^   \[" "$T/rr.txt" 2>/dev/null | sed 's/^/    /'
+grep -q "restart-replay-check ok" "$T/rr.txt" 2>/dev/null || grep -q "✗" "$T/rr.txt" 2>/dev/null || tail -12 "$T/rr.txt" 2>/dev/null | sed 's/^/    /'
 
 part 2 "Omar's corrections replayed (stand-in engine, no cost): the Nov 17 cut-off main chat, the nightly review's question"
 LIMIT=200 check "a 24 s, 4-step main-chat turn ends in its own answer (no 'not processed', no canned line, no helper named from his words); the review's question shows once, Yes sends its helper, Not now holds 7 days" \

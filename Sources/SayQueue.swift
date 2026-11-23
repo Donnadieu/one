@@ -80,12 +80,15 @@ extension Model {
                 outbox.removeFirst()
             }
             let batch = ids.compactMap { id in followUps.first { $0.id == id } }  // a taken-back one is gone
-            followUps.removeAll { f in ids.contains(f.id) }
             guard !batch.isEmpty else { return }
-            let shown = batch.map(\.display).joined(separator: "\n")
+            let shown = batch.filter { !$0.hidden }.map(\.display).joined(separator: "\n")
             let c = Composed(display: shown, engine: batch.map(\.engine).joined(separator: "\n\n"), images: batch.flatMap(\.c.images), typed: shown)
+            let hidden = batch.allSatisfy(\.hidden)
+            let again = batch.map(\.tries).max() ?? 0
+            TurnJournal.begin(c, hidden: hidden, tries: again, model: self)  // on disk before it leaves the line
+            followUps.removeAll { f in ids.contains(f.id) }
             thinking = true
-            await runTurn(c, hidden: false)
+            await runTurn(c, hidden: hidden, again: again)
         case .note(let text):
             thinking = true
             await runTurn(Composed(display: "", engine: text, images: [], typed: ""), hidden: true)

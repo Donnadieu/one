@@ -242,7 +242,7 @@ enum ImproveCollect {
             let inside = r.ts >= from && r.ts < to && build[k] != nil
             switch r.role {
             case "assistant":
-                if r.content.hasPrefix(StepCheck.cutOff) {
+                if r.content.hasPrefix(StepCheck.cutOff) || r.content.hasPrefix(StepCheck.cutOffOne) {
                     cut = true
                     cutDays.insert(k)
                     if inside {

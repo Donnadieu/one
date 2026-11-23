@@ -380,5 +380,6 @@ enum StopPlugin {
         }
         if !ok { BrowserGuard.log("stop: the one-stop plugin isn't in this copy of One; Stop ends only the helper's turn") }
         await MainQueuePlugin.sync()  // one helper at a time on a repo's main (RepoQueue.swift)
+        await RestartReplayPlugin.sync()  // a turn a restart cut is picked back up, never "will not be run again" (TurnJournal.swift)
     }
 }

@@ -432,11 +432,12 @@ extension Model {
     }
 
     /// One turn of the main conversation. `thinking` is already set.
-    func runTurn(_ c: Composed, hidden: Bool) async {
+    func runTurn(_ c: Composed, hidden: Bool, again: Int = 0) async {
+        TurnJournal.begin(c, hidden: hidden, tries: again, model: self)  // on disk before it goes: a restart never loses it
         await ensureEngine()
         let recap = Engine.shared.lostConversation ? onScreenRecap() : ""
         Engine.shared.lostConversation = false
-        if !hidden { me(c.display) }
+        if !hidden && !TurnJournal.shown(c, in: bubbles, again: again) { me(c.display) }
         bubbles.append(Bubble(fromMe: false, text: ""))
         let idx = bubbles.count - 1
         thinking = true
@@ -490,6 +491,7 @@ extension Model {
         }
         await turnOver(idx, failed: stop.hasPrefix("error"))
         let said = voiceFirst ? heldText : (idx < bubbles.count ? bubbles[idx].text : "")
+        TurnJournal.end(stop: stop, said: said, gateway: gateway, model: self)
         var full = RestartNotice.hide(said)  // the engine's "will not be run again" never shows; One already sent it again
         if full.isEmpty && RestartNotice.has(said) { full = RestartNotice.stopped }
         heldText = ""

@@ -60,5 +60,6 @@ enum BotsCheck {
         check("a bot's routine wears its colour on the dial", L.marks.first?.tint == Bots.hex("teal") && L.labels.first?.tint == Bots.hex("teal"))
         BotsManageCheck.run(check)  // view, edit, archive, delete (BotsManage.swift)
         BotRouteCheck.run(check)  // its files and asks go to the bot (BotRoute.swift)
+        BotRoomCheck.run(check)  // the room is its only source of truth (BotRoom.swift)
     }
 }

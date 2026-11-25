@@ -3,6 +3,19 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A bot's room is its only source of truth (0.9.147, Nov 25 2026)
+
+**Problem.** Omar, Nov 25 2026: "Ideally we want to have the brain and the rooms be the source of truth and never have
+a discrepancy between bots and rooms." Bots kept their own log in `bots/<slug>/memory.md`, so what a bot knew and what
+its room said drifted apart.
+
+**Picked.** A bot's start context (`BotRoom.context`) = its memory.md **Rules** and **Working state** (never the
+Archive) plus the room's lines tagged `[<bot name>]` from the last 14 days of `memory/*.md` and `vault/` (never
+`confidential/`, newest 60). New facts are appended to `<room>/memory/<today>.md`, tagged; `BotRoom.record` does the
+same for a kept helper's first line. Renames keep old tags via `BotInfo.was`. **Rejected:** keeping memory.md as the
+log and syncing it into the room (two copies drift again). **Evidence:** `BotRoomCheck` and `BotsManageCheck` in
+`One --test-helpers` (PR 172, RED run 45656844793 then green).
+
 ## A turn a restart cuts is picked back up at the root, on every surface (0.9.146, Nov 22 2026)
 
 **Problem.** Nov 10-22, One's nightly review saw "your answer was lost to a restart" 12 times, after PR 150 (0.9.134)

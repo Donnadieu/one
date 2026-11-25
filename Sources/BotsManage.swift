@@ -186,6 +186,7 @@ enum BotStore {
         if let c = e.checkIn { b.checkIn = BotEdit.checkIn(c) }
         var out = Edited()
         if b.name != old.name {
+            b.was = ((old.was ?? []) + [old.name]).filter { $0.lowercased() != b.name.lowercased() }  // its room lines keep its old tag
             move(old, to: b)
             for r in owned(hs[i], in: routines) where r.title.lowercased().hasPrefix(old.name.lowercased() + ":") {
                 out.steps.append(["cron", "edit", r.id, "--name", b.name + r.title.dropFirst(old.name.count)])
@@ -209,9 +210,11 @@ enum BotStore {
             try? fm.moveItem(at: from, to: to)
         }
         let mem = Bots.memory(b)
-        if var t = try? String(contentsOf: mem, encoding: .utf8), t.hasPrefix("# What \(old.name) did") {
-            t = "# What \(b.name) did" + t.dropFirst("# What \(old.name) did".count)
-            try? t.write(to: mem, atomically: true, encoding: .utf8)
+        for (from, to) in [("# What \(old.name) did", "# What \(b.name) did"), ("# How \(old.name) works", "# How \(b.name) works")] {
+            if var t = try? String(contentsOf: mem, encoding: .utf8), t.hasPrefix(from) {
+                t = to + t.dropFirst(from.count)
+                try? t.write(to: mem, atomically: true, encoding: .utf8)
+            }
         }
     }
 

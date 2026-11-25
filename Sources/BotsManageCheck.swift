@@ -71,8 +71,11 @@ enum BotsManageCheck {
         check("and they're kept after One restarts", back?.first?.bot == nb && back?.first?.title == "Leads bot")
         let memText = nb.flatMap { try? String(contentsOf: Bots.memory($0), encoding: .utf8) } ?? ""
         check(
-            "rename keeps its memory (moved with its folder)",
-            memText.contains("Drafted 3 posts") && !fm.fileExists(atPath: oldFolder.path) && nb.map { Bots.remembered($0) } == 1)
+            "rename keeps its memory file (moved with its folder)",
+            memText.contains("## Rules") && !fm.fileExists(atPath: oldFolder.path) && nb.map { Bots.remembered($0) } == 1)
+        check(
+            "and its room lines tagged with its old name stay its",
+            nb?.was == ["Growth bot"] && nb.map { BotRoom.lines($0).map(\.text) } == ["- [Growth bot] Drafted 3 posts"])
         let card = nb.flatMap { try? String(contentsOf: Bots.card($0), encoding: .utf8) } ?? ""
         check("its card has the new name and job", card.contains("# Leads bot") && card.contains("Find leads"))
         check(

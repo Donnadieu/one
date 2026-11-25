@@ -6,7 +6,8 @@ import Foundation
 // after a restart and the ask-first rules all work the way they do for helpers. It never goes on the constellation:
 // it lives in the moons column on the left (BotsColumn.swift). Made by saying it ("make me a growth bot": the
 // assistant asks three questions, then writes a [bot: …] line) or with "Keep as a bot" on a finished helper.
-// Its memory is a plain file in its room: `<room>/bots/<name>/memory.md`, next to `bot.md` (its job and rules).
+// Its facts live in its room (BotRoom.swift): lines tagged `[<name>]` in the room's memory and notes. Its own
+// `<room>/bots/<name>/memory.md`, next to `bot.md` (its job), keeps only its Rules and Working state.
 // A bot is who, a routine is when: a routine the bot sets up in its own conversation belongs to it (the engine
 // records that conversation as the routine's origin), and the Routines dial filters and tints by bot.
 
@@ -22,6 +23,7 @@ struct BotInfo: Codable, Equatable {
     var from = "chat"  // "chat" or "helper"
     var archived: Date? = nil  // put away: off the left, kept, its routines paused (BotsManage.swift)
     var paused: [String]? = nil  // the routines archiving paused, turned back on by restore
+    var was: [String]? = nil  // its earlier names: room lines tagged with them are still its (BotRoom.swift)
 }
 
 enum Bots {
@@ -100,13 +102,15 @@ enum Bots {
     static func memory(_ b: BotInfo) -> URL { folder(b).appendingPathComponent("memory.md") }
     static func card(_ b: BotInfo) -> URL { folder(b).appendingPathComponent("bot.md") }
 
-    /// How many things it keeps: the lines of its memory that start with "- ".
+    /// How many things it keeps: its rules and working state lines, and the room's lines tagged with it.
     static func remembered(_ b: BotInfo) -> Int {
-        guard let t = try? String(contentsOf: memory(b), encoding: .utf8) else { return 0 }
-        return t.components(separatedBy: "\n").filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("- ") }.count
+        let how = BotRoom.howItWorks(b).components(separatedBy: "\n").filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("- ") }
+        return how.count + BotRoom.lines(b, notes: false).count
     }
-    /// What it did, newest last: the last few "## YYYY-MM-DD" days of its memory with their first line.
+    /// What it did, newest last: its tagged room lines by day; a bot whose room has none yet shows the last few
+    /// "## YYYY-MM-DD" days of its old memory log with their first line.
     static func days(_ b: BotInfo, max n: Int = 4) -> [(day: String, what: String)] {
+        if let fromRoom = BotRoom.days(b, max: n) { return fromRoom }
         guard let t = try? String(contentsOf: memory(b), encoding: .utf8) else { return [] }
         var out: [(String, String)] = []
         var day: String?
@@ -145,7 +149,8 @@ enum Bots {
         return "Uses: \(uses) · Checks in: \(checkWord(b.checkIn)) · Remembers \(n) thing\(n == 1 ? "" : "s")"
     }
 
-    /// Writes `bot.md` (its job, what it may use, when it checks in, its rules) and starts `memory.md`.
+    /// Writes `bot.md` (its job, what it may use, when it checks in, its rules) and starts `memory.md` (its Rules and
+    /// Working state only). A first fact (a kept helper's result) goes to the room, tagged (BotRoom.record).
     static func writeCard(_ b: BotInfo, seed: String? = nil) {
         let fm = FileManager.default
         try? fm.createDirectory(at: folder(b), withIntermediateDirectories: true)
@@ -159,13 +164,13 @@ enum Bots {
             - Checks in: \(checkWord(b.checkIn))
             - Always asks before sending, spending, posting or deleting.
 
-            What it did is in [memory.md](memory.md).
+            What it did lives in the room, in lines tagged [\(b.name)]. How it works (its rules, what it's waiting on) is in [memory.md](memory.md).
 
             """
         try? card.write(to: self.card(b), atomically: true, encoding: .utf8)
+        if let seed, !seed.isEmpty { BotRoom.record(b, seed) }
         guard !fm.fileExists(atPath: memory(b).path) else { return }
-        var mem = "# What \(b.name) did\n\n## Rules\n\n"
-        if let seed, !seed.isEmpty { mem += "## \(today())\n\n- \(seed)\n" }
+        let mem = "# How \(b.name) works\n\nIts facts live in the room, in lines tagged [\(b.name)].\n\n## Rules\n\n## Working state\n\n"
         try? mem.write(to: memory(b), atomically: true, encoding: .utf8)
     }
     static func today(_ d: Date = Date()) -> String {
@@ -201,7 +206,7 @@ enum Bots {
         return """
 
 
-            (One app note, not from the user: You are \(b.name), a bot \(who) keeps for one job: \(b.job). You live in the room at \(b.roomPath) and follow its rules; write only there. You may use: \(b.uses.isEmpty ? "only what they give you" : b.uses.joined(separator: ", ")); don't reach for anything else without asking. Always ask before sending, spending, posting or deleting, ending with a [choices: ...] line. Your memory is \(memory(b).path): after each piece of work add one short line under a "## \(today())" heading for today (make it if it's missing), like "- Answered 2 new leads, booked 1 visit"; lasting rules they give you go under "## Rules". Read it when you start a turn. Files you make for them (drafts, lists, documents) go in \(folder(b).path)/ (a subfolder like drafts/ is fine), never in your memory file; One shows each one in your chat and under Ready for you, tagged with your name, so just say it's there, without the folder path. A routine you set up with your scheduling tool belongs to you; name it "\(b.name): …", and make it only check and draft, never send, buy or delete. Reply in a few plain lines.)
+            (One app note, not from the user: You are \(b.name), a bot \(who) keeps for one job: \(b.job). You live in the room at \(b.roomPath) and follow its rules; write only there. You may use: \(b.uses.isEmpty ? "only what they give you" : b.uses.joined(separator: ", ")); don't reach for anything else without asking. Always ask before sending, spending, posting or deleting, ending with a [choices: ...] line. \(BotRoom.context(b)) Files you make for them (drafts, lists, documents) go in \(folder(b).path)/ (a subfolder like drafts/ is fine), never in your memory file; One shows each one in your chat and under Ready for you, tagged with your name, so just say it's there, without the folder path. A routine you set up with your scheduling tool belongs to you; name it "\(b.name): …", and make it only check and draft, never send, buy or delete. Reply in a few plain lines.)
             """
     }
     /// A new bot's first turn: it reads its card, sets up its check-in, and says hello in two lines.
@@ -298,7 +303,7 @@ extension Model {
                 ? "working (\(h.line))" : h.state == "needsYes" ? "waiting for \(userName)'s yes" : h.waiting ? "has something new" : "resting"
             let uses = b.uses.isEmpty ? "nothing named" : b.uses.joined(separator: ", ")
             return
-                "- \(b.name) (\(b.room) room, \(b.color), job: \(b.job); uses: \(uses); checks in: \(b.checkIn)): \(state). What it did is in \(Bots.memory(b).path)."
+                "- \(b.name) (\(b.room) room, \(b.color), job: \(b.job); uses: \(uses); checks in: \(b.checkIn)): \(state). What it did is in its room's lines tagged \(BotRoom.tag(b)); how it works is in \(Bots.memory(b).path)."
         }
         let away = archivedBots.compactMap(\.bot?.name)
         let archived = away.isEmpty ? "" : "\nArchived (off the left, kept; [restore-bot: …] brings one back): " + away.joined(separator: ", ")

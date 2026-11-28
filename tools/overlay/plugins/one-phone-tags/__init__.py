@@ -80,6 +80,7 @@ import logging
 import os
 import re
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -461,12 +462,10 @@ _DELIVER_MARK = "_one_phone_delivery"
 
 def install_delivery() -> bool:
     """Wraps the gateway's last step before a reply is sent (gateway/run.py, imported by name at each call) once, so
-    the cut and the receipts reach the phone but never the saved chat."""
-    try:
-        import gateway.run as gr
-    except Exception:
-        return False
-    cur = getattr(gr, "_sanitize_gateway_final_response", None)
+    the cut and the receipts reach the phone but never the saved chat. Only the gateway that is already running: never
+    imported here (that starts a whole runtime; anywhere else the reply is cut and saved as before)."""
+    gr = sys.modules.get("gateway.run")
+    cur = getattr(gr, "_sanitize_gateway_final_response", None) if gr is not None else None
     if cur is None:
         return False
     if getattr(cur, _DELIVER_MARK, False):
@@ -842,9 +841,8 @@ async def pre_gateway_dispatch(event: Any = None, gateway: Any = None, **_: Any)
 
 
 def register(ctx) -> None:
-    if "gateway.run" in __import__("sys").modules:  # the gateway itself (never One's own chat): wrap its send step now
-        with contextlib.suppress(Exception):
-            install_delivery()
+    with contextlib.suppress(Exception):
+        install_delivery()  # the gateway itself (never One's own chat): wrap its send step now
     ctx.register_hook("transform_llm_output", transform_llm_output)
     ctx.register_hook("pre_llm_call", pre_llm_call)
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)

@@ -159,6 +159,19 @@ def turn(text, turn_id):
 
 
 saves = []  # what the engine saved for each turn (replayed next turn)
+# The gateway's last step before a reply is sent lives in gateway/run.py, which only a running gateway imports (here
+# it would start a whole runtime in this throwaway home). A pass-through stands in for it, and the engine's own source
+# is read to prove the seam the plugin wraps is still there: the function, and the send path importing it by name at
+# each turn (so the wrapped one is what runs).
+_SEND = "_sanitize_gateway_final_response"
+_run_src = open("gateway/run.py").read()
+_persist_src = open("gateway/run_turn_persistence.py").read()
+check("the engine's send step is still gateway.run." + _SEND + "(platform, text)", f"def {_SEND}(platform" in _run_src)
+check("and every turn's reply goes through it, imported by name at each turn",
+      "from gateway.run import" in _persist_src and f"response = {_SEND}(source.platform, response)" in _persist_src)
+_gr = types.ModuleType("gateway.run")
+setattr(_gr, _SEND, lambda platform, text: text)
+sys.modules["gateway.run"] = _gr
 
 
 async def deliver(text, turn_id, gen):
@@ -171,8 +184,7 @@ async def deliver(text, turn_id, gen):
     saves.append(saved)
     # The engine's own last step before a reply goes to the chat (gateway/run_turn_persistence.py imports it by name
     # from gateway.run at each turn): the plugin's cut and receipts happen there, never in what's saved.
-    import gateway.run as gr
-    out = gr._sanitize_gateway_final_response(Platform.TELEGRAM, saved)
+    out = sys.modules["gateway.run"]._sanitize_gateway_final_response(Platform.TELEGRAM, saved)
     await asyncio.sleep(0.05)
     await ad._fire_post_delivery_callback(KEY, ev)  # after the reply went out
     ad._active_sessions.pop(KEY, None)

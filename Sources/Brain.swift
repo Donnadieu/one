@@ -9,7 +9,9 @@ import EventKit
 import CoreAudio
 import UniformTypeIdentifiers
 
-// MARK: - The brain (built from the AI Brain Starter, kept as local folders)
+// MARK: - The brain (built from the brain starter's own files, kept as local folders)
+// Every room, the co-founder room too, is built from templates/room: One bundles no third-party course material
+// (tools/brain-starter-bundle.py leaves it out and fails the build if any is left; BrainKitCheck proves the rooms).
 
 enum RoomKind: String, CaseIterable, Identifiable {
     case personal, work, cofounder, privateRoom
@@ -76,7 +78,8 @@ enum RoomKind: String, CaseIterable, Identifiable {
             "# My life, as it stands\n\n## This week\n- **The one thing that matters:** [not yet]\n- **Dates coming up:** [not yet]\n\n## By area\n| Area | What's active | Next step | Note |\n|---|---|---|---|\n\n## Long projects\n\n## Parked\n"
         case .work:
             "# My jobs, as they stand\n\n## This week\n- **The one thing that matters:** [not yet]\n\n## By job\n| Job | Hours | What's due | Who I owe | Note |\n|---|---|---|---|---|\n\n## Wins to remember\n"
-        case .cofounder: ""
+        case .cofounder:
+            "# The business, as it stands\n\n## This week\n- **The one thing that matters:** [not yet]\n\n## What it is\n- **What we sell:** [not yet]\n- **Who buys it:** [not yet]\n\n## Customers and leads\n| Who | Where it stands | Next step | Note |\n|---|---|---|---|\n\n## Decisions\n"
         case .privateRoom: "# Just for me\n\n[not yet]\n"
         }
     }
@@ -93,10 +96,12 @@ enum Brain {
         RoomKind.allCases.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0.folder).path) }
     }
 
-    /// Creates the brain (once) and any rooms asked for that don't exist yet.
-    static func build(owner: String, ai: String, rooms want: [RoomKind]) -> String? {
+    /// Creates the brain (once) and any rooms asked for that don't exist yet. A room that exists is never touched:
+    /// not replaced, migrated or rewritten (an older One's co-founder room keeps every file it has).
+    /// `from` is for checks only (BrainKitCheck): a stand-in starter instead of the app's own.
+    static func build(owner: String, ai: String, rooms want: [RoomKind], from: URL? = nil) -> String? {
         let fm = FileManager.default
-        guard let st = starter else { return "The brain starter isn't inside the app." }
+        guard let st = from ?? starter else { return "The brain starter isn't inside the app." }
         if !exists {
             try? fm.createDirectory(at: root, withIntermediateDirectories: true)
             for f in [
@@ -124,7 +129,7 @@ enum Brain {
         let ordered = RoomKind.allCases.filter { all.contains($0) }
         for k in ordered where !fm.fileExists(atPath: root.appendingPathComponent(k.folder).path) {
             let dest = root.appendingPathComponent(k.folder)
-            let tpl = st.appendingPathComponent(k == .cofounder ? "templates/cofounder-room" : "templates/room")
+            let tpl = st.appendingPathComponent("templates/room")  // every kind, the co-founder room too
             do { try fm.copyItem(at: tpl, to: dest) } catch { return "Couldn't make the \(k.title): \(error.localizedDescription)" }
             RoomYaml(title: k.title.capitalized, ai: ai, isPrivate: k == .personal || k == .privateRoom).writeIfMissing(dest)
             let others = ordered.filter { $0 != k }.map { "the \($0.title) (`../\($0.folder)/`)" }.joined(separator: ", ")

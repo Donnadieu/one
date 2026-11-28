@@ -8,7 +8,7 @@ import SwiftUI
 enum HomeRender {
     nonisolated(unsafe) static var pointFirst = false  // `home-pointed`: the first orb as if pointed at
     static let jobs: [(String, String, String)] = [
-        ("Germán 1:1 prep", "needsYes", ""), ("Canvas price options", "working", "Reading your files…"),
+        ("René 1:1 prep", "needsYes", ""), ("Canvas price options", "working", "Reading your files…"),
         ("Stale task check", "new", ""), ("Helper double count", "working", "Counting twice to be sure…"),
         ("Money since January", "done", ""), ("Check Project Ledger", "working", "Looking at X…"),
         ("Helper view design", "working", "Sketching three layouts…"), ("Argo P009 check", "done", ""),
@@ -47,7 +47,7 @@ enum HomeRender {
         ]
         m.shelf = [
             ShelfItem(
-                title: "Germán 1:1 prep pack", detail: "Agenda, notes and three questions to ask.", from: "MD · ready to share", path: "/tmp/g.md",
+                title: "René 1:1 prep pack", detail: "Agenda, notes and three questions to ask.", from: "MD · ready to share", path: "/tmp/g.md",
                 fresh: true),
             ShelfItem(
                 title: "Money since January", detail: "What came in and went out, month by month.", from: "Sheet · ready to share",

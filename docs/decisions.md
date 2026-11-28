@@ -3,6 +3,39 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## No third-party course material in One; the co-founder room is a normal room (0.9.147, Nov 27 2026)
+
+**Problem.** `build.sh` bundled the whole private brain starter with `git archive HEAD`, and the starter carries a
+third-party course kit in `templates/cofounder-room/` (framework cards, its own skills, `kit.yaml`, its licence) that
+may not be passed on. It shipped inside every public One from 0.4 (Oct 23 2026) to 0.9.146, and a new co-founder
+room was copied from it.
+
+**Picked.** One bundles the starter's own files only. `tools/brain-starter-bundle.py` archives the starter without
+`templates/cofounder-room`, takes out the few lines of its docs that pointed at the kit, swaps its private licence
+note for One's MIT terms (the starter's own files are by One's author), and fails the build if any kit file or word
+is left. Every room kind, the co-founder room too, is built from `templates/room` (with its own `brain/company.md`
+hub). A room that already exists is never touched: no delete, move or rewrite on install or update. The rooms, the
+personal room by default, a new room only when the rules differ, AGENTS.md/BRAIN.md/HELP.md, owner.yaml,
+starter.yaml and the brain's own skills are unchanged. Every release before 0.9.147 was deleted from GitHub (the tags
+stay: the repo itself never held the kit). **Rejected:** keeping the kit for licensed members only (One is public
+and has no way to tell), and rewriting the starter repo (the owner keeps his own licensed copy there). **Evidence:**
+`make check` (`brainstarter`: a poisoned stand-in comes out clean, and each kind of leftover is caught),
+`BrainKitCheck` in `One --test-guards`, the fresh-install workflow's check on the released app, and unzip-and-grep of
+the released One.dmg and One.zip.
+
+## A bot's room is its only source of truth (0.9.147, Nov 25 2026)
+
+**Problem.** Omar, Nov 25 2026: "Ideally we want to have the brain and the rooms be the source of truth and never have
+a discrepancy between bots and rooms." Bots kept their own log in `bots/<slug>/memory.md`, so what a bot knew and what
+its room said drifted apart.
+
+**Picked.** A bot's start context (`BotRoom.context`) = its memory.md **Rules** and **Working state** (never the
+Archive) plus the room's lines tagged `[<bot name>]` from the last 14 days of `memory/*.md` and `vault/` (never
+`confidential/`, newest 60). New facts are appended to `<room>/memory/<today>.md`, tagged; `BotRoom.record` does the
+same for a kept helper's first line. Renames keep old tags via `BotInfo.was`. **Rejected:** keeping memory.md as the
+log and syncing it into the room (two copies drift again). **Evidence:** `BotRoomCheck` and `BotsManageCheck` in
+`One --test-helpers` (PR 172, RED run 45656844793 then green).
+
 ## A turn a restart cuts is picked back up at the root, on every surface (0.9.146, Nov 22 2026)
 
 **Problem.** Nov 10-22, One's nightly review saw "your answer was lost to a restart" 12 times, after PR 150 (0.9.134)

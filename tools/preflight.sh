@@ -144,7 +144,7 @@ check "second run changes nothing" cmp "$T/sw/once.py" "$T/sw/engine/agent/skill
 
 part 3 "Guards (enforced in code)"
 mkdir -p "$T/g/support" "$T/g/cloud"
-check "shared rooms, experimental connections, friction log" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
+check "shared rooms, experimental connections, friction log, rooms carry no third-party kit (a new co-founder room is a normal room; an older one is untouched)" bash -c "ONE_SUPPORT_DIR=$T/g/support ONE_CLOUD_DIR=$T/g/cloud $TBIN --test-guards | tee $T/g/out.txt | grep -q '^guards ok'"
 grep "✗" "$T/g/out.txt" 2>/dev/null | sed 's/^/    /'
 mkdir -p "$T/lg"
 check "shortcut guard: a link to itself, to its own folder and a file pointing at itself are removed and logged (3 lines); links elsewhere stay" bash -c "ONE_SUPPORT_DIR=$T/lg $TBIN --test-link-guard | tee $T/lg/out.txt | grep -q '^link guard ok'"

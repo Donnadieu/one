@@ -48,6 +48,8 @@ jobs:
           mkdir -p build/app.noindex
           ditto -x -k "$RUNNER_TEMP/rel/One.zip" build/app.noindex
           test -d build/app.noindex/One.app/Contents/Resources/brain-starter
+      - name: The bundled brain starter has no third-party kit material (no templates/cofounder-room, kit.yaml, frameworks)
+        run: python3 tools/brain-starter-bundle.py check build/app.noindex/One.app/Contents/Resources/brain-starter
       - name: Install the engine into an empty One folder
         run: |
           APP=$(tools/test-copy.sh fresh "$RUNNER_TEMP/app")

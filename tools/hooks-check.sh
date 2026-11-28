@@ -156,6 +156,7 @@ REQUIRED = {
     "knowledge-base-check.sh": ({"make check", "rules.yml"}, {
         "the hook": "reads every doc; too slow for every commit",
     }),
+    "brain-starter-bundle.py": ({"the hook", "make check", "rules.yml"}, {}),
     "hooks-check.sh": ({"make check", "rules.yml"}, {
         "the hook": "it would be checking itself, and `make check` already runs it",
     }),

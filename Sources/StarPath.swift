@@ -133,7 +133,7 @@ enum StarPath {
         return h.count > 420 ? String(h.prefix(420)) : h
     }
 
-    /// Lowercased, without accents ("Germán" is found by "german").
+    /// Lowercased, without accents ("René" is found by "rene").
     static func fold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
 
     /// The messages that match `q`, oldest first (ids). Empty when `q` is under 2 characters.

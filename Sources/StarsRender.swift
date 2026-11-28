@@ -33,9 +33,9 @@ enum StarsRender {
         print("wrote \(out)-home.png")
         let m = Model.shared
         if var h = m.helpers.first {
-            h.asked = "Get me ready for my 1:1 with Germán on Thursday."
+            h.asked = "Get me ready for my 1:1 with René on Thursday."
             h.reply =
-                "I pulled the last three 1:1 notes and this sprint's open items. The prep pack is ready: agenda, two wins to mention, and three questions about the release date. Want me to send Germán the agenda now?\n\n[choices: Yes, send it | Not yet | Change the agenda]"
+                "I pulled the last three 1:1 notes and this sprint's open items. The prep pack is ready: agenda, two wins to mention, and three questions about the release date. Want me to send René the agenda now?\n\n[choices: Yes, send it | Not yet | Change the agenda]"
             m.helpers[0] = h
             m.openHelper = h.id
         }

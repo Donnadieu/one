@@ -91,6 +91,9 @@ enum GuardsCheck {
         let log = (try? String(contentsOf: FrictionLog.file, encoding: .utf8)) ?? ""
         check("complaints are written to the friction log", log.contains("asked twice") && log.contains("555 files"))
 
+        // Rooms carry no third-party course material; an older room is never touched (BrainKitCheck.swift).
+        BrainKitCheck.run(check)
+
         print("\(fails == 0 ? "guards ok" : "guards failed: \(fails)")")
         return fails == 0 ? 0 : 1
     }

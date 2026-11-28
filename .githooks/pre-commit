@@ -21,3 +21,5 @@ python3 tools/lint/one-lint.py
 python3 tools/lint/one-lint.py --prove
 python3 tools/lint/ext-lint.py
 tools/lint/check-baseline.sh --all
+# The bundled brain starter never carries third-party kit material: the clean step and its check still work.
+/usr/bin/python3 tools/brain-starter-bundle.py selftest >/dev/null

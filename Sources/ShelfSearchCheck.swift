@@ -20,8 +20,8 @@ enum ShelfSearchCheck {
         let now = Date()
         func daysAgo(_ n: Int) -> Date { Calendar.current.date(byAdding: .day, value: -n, to: now) ?? now }
 
-        let germanPDF = ShelfItem(
-            title: "2026-10-30 Germán 1:1 prep", detail: "PDF", from: "Elias", path: "/tmp/shelf-search-check-german.txt", made: now)
+        let renePDF = ShelfItem(
+            title: "2026-10-30 René 1:1 prep", detail: "PDF", from: "Elias", path: "/tmp/shelf-search-check-rene.txt", made: now)
         let flights = ShelfItem(
             title: "Quebec flight prices", detail: "Newark $3,104", from: "Flight helper", path: "/tmp/shelf-search-check-flights.txt",
             made: daysAgo(1))
@@ -29,12 +29,12 @@ enum ShelfSearchCheck {
             title: "Receipts 2026", detail: "23 receipts", from: "Receipts helper", path: "/tmp/shelf-search-check-receipts.txt",
             made: daysAgo(4))
         let oldNote = ShelfItem(title: "Dentist note", detail: "", from: "Elias", path: "/tmp/shelf-search-check-old.txt", made: daysAgo(10))
-        let items = [germanPDF, flights, receipts, oldNote]
+        let items = [renePDF, flights, receipts, oldNote]
 
-        try? "Nothing about Germán here, just some old budget numbers.".write(
+        try? "Nothing about René here, just some old budget numbers.".write(
             toFile: "/tmp/shelf-search-check-flights.txt", atomically: true, encoding: .utf8)
-        try? "A reminder to email Germán about the roadmap.".write(
-            toFile: "/tmp/shelf-search-check-german.txt", atomically: true, encoding: .utf8)
+        try? "A reminder to email René about the roadmap.".write(
+            toFile: "/tmp/shelf-search-check-rene.txt", atomically: true, encoding: .utf8)
         try? "23 receipts, $1,284 total.".write(toFile: "/tmp/shelf-search-check-receipts.txt", atomically: true, encoding: .utf8)
         try? "Cleaning next March.".write(toFile: "/tmp/shelf-search-check-old.txt", atomically: true, encoding: .utf8)
 
@@ -47,12 +47,12 @@ enum ShelfSearchCheck {
 
         let byTitle = await ShelfTextIndex.shared.matches(items, query: "Quebec")
         let byContent = await ShelfTextIndex.shared.matches(items, query: "receipts")
-        let byAccent = await ShelfTextIndex.shared.matches(items, query: "Germán")
+        let byAccent = await ShelfTextIndex.shared.matches(items, query: "René")
         check("matches a word only in the title", byTitle == [flights.id])
         check("matches a word only inside the file's text", byContent == [receipts.id])
-        check("\"Germán\" finds the card named for it, and the one mentioning it in its text", byAccent == [germanPDF.id, flights.id])
+        check("\"René\" finds the card named for it, and the one mentioning it in its text", byAccent == [renePDF.id, flights.id])
 
-        for p in [germanPDF, flights, receipts, oldNote].map(\.path) { try? FileManager.default.removeItem(atPath: p) }
+        for p in [renePDF, flights, receipts, oldNote].map(\.path) { try? FileManager.default.removeItem(atPath: p) }
         print(fails == 0 ? "ALL PASS" : "\(fails) FAILED")
         return fails == 0 ? 0 : 1
     }

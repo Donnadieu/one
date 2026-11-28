@@ -13,11 +13,11 @@ SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 E="$SUP/engine"
 [ -d "$E/cron" ] || { echo "no engine in $SUP; skipped"; exit 0; }
 grep -q "_one_routine_stall_install" "$E/cron/scheduler.py" || { echo "the routine stall overlay isn't in this engine"; exit 1; }
-PY=""
+PY="" WHY=""
 for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-  (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import anthropic, cron.scheduler, run_agent" >/dev/null 2>&1) && { PY="$p"; break; }
+  WHY=$(cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; break; }
 done
-[ -n "$PY" ] || { echo "engine python not found"; exit 1; }
+[ -n "$PY" ] || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
 W="$SUP/hermes/cache/scratch/routine-stall-check-$$"
 trap 'rm -rf "$W"' EXIT
 cd "$E" && HERMES_DISABLE_LAZY_INSTALLS=1 HERMES_RUNTIME_DIR="$SUP/hermes/tools" \

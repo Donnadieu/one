@@ -5,6 +5,8 @@ name: fresh-install
 # appears with no questions. A stand-in `git` first on PATH records every call: the brain steps must make none.
 # Branch and tag pushes build One with a stand-in brain starter (the real one is a private repo);
 # a published release is tested as shipped: its own One.zip, which carries the real starter.
+# Every check after the install runs even when an earlier one failed (`!cancelled()`), so one red check never hides
+# the others (0.9.148 and 0.9.149: the routine check stopped the eight after it). None runs without an engine.
 on:
   push:
     tags: ['v*']
@@ -51,6 +53,7 @@ jobs:
       - name: The bundled brain starter has no third-party kit material (no templates/cofounder-room, kit.yaml, frameworks)
         run: python3 tools/brain-starter-bundle.py check build/app.noindex/One.app/Contents/Resources/brain-starter
       - name: Install the engine into an empty One folder
+        id: install
         run: |
           APP=$(tools/test-copy.sh fresh "$RUNNER_TEMP/app")
           echo "TBIN=$APP/Contents/MacOS/One" >> "$GITHUB_ENV"
@@ -66,30 +69,40 @@ jobs:
           grep -q KeePassLoginBackend "$RUNNER_TEMP/fresh/engine/agent/vault_backends/base.py"
           test -x "$RUNNER_TEMP/fresh/tools-venv/bin/python"
       - name: The real engine loads the learning cap and holds the review's 6th edit
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/learning-cap-engine-check.sh
       - name: Standing goals through the real engine (stand-in model)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/goal-engine-check.sh
       - name: "Routines through the real engine (stand-in model): a quiet reply is cut off within the idle limit, the same turn runs again once the AI answers, work kept"
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/routine-stall-check.sh
       - name: "Hand-offs on pages that exist only in their tab (make handoff): a code from One's card lands in that same tab, a step done in the page is shown live, nothing reopened"
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 15
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/handoff-check.sh --no-build
       - name: The real engine answers recent phone messages and lists old ones (one-missed-messages)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/missed-messages-engine-check.sh
       # Was named only on a `[ $CI = 0 ]` line in tools/preflight.sh, which every venue runs with
       # --ci: so the plugin-level check passed while nothing proved the real engine LOADS the guard.
       - name: The real engine loads the browser guard and blocks a visible browser
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/browser-guard-engine-check.sh
       - name: The real engine's Telegram adapter turns a reply's choices line into tap buttons (one-phone-tags)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/phone-choices-engine-check.sh
       - name: "The real engine never tells a person their turn 'will not be run again'; a phone message a restart cut goes again exactly once (one-restart-replay)"
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" tools/restart-replay-engine-check.sh
       - name: Other AIs and thinking levels through the real engine (its list, a key saved its way, levels for chats, helpers and routines)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           cd "$RUNNER_TEMP/fresh"
           ONE_SUPPORT_DIR="$RUNNER_TEMP/fresh" perl -e 'alarm 300; exec @ARGV' "$TBIN" --test-other-ais-engine | tee other-ais.txt
           grep -q "^other ais engine ok" other-ais.txt
       - name: First launch on an empty brain (no questions, no git)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           mkdir -p "$RUNNER_TEMP/fakebin"
           printf '#!/bin/bash\necho "git $*" >> "%s"\nexit 1\n' "$RUNNER_TEMP/git.log" > "$RUNNER_TEMP/fakebin/git"

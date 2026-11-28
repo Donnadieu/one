@@ -45,7 +45,7 @@ jobs:
       matrix:
         part: [1, 2, 3, 4]  # same count as PARTS in tools/preflight.sh. 4, not more: the account runs at most 5 macOS jobs at once
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: "${{ matrix.part == 1 && '0' || '1' }}" }
       - name: Use the newest Xcode on the runner
         id: xcode

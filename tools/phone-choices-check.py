@@ -53,8 +53,10 @@ for name in ("gateway", "gateway.platforms"):
     sys.modules[name] = types.ModuleType(name)
 sys.modules["gateway.platforms.event"] = ev_mod
 
-spec = importlib.util.spec_from_file_location("one_phone_tags", HERE)
+# Loaded the way the engine loads a plugin (hermes_cli/plugins_loader.py): a package, so its own tags.py imports.
+spec = importlib.util.spec_from_file_location("one_phone_tags", HERE, submodule_search_locations=[str(HERE.parent)])
 m = importlib.util.module_from_spec(spec)
+sys.modules["one_phone_tags"] = m
 spec.loader.exec_module(m)
 
 fails = 0

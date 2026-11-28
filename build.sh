@@ -102,7 +102,7 @@ cp tools/overlay/plugins/one-missed-messages/__init__.py tools/overlay/plugins/o
 mkdir -p "$APP/Contents/Resources/one-restart-replay"
 cp tools/overlay/plugins/one-restart-replay/__init__.py tools/overlay/plugins/one-restart-replay/plugin.yaml "$APP/Contents/Resources/one-restart-replay/"
 mkdir -p "$APP/Contents/Resources/one-phone-tags"
-cp tools/overlay/plugins/one-phone-tags/__init__.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$APP/Contents/Resources/one-phone-tags/"
+cp tools/overlay/plugins/one-phone-tags/*.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$APP/Contents/Resources/one-phone-tags/"
 # The keeper: macOS runs One --keeper every minute and it opens One again if it ended without being asked to
 # (Sources/Keeper.swift, registered with SMAppService at launch). Must live in Contents/Library/LaunchAgents.
 mkdir -p "$APP/Contents/Library/LaunchAgents"

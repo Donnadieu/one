@@ -92,7 +92,7 @@ check "KeePass backend bundled" test -f "$APP/Contents/Resources/keepass.py"
 check "a KeePass login fills on its own site's sign-in hosts (google.com on accounts.google.com), never another site" /usr/bin/python3 tools/keepass-origins-check.py
 check "the engine's learning cap bundled" test -f "$APP/Contents/Resources/one-learning-cap/__init__.py"
 check "the missed-messages plugin bundled" test -f "$APP/Contents/Resources/one-missed-messages/__init__.py"
-check "the phone-tags plugin bundled" test -f "$APP/Contents/Resources/one-phone-tags/__init__.py"
+check "the phone-tags plugin bundled (with its tags.py)" test -f "$APP/Contents/Resources/one-phone-tags/__init__.py" -a -f "$APP/Contents/Resources/one-phone-tags/tags.py"
 check "the keeper's launch agent bundled (runs One --keeper every minute)" bash -c "plutil -lint $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist >/dev/null && grep -q -- '--keeper' $APP/Contents/Library/LaunchAgents/ai.forjado.one.keeper.plist"
 check "helper sounds bundled" bash -c "test -s $APP/Contents/Resources/chime-done.mp3 && test -s $APP/Contents/Resources/chime-yes.mp3"
 check "shipped skills bundled" bash -c "[ \"\$(cd skills && find . -name SKILL.md | sort)\" = \"\$(cd $APP/Contents/Resources/skills && find . -name SKILL.md | sort)\" ] && [ -n \"\$(find skills -name SKILL.md)\" ]"
@@ -258,7 +258,7 @@ grep "✗" "$T/ss/out.txt" 2>/dev/null | sed 's/^/    /'
 check "the keeper really opens One again after a failed start, waits longer each time, puts the previous version back after 3 failures, never after a quit" bash -c "tools/keeper-check.sh $TBIN $T/keeper | tee $T/keeper.txt | grep -q '^keeper ok'"
 grep "✗" "$T/keeper.txt" 2>/dev/null | sed 's/^/    /'
 check "phone messages sent while One was off: the last 2 hours answered, older ones listed in one note and never acted on" /usr/bin/python3 tools/missed-messages-check.py
-check "helper lines in a phone-chat reply (engine): handed to One once, never shown (a receipt instead), the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news; a reply that says a job is starting with no line is logged, told next turn, and shown when it hangs (the Nov 17 replies)" /usr/bin/python3 tools/phone-tags-check.py
+check "helper lines in a phone-chat reply (engine): handed to One once, saved as written (never a receipt), never shown (a receipt on the way out), the same cut as One's chat, never One's own chat or helpers; every phone turn carries the helper news; a reply that promises a job with no line gets one silent correction turn, and a note only if that fails (the Nov 17 and Nov 28 replies)" /usr/bin/python3 tools/phone-tags-check.py
 check "choices in a Telegram reply (engine plugin): One's own cut, tap buttons under the reply, a tap is typing that answer once, old buttons stop, nobody else can tap, other chats untouched" /usr/bin/python3 tools/phone-choices-check.py
 # The real engine and the missed-messages plugin: runs in .github/workflows/fresh-install.yml (tools/missed-messages-engine-check.sh).
 check "a turn the engine's restart cut (engine plugin): One's line, never 'will not be run again'; a phone message kept on disk and sent again exactly once when Telegram is back (cut again: once more, then one plain line); stale or moved-on ones left alone; plain shutdown words on the phone" /usr/bin/python3 tools/restart-replay-plugin-check.py

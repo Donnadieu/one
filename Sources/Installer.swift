@@ -180,11 +180,31 @@ enum Installer {
             "agent", "one_account_usage", into: "account_usage.py", mark: "_one_account_usage_install", text: usageHook,
             needs: ["def _usage_windows(", "def _fetch_anthropic_account_usage(", "\"utilization\"", "logger = "])
     }
+    /// Hook appended to the engine's `cron/scheduler.py`: a routine's streamed reply quiet for 4 minutes is cut off,
+    /// and a turn that ends on the model waits for the AI and runs again with its work so far (`cron/one_routine_stall.py`).
+    /// Nov 25 and 27 2026: routines sat 11 to 72 minutes on a dead reply, then failed and lost every step.
+    static let routineStallHook = """
+
+        # One: a routine never sits on a stalled model reply, and picks the same turn back up (cron/one_routine_stall.py, added by One).
+        try:
+            import sys as _one_sys
+            from cron.one_routine_stall import install as _one_routine_stall_install
+            _one_routine_stall_install(_one_sys.modules[__name__])
+        except Exception as _one_exc:  # never break the scheduler
+            logger.warning("one_routine_stall not installed: %s", _one_exc)
+
+        """
+    @discardableResult static func applyRoutineStall() -> Bool {
+        hook(
+            "cron", "one_routine_stall", into: "scheduler.py", mark: "_one_routine_stall_install", text: routineStallHook,
+            needs: ["def _run_agent_with_watchdog(", "agent.run_conversation, prompt, task_id=task_id", "logger = "])
+    }
     /// `One --apply-overlay`'s lines for the hooks One adds to the engine.
     static func hooksReport() -> String {
         (applyHumanStep() ? "human-step overlay ok" : "human-step overlay failed") + "\n"
             + (applyGoals() ? "goals overlay ok" : "goals overlay failed") + "\n"
-            + (applyUsageMeter() ? "usage overlay ok" : "usage overlay failed")
+            + (applyUsageMeter() ? "usage overlay ok" : "usage overlay failed") + "\n"
+            + (applyRoutineStall() ? "routine stall overlay ok" : "routine stall overlay failed")
     }
     /// Runs the installer, reporting (finished steps, latest line). Returns nil on success or an error.
     static func run(progress: @escaping @Sendable (Int, String) -> Void) async -> String? {
@@ -249,6 +269,7 @@ enum Installer {
                     applyHumanStep()
                     applyGoals()
                     applyUsageMeter()
+                    applyRoutineStall()
                     BundledSkills.sync()
                     _ = GoogleSignIn.ensureVenv()
                     cont.resume(returning: nil)

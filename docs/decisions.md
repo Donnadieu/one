@@ -3,6 +3,35 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## A routine's quiet reply is cut off at 4 minutes and the same turn goes again (0.9.148, Nov 28 2026)
+
+**Problem.** Nov 25 2026 "Forge release" and "Forge X replies (afternoon)" failed after 4343 s (72 min), Nov 27
+"Then It Clicked: long video" after 661 s, all with "Operation interrupted: waiting for model response", and every
+step they had done went with the run. The logs (agent.log, pmset): the Mac was in lid-shut sleep with dark wakes.
+The model reply sent nothing while it slept; at each dark wake the engine's stall timer fired late (940-1023 s past
+its 240 s), its retries ran into a network that was not back yet, and then the session lease, whose 300 s deadline
+had passed during the sleep, hard-stopped the turn ("Session turn lease refresh stayed locked through its lifetime"
+then "interrupted_during_api_call(session_turn_lease_lost)"). The engine also allows 900 s of silence for a model
+on this Mac. Cron runs a failed turn again only when it never reached the model (`cron/unreachable_retry.py`), and
+then from scratch.
+
+**Picked.** An engine overlay hooked into `cron/scheduler.py` (`tools/overlay/cron/one_routine_stall.py`,
+`Installer.applyRoutineStall`), routines and their own helpers only. A streamed reply quiet for
+`ONE_ROUTINE_STALL_SECONDS` (240 s) is cut off. A turn that still ends on the model with no person behind it (a
+lapsed lease, the turn watchdog, retries run out on an unreachable AI) waits until the AI's address takes a
+connection (every 15 s, up to 30 min, its run claim kept fresh) and runs the same turn again, its messages so far as
+history, so a finished upload or post is not done twice; at most 3 times a run.
+
+**Rejected.** Changing the lease (it guards the transcript against a second process; a new turn takes a fresh
+one). Capping non-streamed calls (they send nothing until done, so silence there is not a stall). Re-running the
+whole routine (redoes finished steps). A Stop, a gateway restart, a rate limit, a billing or sign-in wall: never
+retried.
+
+**Checked.** `tools/routine-stall-check.py`, the real engine with a stand-in Anthropic model: a stalled stream is
+cut off in 3 s (the test limit) and, the Mac "sleeping" through one (the lease's own path), the routine waits for
+the stand-in to listen again and finishes with its upload done once. Before the overlay: still waiting at 60 s, and
+"Operation interrupted: waiting for model response".
+
 ## No third-party course material in One; the co-founder room is a normal room (0.9.147, Nov 27 2026)
 
 **Problem.** `build.sh` bundled the whole private brain starter with `git archive HEAD`, and the starter carries a

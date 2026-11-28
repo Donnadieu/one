@@ -35,10 +35,9 @@ if ! find_python; then
   for u in "$SUP"/hermes/tools/uv-*/uv; do [ -x "$u" ] && UV="$u"; done
   [ -n "$PIN" ] && [ -x "$UV" ] || { echo "can't add the Anthropic SDK: pin '${PIN}', uv '${UV}'"; exit 1; }
   for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-    (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import cron.scheduler, run_agent" >/dev/null 2>&1) || continue
-    echo "adding $PIN (the engine's anthropic extra) to the engine's python"
-    perl -e 'alarm 600; exec @ARGV' "$UV" pip install -q --python "$p" "$PIN" 2>&1 | tail -3
-    break
+    (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import hermes_cli.plugins" >/dev/null 2>&1) || continue
+    echo "adding $PIN (the engine's anthropic extra) to $p"
+    perl -e 'alarm 600; exec @ARGV' "$UV" pip install -q --python "$p" "$PIN" 2>&1 | tail -5
   done
   find_python || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
 fi

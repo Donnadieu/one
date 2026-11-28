@@ -3,6 +3,26 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## The phone chat saves helper lines as written; a promise with no line gets one silent correction (0.9.149, Nov 28 2026)
+
+**Problem.** On Nov 28 the Telegram chat got five or more "Nothing started… Say go" notes in one morning, twice right
+after Omar complained: replies said "I'm sending a helper to set up Cal.com:" or ended in a hand-written "↳ Passed on
+to Cal.com booking setup", with no line. The cause was One's own phone plugin: it cut the helper lines out in
+`transform_llm_output`, whose result is what the engine stores and replays, so a long chat showed only "↳" receipts
+and never a real line, and the model copied the receipt.
+
+**Picked.** What's saved is the reply as written, with its real lines, and never a receipt (a "↳" line the assistant
+typed itself comes off first). The cut and One's receipts happen only on the way out, inside the gateway's last step
+before sending (`gateway.run._sanitize_gateway_final_response`, wrapped once by the plugin; every delivery path,
+crash-left replies included, imports it by name). A reply that says a helper is being sent or told with no line gets
+one silent correction turn (the same main model, this chat's recent messages) that must answer with only the missing
+line(s); they're added to the reply, handed to One, and the person sees only the fixed reply. Only if that fails too
+do they get a one-line note. **Rejected:** more prompt text (it was already there and was copied around), saving the
+cut text with a different receipt shape (still a finished-job shape to copy), and patching the engine's gateway files
+(lost on every engine bump). **Evidence:** `tools/phone-tags-check.py` replays the Nov 28 replies
+(`tests/fixtures/phone-tags/nov28-missing.json`) with a stand-in assistant: 42 checks failed before, all pass after;
+`tools/phone-choices-engine-check.sh` runs the same through the pinned engine's own turn end and send step. Not tested:
+a live correction turn against a real model.
 ## A routine's quiet reply is cut off at 4 minutes and the same turn goes again (0.9.148, Nov 28 2026)
 
 **Problem.** Nov 25 2026 "Forge release" and "Forge X replies (afternoon)" failed after 4343 s (72 min), Nov 27

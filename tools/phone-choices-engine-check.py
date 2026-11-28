@@ -158,13 +158,21 @@ def turn(text, turn_id):
         clear_session_vars(tokens)
 
 
+saves = []  # what the engine saved for each turn (replayed next turn)
+
+
 async def deliver(text, turn_id, gen):
     ev = asyncio.Event()
     ev._hermes_run_generation = gen
     ad._active_sessions[KEY] = ev
     core = []
     ad.register_post_delivery_callback(KEY, lambda: core.append("engine's own"), generation=gen)
-    out = await asyncio.get_running_loop().run_in_executor(None, turn, text, turn_id)
+    saved = await asyncio.get_running_loop().run_in_executor(None, turn, text, turn_id)
+    saves.append(saved)
+    # The engine's own last step before a reply goes to the chat (gateway/run_turn_persistence.py imports it by name
+    # from gateway.run at each turn): the plugin's cut and receipts happen there, never in what's saved.
+    import gateway.run as gr
+    out = gr._sanitize_gateway_final_response(Platform.TELEGRAM, saved)
     await asyncio.sleep(0.05)
     await ad._fire_post_delivery_callback(KEY, ev)  # after the reply went out
     ad._active_sessions.pop(KEY, None)
@@ -253,10 +261,12 @@ async def main():
         clear_session_vars(tokens)
     check("One's own chat keeps its line (its own buttons)", acp == "Sure?\n[choices: Yes | No]")
 
-    print("6. Nov 17: a reply that says a helper is starting but holds no line, through the engine's own turn end")
+    print("6. Nov 17/28: a reply that says a helper is starting but holds no line, through the engine's own turn end")
     hung = "I'm sending a helper to find the cause, fix it, and ship it. It won't install while a routine is running:"
+    mod._ask = lambda messages: (_ for _ in ()).throw(RuntimeError("no account here"))  # the correction turn fails
     out, _ = await deliver(hung, "t11", 12)
-    check("the person is told nothing started", out.startswith(hung) and out.endswith(mod.MISSING_SHOWN))
+    check("the correction turn failed too: the person is told nothing started", out.startswith(hung)
+          and out.endswith(mod.MISSING_SHOWN))
     log = os.path.join(os.environ["HERMES_HOME"], "logs", "one-phone-tags.log")
     check("and it's logged loudly", "MISSING HELPER LINE" in open(log).read())
     tokens = set_session_vars(platform="telegram", chat_id="42", chat_type="dm", user_id="42", session_key=KEY)
@@ -267,6 +277,16 @@ async def main():
     check("the next turn in that chat is told", note is not None and "started NOTHING" in note["context"])
     out, _ = await deliver("Sending it now:\n[helper: Fix it | find the cause and fix it]", "t12", 13)
     check("a reply with the line gets a receipt instead", out == "Sending it now:\n\n↳ Helper sent: Fix it")
+    check("and the engine saves it with its real line, no receipt",
+          saves[-1] == "Sending it now:\n[helper: Fix it | find the cause and fix it]")
+    asked = []
+    mod._ask = lambda messages: asked.append(messages) or "[tell-helper: Cal.com booking setup | Keep the work step.]"
+    out, _ = await deliver("Got it, the work step stays.\n\n↳ Passed on to Cal.com booking setup", "t13", 14)
+    check("Nov 28: a hand-written receipt with no line gets one correction turn", len(asked) == 1)
+    check("the person sees only the fixed reply, with One's receipt",
+          out == "Got it, the work step stays.\n\n↳ Passed on to Cal.com booking setup")
+    check("and the engine saves the real line, not the receipt", "[tell-helper: Cal.com booking setup | Keep the work step.]"
+          in saves[-1] and "↳" not in saves[-1])
 
     print("7. Nov 18: the engine's own admission and notices, with the plugin on")
     import gateway.session_ingress as si

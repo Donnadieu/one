@@ -1,0 +1,26 @@
+[
+ {
+  "name": "Nov 28 09:42 'I'm telling the helper…' with a hand-written '↳ Passed on to Buy vibecodingforgood.ai'",
+  "reply": "Got it. I'm telling the helper to read the code from your inbox itself and finish the purchase.\n\n↳ Passed on to Buy vibecodingforgood.ai",
+  "answer": "[tell-helper: Buy vibecodingforgood.ai | Read the verification code from Omar's inbox yourself and finish the purchase.]",
+  "receipt": "↳ Passed on to Buy vibecodingforgood.ai"
+ },
+ {
+  "name": "Nov 28 09:48 'I'm sending a helper to set up Cal.com:' with no line",
+  "reply": "Got it. One update first: **vibecodingforgood.ai is yours.** It was registered on Cloudflare today, and I checked the public domain records myself.\n\nNow the calendar. I'm sending a helper to set up Cal.com:\n- **Bookings land in your main Gmail**, with a Google Meet link.\n- It checks **all six of your calendars** for busy times. If Google asks \"is it you?\" on your phone, tap Yes.\n- **Hours:** weekdays during the day (9 to 5) and **after 8 PM** (8 to 10), with **5 to 8 always blocked** for dinner and bedtime. Your own 5–8 block in your main calendar backs that up. Weekends stay closed for now.\n- **work:** nothing connected. Once you share it as free/busy with your main Gmail, the helper turns it on so it blocks times too.\n- **The free plan only:** nothing is bought, and the link isn't published anywhere yet.\n\nYou'll get a picture of your available times here to look over.",
+  "answer": "[helper: Cal.com booking setup | Set up Cal.com on the free plan for Omar: bookings land in your main Gmail with a Google Meet link; check his six calendars for busy times; weekdays 9 to 5 and 8 to 10 PM, 5 to 8 PM always blocked; weekends closed. Publish nothing.]",
+  "receipt": "↳ Helper sent: Cal.com booking setup"
+ },
+ {
+  "name": "Nov 28 09:54 'I've corrected the helper' with a hand-written '↳ Passed on to Cal.com booking setup'",
+  "reply": "Got it, the work step stays. I've corrected the helper: it **keeps the work step in the setup**. As soon as you share your work calendar with your main Gmail as free/busy, the helper turns it on, so work meetings block those times. It still never connects to the work account directly.\n\nDo the sharing from your phone's browser whenever you're ready, with the steps I sent above.\n\n↳ Passed on to Cal.com booking setup",
+  "answer": "Here it is:\n[tell-helper: Cal.com booking setup | Keep the work step in the setup: once Omar shares his work calendar with your main Gmail as free/busy, turn it on so work meetings block times. Never connect to the work account directly.]",
+  "receipt": "↳ Passed on to Cal.com booking setup"
+ },
+ {
+  "name": "Nov 28 10:04 'I'm sending a helper to build the real funnel' with no line",
+  "reply": "Here's where things stand:\n- ✅ **The domain is bought.** vibecodingforgood.ai is registered on Cloudflare in your name, and its settings point to Cloudflare.\n- ✅ **The pages and copy are approved** (funnel v3).\n- 🔄 **The calendar:** Cal.com is being set up right now, with your work calendar blocking times.\n- ⚠️ **The routine fix (0.9.148) still isn't merged.** Its helper stopped after a slow speed check. I'm sending it back to finish.\n\n**Yes, we can start building.** I'm sending a helper to build the real funnel on your own Cloudflare site.\n\n**It goes up on a private preview link first.** It only goes live on vibecodingforgood.ai after you've looked at it.\n\n**Three things stay as placeholders until you're ready:**\n1. **The training video:** you need to record it from the outline.\n2. **A mailing address for the email footer:** the law requires one on marketing emails. A PO box or virtual mailbox runs about $10–20 a month. Until then, only the checklist delivery email goes out.\n3. **The calendar link:** it goes in as soon as Cal.com is ready.",
+  "answer": "[helper: Build VCFG funnel | Build the vibecodingforgood.ai funnel (v3 pages and copy, approved) on Omar's Cloudflare site, on a private preview link first. Placeholders for the training video, the email footer address and the calendar link.]",
+  "receipt": "↳ Helper sent: Build VCFG funnel"
+ }
+]

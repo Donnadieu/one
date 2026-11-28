@@ -19,7 +19,7 @@ done
 W="$SUP/hermes/cache/scratch/choices-check-$$"
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/home/plugins/one-phone-tags"
-cp tools/overlay/plugins/one-phone-tags/__init__.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$W/home/plugins/one-phone-tags/"
+cp tools/overlay/plugins/one-phone-tags/*.py tools/overlay/plugins/one-phone-tags/plugin.yaml "$W/home/plugins/one-phone-tags/"
 cp tools/phone-choices-engine-check.py "$W/check.py"
 # What Messenger.sync turns on (Sources/Messenger.swift).
 printf 'plugins:\n  enabled:\n    - one-phone-tags\n' > "$W/home/config.yaml"

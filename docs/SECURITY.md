@@ -286,6 +286,11 @@ each enforced in code rather than by convention:
   the gateway authorizes (`_is_user_authorized`); messages over 2 hours old are never handed to the assistant: they
   are listed in one note, and the next new message carries that list with the standing rule that sending, posting,
   spending and deleting still need a fresh yes.
+- The phone plugins ship as whole folders (`Messenger.installMissed` copies every `.py` file and `plugin.yaml` the
+  bundle carries for them, nothing else, into the engine home). When a phone-chat reply promises a helper job with no
+  line, `one-phone-tags` makes one extra call to the same main model the chat runs on (the engine's own
+  `call_llm`, no tools) with that chat's last 12 messages, asking only for the missing line; nothing it answers is
+  sent anywhere but back into that same reply, and a job it names still goes through One like any other helper line.
 
 ## One account at a time (0.9.108)
 

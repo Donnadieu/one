@@ -127,7 +127,9 @@ enum Messenger {
         let dest = Env.hermesHome.appendingPathComponent("plugins/\(name)", isDirectory: true)
         guard let src, fm.fileExists(atPath: src.appendingPathComponent("__init__.py").path) else { return false }
         try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
-        for f in ["__init__.py", "plugin.yaml"] {
+        // Every file the plugin ships with (one-phone-tags has its own tags.py next to __init__.py since 0.9.149).
+        let shipped = ((try? fm.contentsOfDirectory(atPath: src.path)) ?? []).filter { $0.hasSuffix(".py") || $0 == "plugin.yaml" }
+        for f in Set(shipped + ["__init__.py", "plugin.yaml"]).sorted() {
             let a = src.appendingPathComponent(f)
             let b = dest.appendingPathComponent(f)
             if (try? Data(contentsOf: a)) != (try? Data(contentsOf: b)) {

@@ -287,75 +287,108 @@ enum SmoothCheck {
         try? await Task.sleep(for: .seconds(2))
         var ok = true
         var lines: [String] = []
-        func over(_ bad: Bool, _ what: String) {
-            if bad {
-                ok = false
-                lines.append("FAIL \(what)")
-            }
-        }
+        // A shared CI runner only ever adds time: a measurement over budget is taken again (`tries` in all) and fails
+        // only when every try is over. A real slowdown is over every time; on main, 1 push in 3 failed one budget by
+        // a hair on a single try (Nov 19-28 2026: keystroke p95 40.2-48.5 of 40, a bot's chat 127-137 of 120 ms).
+        let tries = 3
+        func failed(_ checks: [(Bool, String)]) -> [String] { checks.filter(\.0).map(\.1) }
         for n in bots {
-            world(bots: n)
-            try? await Task.sleep(for: .seconds(1.5))
-            if n == bots.max() { await profile("idle-\(n)-bots", seconds: 3) }
-            let idle = await record(3)
-            print(
-                String(
-                    format:
-                        "bots %d, idle: main thread %.0f%% busy, longest burst %.1f ms, %.1f%% hitches; %.1f redraws/s asked; screen: %.0f fps, %d of %d frames late, longest %.1f ms",
-                    n, idle.busy * 100, idle.burst, idle.hitchShare * 100, idle.publishes, idle.fps, idle.late, idle.frames.count, idle.longestFrame))
-            if n == bots.max() { await profile("typing-\(n)-bots", seconds: 3) }
-            let keys = await typing(win)
-            print(
-                String(
-                    format:
-                        "bots %d, typing: a keystroke's work p50 %.1f ms, p95 %.1f ms, max %.1f ms (to drawn on this runner p50 %.1f, p95 %.1f); longest burst %.1f ms, %.1f%% hitches; screen: %d of %d frames late",
-                    n, keys.p50, keys.p95, keys.max, keys.drawnP50, keys.drawnP95, keys.window.burst, keys.window.hitchShare * 100, keys.window.late,
-                    keys.window.frames.count))
-            over(keys.p95 > Budget.keyP95, String(format: "bots %d: a keystroke's work p95 %.1f ms (budget %.1f)", n, keys.p95, Budget.keyP95))
-            over(keys.max > Budget.keyMax, String(format: "bots %d: slowest keystroke %.1f ms (budget %.1f)", n, keys.max, Budget.keyMax))
-            over(idle.burst > Budget.burst, String(format: "bots %d: a %.1f ms burst while idle (budget %.1f)", n, idle.burst, Budget.burst))
-            over(
-                keys.window.burst > Budget.burst,
-                String(format: "bots %d: a %.1f ms burst while typing (budget %.1f)", n, keys.window.burst, Budget.burst))
-            over(
-                idle.hitchShare > Budget.hitches,
-                String(format: "bots %d: %.1f%% hitches while idle (budget %.0f%%)", n, idle.hitchShare * 100, Budget.hitches * 100))
-            over(
-                keys.window.hitchShare > Budget.hitches,
-                String(format: "bots %d: %.1f%% hitches while typing (budget %.0f%%)", n, keys.window.hitchShare * 100, Budget.hitches * 100))
-            over(
-                idle.publishes > Budget.publishes,
-                String(format: "bots %d: %.0f model changes a second (budget %.0f)", n, idle.publishes, Budget.publishes))
-            if n == bots.max() {
-                over(
-                    idle.busy > Budget.idleBusy,
-                    String(format: "bots %d: main thread %.0f%% busy while idle (budget %.0f%%)", n, idle.busy * 100, Budget.idleBusy * 100))
+            var fails: [String] = []
+            for t in 1...tries {
+                world(bots: n)
+                try? await Task.sleep(for: .seconds(1.5))
+                if n == bots.max(), t == 1 { await profile("idle-\(n)-bots", seconds: 3) }
+                let idle = await record(3)
+                print(
+                    String(
+                        format:
+                            "bots %d, idle: main thread %.0f%% busy, longest burst %.1f ms, %.1f%% hitches; %.1f redraws/s asked; screen: %.0f fps, %d of %d frames late, longest %.1f ms",
+                        n, idle.busy * 100, idle.burst, idle.hitchShare * 100, idle.publishes, idle.fps, idle.late, idle.frames.count,
+                        idle.longestFrame))
+                if n == bots.max(), t == 1 { await profile("typing-\(n)-bots", seconds: 3) }
+                let keys = await typing(win)
+                print(
+                    String(
+                        format:
+                            "bots %d, typing: a keystroke's work p50 %.1f ms, p95 %.1f ms, max %.1f ms (to drawn on this runner p50 %.1f, p95 %.1f); longest burst %.1f ms, %.1f%% hitches; screen: %d of %d frames late",
+                        n, keys.p50, keys.p95, keys.max, keys.drawnP50, keys.drawnP95, keys.window.burst, keys.window.hitchShare * 100,
+                        keys.window.late,
+                        keys.window.frames.count))
+                fails = failed([
+                    (keys.p95 > Budget.keyP95, String(format: "bots %d: a keystroke's work p95 %.1f ms (budget %.1f)", n, keys.p95, Budget.keyP95)),
+                    (keys.max > Budget.keyMax, String(format: "bots %d: slowest keystroke %.1f ms (budget %.1f)", n, keys.max, Budget.keyMax)),
+                    (idle.burst > Budget.burst, String(format: "bots %d: a %.1f ms burst while idle (budget %.1f)", n, idle.burst, Budget.burst)),
+                    (
+                        keys.window.burst > Budget.burst,
+                        String(format: "bots %d: a %.1f ms burst while typing (budget %.1f)", n, keys.window.burst, Budget.burst)
+                    ),
+                    (
+                        idle.hitchShare > Budget.hitches,
+                        String(format: "bots %d: %.1f%% hitches while idle (budget %.0f%%)", n, idle.hitchShare * 100, Budget.hitches * 100)
+                    ),
+                    (
+                        keys.window.hitchShare > Budget.hitches,
+                        String(format: "bots %d: %.1f%% hitches while typing (budget %.0f%%)", n, keys.window.hitchShare * 100, Budget.hitches * 100)
+                    ),
+                    (
+                        idle.publishes > Budget.publishes,
+                        String(format: "bots %d: %.0f model changes a second (budget %.0f)", n, idle.publishes, Budget.publishes)
+                    ),
+                    (
+                        n == bots.max() && idle.busy > Budget.idleBusy,
+                        String(format: "bots %d: main thread %.0f%% busy while idle (budget %.0f%%)", n, idle.busy * 100, Budget.idleBusy * 100)
+                    ),
+                ])
+                if fails.isEmpty { break }
+                print("  over budget on try \(t) of \(tries): \(fails.joined(separator: "; "))")
+            }
+            if !fails.isEmpty {
+                ok = false
+                lines += fails.map { "FAIL \($0) on all \(tries) tries" }
             }
         }
-        // Screen changes, with the most bots.
+        // Screen changes, with the most bots. A try again first goes back to where the step starts (`undo`, unmeasured).
         world(bots: bots.max() ?? 0)
         try? await Task.sleep(for: .seconds(1))
         let bot = m.helpers.first { isBot($0) }?.id
-        let steps: [(String, @MainActor () -> Void)] = [
-            ("a bot's chat opens", { if let bot { m.focusHelper(bot) } }), ("back home", { m.openHelper = nil }),
-            ("a helper's chat opens", { if let h = m.helpers.first(where: { !isBot($0) })?.id { m.focusHelper(h) } }),
-            ("back home", { m.openHelper = nil }),
-            ("Routines opens", { m.routinesOpen = true }), ("Routines closes", { m.routinesOpen = false }),
-            ("Rooms opens", { RoomsWindow.show(m) }), ("Rooms closes", { RoomsWindow.panel?.close() }),
+        let toBot: @MainActor () -> Void = { if let bot { m.focusHelper(bot) } }
+        let toHelper: @MainActor () -> Void = { if let h = m.helpers.first(where: { !isBot($0) })?.id { m.focusHelper(h) } }
+        let home: @MainActor () -> Void = { m.openHelper = nil }
+        let routines: @MainActor () -> Void = { m.routinesOpen = true }
+        let noRoutines: @MainActor () -> Void = { m.routinesOpen = false }
+        let rooms: @MainActor () -> Void = { RoomsWindow.show(m) }
+        let noRooms: @MainActor () -> Void = { RoomsWindow.panel?.close() }
+        let steps: [(String, @MainActor () -> Void, @MainActor () -> Void)] = [
+            ("a bot's chat opens", toBot, home), ("back home", home, toBot), ("a helper's chat opens", toHelper, home),
+            ("back home", home, toHelper), ("Routines opens", routines, noRoutines), ("Routines closes", noRoutines, routines),
+            ("Rooms opens", rooms, noRooms), ("Rooms closes", noRooms, rooms),
         ]
-        for (what, act) in steps {
-            if what.hasSuffix("opens") {
-                await profile(what.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "'", with: ""), seconds: 1)
+        for (what, act, undo) in steps {
+            var burst = 0.0
+            for t in 1...tries {
+                if t > 1 {
+                    undo()
+                    try? await Task.sleep(for: .seconds(0.8))
+                }
+                if t == 1, what.hasSuffix("opens") {
+                    await profile(what.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "'", with: ""), seconds: 1)
+                }
+                let from = start()
+                withAnimation(.easeOut(duration: 0.3)) { act() }
+                try? await Task.sleep(for: .seconds(0.8))
+                let w = stop(from)
+                print(
+                    String(
+                        format: "%@: longest burst %.1f ms, main thread %.0f%% busy; screen: longest frame %.1f ms, %d of %d frames late%@", what,
+                        w.burst, w.busy * 100, w.longestFrame, w.late, w.frames.count, t > 1 ? " (try \(t) of \(tries))" : ""))
+                burst = w.burst
+                if burst <= Budget.transition { break }
+                try? await Task.sleep(for: .milliseconds(300))
             }
-            let from = start()
-            withAnimation(.easeOut(duration: 0.3)) { act() }
-            try? await Task.sleep(for: .seconds(0.8))
-            let w = stop(from)
-            print(
-                String(
-                    format: "%@: longest burst %.1f ms, main thread %.0f%% busy; screen: longest frame %.1f ms, %d of %d frames late", what, w.burst,
-                    w.busy * 100, w.longestFrame, w.late, w.frames.count))
-            over(w.burst > Budget.transition, String(format: "%@: a %.0f ms burst (budget %.0f)", what, w.burst, Budget.transition))
+            if burst > Budget.transition {
+                ok = false
+                lines.append(String(format: "FAIL %@: a %.0f ms burst (budget %.0f) on all %d tries", what, burst, Budget.transition, tries))
+            }
             try? await Task.sleep(for: .milliseconds(300))
         }
         win.close()

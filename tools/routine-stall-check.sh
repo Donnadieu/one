@@ -13,13 +13,28 @@ SUP="${ONE_SUPPORT_DIR:-$HOME/Library/Application Support/One}"
 E="$SUP/engine"
 [ -d "$E/cron" ] || { echo "no engine in $SUP; skipped"; exit 0; }
 grep -q "_one_routine_stall_install" "$E/cron/scheduler.py" || { echo "the routine stall overlay isn't in this engine"; exit 1; }
-PY="" WHY=""
-for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-  WHY=$(cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; break; }
-done
-[ -n "$PY" ] || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
 W="$SUP/hermes/cache/scratch/routine-stall-check-$$"
 trap 'rm -rf "$W"' EXIT
+mkdir -p "$W/install-home"
+PY="" WHY=""
+find_python() {
+  for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
+    WHY=$(cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; return 0; }
+  done
+  return 1
+}
+# A fresh engine has no Anthropic SDK: it is an optional extra the engine installs itself the first time a Claude
+# call needs it (agent/anthropic_adapter.py -> pm.ensure_import("anthropic")). This check speaks Anthropic's API, so
+# on a fresh install (the fresh-install runner, 0.9.148 and 0.9.149: "engine python not found") it first installs
+# that extra the same way, then runs with lazy installs off so nothing installs in the middle of a timed stall.
+if ! find_python; then
+  for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
+    (cd "$E" && HERMES_HOME="$W/install-home" HERMES_RUNTIME_DIR="$SUP/hermes/tools" perl -e 'alarm 600; exec @ARGV' \
+      "$p" -I -c "import sys; sys.path.insert(0,'.'); from pm import ensure_import; ensure_import('anthropic')" 2>&1 | tail -3)
+    break
+  done
+  find_python || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
+fi
 cd "$E" && HERMES_DISABLE_LAZY_INSTALLS=1 HERMES_RUNTIME_DIR="$SUP/hermes/tools" \
   perl -e 'alarm 300; exec @ARGV' "$PY" -I "$REPO/tools/routine-stall-check.py" "$E" "$W" 2>&1 | grep -v -E "^(→|  ✓ Installing)"
 exit "${PIPESTATUS[0]}"

@@ -16,21 +16,22 @@ grep -q "_one_routine_stall_install" "$E/cron/scheduler.py" || { echo "the routi
 W="$SUP/hermes/cache/scratch/routine-stall-check-$$"
 SDK=""
 trap 'rm -rf "$W" "$W-sdk"' EXIT
+# The check boots onto the engine's committed dependency set itself (routine-stall-check.py, as the engine's own
+# processes do), which pm scopes by HERMES_HOME: the engine's data root, as One sets it (Env.hermesHome).
+export HERMES_HOME="$SUP/hermes"
 PY="" WHY=""
 find_python() {
   for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-    WHY=$(cd "$E" && ONE_CHECK_SDK="$SDK" "$p" -I -c "import os, sys; sys.path.insert(0,'.'); sys.path += [d for d in [os.environ.get('ONE_CHECK_SDK')] if d]; import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; return 0; }
+    WHY=$(cd "$E" && ONE_CHECK_SDK="$SDK" "$p" -I "$REPO/tools/routine-stall-check.py" "$E" --probe 2>&1) && { PY="$p"; return 0; }
   done
   return 1
 }
 # A fresh engine has no Anthropic SDK: it is an optional extra the engine adds the first time a Claude call needs it
-# (agent/anthropic_adapter.py -> pm.ensure_import("anthropic"), from the engine's own launcher). This check speaks
-# Anthropic's API and runs the engine's python directly, where the engine refuses to add an extra on its own (and
-# `hermes pm install --extra` wants the full tool set a test install leaves out). So on a fresh install (the
-# fresh-install runner; 0.9.148 and 0.9.149 failed here with "engine python not found") it puts the SDK the engine
-# pins (its pyproject's `anthropic` extra) in a throwaway folder with the engine's own uv, searched AFTER the engine's
-# own packages (the engine's versions always win; the engine itself is never changed), and runs with lazy installs
-# off so nothing installs in the middle of a timed stall.
+# (agent/anthropic_adapter.py -> pm.ensure_import("anthropic")). This check speaks Anthropic's API, so on a fresh
+# install (the fresh-install runner; 0.9.148 and 0.9.149 failed here with "engine python not found") it puts the SDK
+# the engine pins (its pyproject's `anthropic` extra) in a throwaway folder with the engine's own uv, searched AFTER
+# the engine's own packages (the engine's versions always win; the engine itself is never changed), and runs with
+# lazy installs off so nothing installs in the middle of a timed stall.
 if ! find_python; then
   PIN=$(sed -n 's/^anthropic = \["\(anthropic==[0-9.]*\)"\].*/\1/p' "$E/pyproject.toml" | head -1)
   UV=""

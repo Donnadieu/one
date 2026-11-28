@@ -14,11 +14,14 @@ failed about 1 push to main in 3, each time one budget by a hair on its single t
 a bot's chat opening 127-137 ms of 120, hitches 8.2-9.7% of 8%), a different budget each time: runner noise.
 
 **Picked.**
-- The routine check puts the Anthropic SDK the engine pins (its pyproject's `anthropic` extra) in a throwaway folder
-  with the engine's own uv when it is missing, searched after the engine's own packages (the engine is never changed),
-  then runs with lazy installs off as before. The engine itself refuses to add an extra from a python started
-  directly, `hermes pm install --extra anthropic` stops on a test install that leaves out ffmpeg, node and ripgrep,
-  and a `uv pip install` into the venv lands where the engine's python never looks (all three tried on the runner).
+- The routine check boots onto the engine's committed dependency set the way the engine's own processes do
+  (`pm.environments.activate_dependencies`, as `hermes_bootstrap` and `cron/worker_bootstrap.py` do): on the newer
+  engine layout a python started directly has only the base venv (no ruamel.yaml). The Anthropic SDK the engine pins
+  (its pyproject's `anthropic` extra) goes in a throwaway folder, added with the engine's own uv when it is missing
+  and searched after the engine's own packages (the engine is never changed); then it runs with lazy installs off as
+  before. Tried first on the runner and dropped: the engine's own lazy install (refused from a python started
+  directly), `hermes pm install --extra anthropic` (stops on a test install without ffmpeg, node and ripgrep), and a
+  `uv pip install` into the venv (lands in the base venv the engine doesn't boot from).
   It prints the import error if it still finds no python.
 - In fresh-install, every check after the install runs `if: !cancelled() && steps.install.outcome == 'success'`, so
   each check reports on its own and the job still fails if any did. Nothing runs without an engine.

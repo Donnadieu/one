@@ -69,14 +69,14 @@ enum BrainKitCheck {
                 for case let f as URL in en {
                     let rel = String(f.path.dropFirst(real.path.count + 1))
                     let name = f.lastPathComponent
-                    let text = (try? String(contentsOf: f, encoding: .utf8))?.lowercased() ?? ""
-                    if rel.hasPrefix("templates/cofounder-room") || name == "kit.yaml" || name == "frameworks" || text.contains("next badge")
-                        || text.contains("vibe founding")
-                    {
+                    // Paths only: the words are build.sh's check (tools/brain-starter-bundle.py), and kept out of this binary.
+                    if rel.hasPrefix("templates/cofounder-room") || kitPaths.contains(where: { rel.hasSuffix($0) }) || name == "frameworks" {
                         leftovers.append(rel)
                     }
                 }
             }
+            let license = (try? String(contentsOf: real.appendingPathComponent("LICENSE.md"), encoding: .utf8)) ?? ""
+            check("the app's bundled starter carries One's MIT terms", license.contains("MIT License"))
             check("the app's bundled brain starter has no kit material\(leftovers.isEmpty ? "" : ": \(leftovers.prefix(3))")", leftovers.isEmpty)
         } else {
             print("  · this build bundles no brain starter (a pull request build); build.sh checks a release's")

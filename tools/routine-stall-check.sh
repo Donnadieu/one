@@ -14,11 +14,12 @@ E="$SUP/engine"
 [ -d "$E/cron" ] || { echo "no engine in $SUP; skipped"; exit 0; }
 grep -q "_one_routine_stall_install" "$E/cron/scheduler.py" || { echo "the routine stall overlay isn't in this engine"; exit 1; }
 W="$SUP/hermes/cache/scratch/routine-stall-check-$$"
-trap 'rm -rf "$W"' EXIT
+SDK=""
+trap 'rm -rf "$W" "$W-sdk"' EXIT
 PY="" WHY=""
 find_python() {
   for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-    WHY=$(cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; return 0; }
+    WHY=$(cd "$E" && ONE_CHECK_SDK="$SDK" "$p" -I -c "import os, sys; sys.path.insert(0,'.'); sys.path += [d for d in [os.environ.get('ONE_CHECK_SDK')] if d]; import anthropic, cron.scheduler, run_agent" 2>&1) && { PY="$p"; return 0; }
   done
   return 1
 }
@@ -27,7 +28,8 @@ find_python() {
 # Anthropic's API and runs the engine's python directly, where the engine refuses to add an extra on its own (and
 # `hermes pm install --extra` wants the full tool set a test install leaves out). So on a fresh install (the
 # fresh-install runner; 0.9.148 and 0.9.149 failed here with "engine python not found") it puts the SDK the engine
-# pins (its pyproject's `anthropic` extra) into that python with the engine's own uv, then runs with lazy installs
+# pins (its pyproject's `anthropic` extra) in a throwaway folder with the engine's own uv, searched AFTER the engine's
+# own packages (the engine's versions always win; the engine itself is never changed), and runs with lazy installs
 # off so nothing installs in the middle of a timed stall.
 if ! find_python; then
   PIN=$(sed -n 's/^anthropic = \["\(anthropic==[0-9.]*\)"\].*/\1/p' "$E/pyproject.toml" | head -1)
@@ -36,11 +38,13 @@ if ! find_python; then
   [ -n "$PIN" ] && [ -x "$UV" ] || { echo "can't add the Anthropic SDK: pin '${PIN}', uv '${UV}'"; exit 1; }
   for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
     (cd "$E" && "$p" -I -c "import sys; sys.path.insert(0,'.'); import hermes_cli.plugins" >/dev/null 2>&1) || continue
-    echo "adding $PIN (the engine's anthropic extra) to $p"
-    perl -e 'alarm 600; exec @ARGV' "$UV" pip install -q --python "$p" "$PIN" 2>&1 | tail -5
+    echo "adding $PIN (the engine's anthropic extra) for this check only"
+    perl -e 'alarm 600; exec @ARGV' "$UV" pip install -q --python "$p" --target "$W-sdk" "$PIN" 2>&1 | tail -5
+    SDK="$W-sdk"
+    break
   done
   find_python || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
 fi
-cd "$E" && HERMES_DISABLE_LAZY_INSTALLS=1 HERMES_RUNTIME_DIR="$SUP/hermes/tools" \
+cd "$E" && ONE_CHECK_SDK="$SDK" HERMES_DISABLE_LAZY_INSTALLS=1 HERMES_RUNTIME_DIR="$SUP/hermes/tools" \
   perl -e 'alarm 300; exec @ARGV' "$PY" -I "$REPO/tools/routine-stall-check.py" "$E" "$W" 2>&1 | grep -v -E "^(→|  ✓ Installing)"
 exit "${PIPESTATUS[0]}"

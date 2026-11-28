@@ -14,11 +14,12 @@ failed about 1 push to main in 3, each time one budget by a hair on its single t
 a bot's chat opening 127-137 ms of 120, hitches 8.2-9.7% of 8%), a different budget each time: runner noise.
 
 **Picked.**
-- The routine check adds the Anthropic SDK the engine pins (its pyproject's `anthropic` extra) to the engine's python
-  with the engine's own uv when it is missing, then runs with lazy installs off as before. The engine itself refuses
-  to add an extra from a python started directly, and `hermes pm install --extra anthropic` stops on a test install
-  that leaves out ffmpeg, node and ripgrep (both tried on the runner). It prints the import error if it still finds
-  no python.
+- The routine check puts the Anthropic SDK the engine pins (its pyproject's `anthropic` extra) in a throwaway folder
+  with the engine's own uv when it is missing, searched after the engine's own packages (the engine is never changed),
+  then runs with lazy installs off as before. The engine itself refuses to add an extra from a python started
+  directly, `hermes pm install --extra anthropic` stops on a test install that leaves out ffmpeg, node and ripgrep,
+  and a `uv pip install` into the venv lands where the engine's python never looks (all three tried on the runner).
+  It prints the import error if it still finds no python.
 - In fresh-install, every check after the install runs `if: !cancelled() && steps.install.outcome == 'success'`, so
   each check reports on its own and the job still fails if any did. Nothing runs without an engine.
 - `smooth`: a measurement over budget is taken again, up to 3 tries, and fails only when every try is over. Budgets are

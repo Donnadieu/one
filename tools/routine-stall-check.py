@@ -40,6 +40,8 @@ os.environ.update({
     "ONE_ROUTINE_REACH_POLL_SECONDS": "0.5", "HERMES_CRON_TIMEOUT": "600",
 })
 sys.path.insert(0, ENGINE)
+if os.environ.get("ONE_CHECK_SDK"):  # the engine's pinned Anthropic SDK on a fresh engine, after the engine's own packages
+    sys.path.append(os.environ["ONE_CHECK_SDK"])
 fails = 0
 
 

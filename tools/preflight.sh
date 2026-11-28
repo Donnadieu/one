@@ -196,6 +196,17 @@ cp "$T/usageovl/engine/agent/account_usage.py" "$T/usageovl/once.py"
 ONE_SUPPORT_DIR="$T/usageovl" "$BIN" --apply-overlay >/dev/null
 check "second run changes nothing" cmp "$T/usageovl/once.py" "$T/usageovl/engine/agent/account_usage.py"
 check "the Claude meter reads percent (Nov 11: 1% read as 100%): 1.0 = 1%, 100 = 100%, limits[].percent wins, Codex fractions untouched" /usr/bin/python3 tools/usage-meter-check.py "$T/usageovl/engine" tests/fixtures/account_usage_pristine.py
+check "the routine stall overlay bundled" test -f "$APP/Contents/Resources/one_routine_stall.py"
+mkdir -p "$T/stallovl/engine/cron"
+cp tests/fixtures/cron_scheduler_pristine.py "$T/stallovl/engine/cron/scheduler.py"
+check "the routine stall overlay hooks a clean engine's scheduler (pinned Hermes)" bash -c "ONE_SUPPORT_DIR=$T/stallovl $BIN --apply-overlay | grep -q 'routine stall overlay ok'"
+check "and copies the module next to it" cmp tools/overlay/cron/one_routine_stall.py "$T/stallovl/engine/cron/one_routine_stall.py"
+cp "$T/stallovl/engine/cron/scheduler.py" "$T/stallovl/once.py"
+ONE_SUPPORT_DIR="$T/stallovl" "$BIN" --apply-overlay >/dev/null
+check "second run changes nothing" cmp "$T/stallovl/once.py" "$T/stallovl/engine/cron/scheduler.py"
+check "the hooked scheduler still parses" /usr/bin/python3 -c "import ast; ast.parse(open('$T/stallovl/engine/cron/scheduler.py').read())"
+check "a routine's quiet reply (Nov 25, 27): cut off at 4 min, the same turn again once the AI answers, with its work; never a Stop, a restart, a limit or a wall" /usr/bin/python3 tools/routine-stall-logic-check.py
+# The real engine with a stand-in model: tools/routine-stall-check.sh in .github/workflows/fresh-install.yml.
 check "the stop plugin bundled" test -f "$APP/Contents/Resources/one-stop/__init__.py"
 mkdir -p "$T/health"; check "health watchdog: One's own, his tools' and his own told apart (never Docker, databases, Chrome or /Applications), a stopped helper's leftover closed by itself and a working helper's kept, Leave it for a day, the plain lines and One --health" bash -c "ONE_SUPPORT_DIR=$T/health ONE_HEALTH_FAKE_IDLE=0 ONE_HEALTH_FAKE_DISK_GB=21 $TBIN --test-health | tee $T/health/out.txt | grep -q '^health ok'"
 grep "✗" "$T/health/out.txt" 2>/dev/null | sed 's/^/    /'

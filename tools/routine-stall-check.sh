@@ -23,16 +23,16 @@ find_python() {
   done
   return 1
 }
-# A fresh engine has no Anthropic SDK: it is an optional extra the engine installs itself the first time a Claude
-# call needs it (agent/anthropic_adapter.py -> pm.ensure_import("anthropic")). This check speaks Anthropic's API, so
-# on a fresh install (the fresh-install runner, 0.9.148 and 0.9.149: "engine python not found") it first installs
-# that extra the same way, then runs with lazy installs off so nothing installs in the middle of a timed stall.
+# A fresh engine has no Anthropic SDK: it is an optional extra the engine adds the first time a Claude call needs it
+# (agent/anthropic_adapter.py -> pm.ensure_import("anthropic"), from the engine's own launcher). This check speaks
+# Anthropic's API and runs the engine's python directly, where only an explicit install may add an extra, so on a
+# fresh install (the fresh-install runner; 0.9.148 and 0.9.149 failed here with "engine python not found") it adds
+# that extra with the command the engine itself names, `hermes pm install --extra anthropic`, then runs with lazy
+# installs off so nothing installs in the middle of a timed stall.
 if ! find_python; then
-  for p in "$SUP"/hermes/installs/*/environments/*/venv/bin/python; do
-    (cd "$E" && HERMES_HOME="$W/install-home" HERMES_RUNTIME_DIR="$SUP/hermes/tools" perl -e 'alarm 600; exec @ARGV' \
-      "$p" -I -c "import sys; sys.path.insert(0,'.'); from pm import ensure_import; ensure_import('anthropic')" 2>&1 | tail -3)
-    break
-  done
+  H="$E/.hermes/bin/hermes"
+  [ -x "$H" ] || { echo "no engine launcher at $H"; exit 1; }
+  (cd "$E" && HERMES_HOME="$W/install-home" perl -e 'alarm 900; exec @ARGV' "$H" pm install --extra anthropic 2>&1 | tail -3)
   find_python || { echo "engine python not found"; printf '%s\n' "$WHY" | tail -3; exit 1; }
 fi
 cd "$E" && HERMES_DISABLE_LAZY_INSTALLS=1 HERMES_RUNTIME_DIR="$SUP/hermes/tools" \

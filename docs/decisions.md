@@ -3,6 +3,36 @@
 Design decisions that are easy to undo by accident. Newest first. Each says what was picked, what was rejected and
 the evidence.
 
+## Release checks: one red check never hides the rest; the routine check installs its Anthropic SDK; smooth takes 3 tries (0.9.150, Nov 28 2026)
+
+**Problem.** Since 0.9.148 the fresh-install check failed on every tag and release (v0.9.148, v0.9.149) at "Routines
+through the real engine", with only "engine python not found", and GitHub skipped the eight real-engine checks after it.
+The cause: `tools/routine-stall-check.sh` looked for an engine python that already imports `anthropic`. The Anthropic
+SDK is an optional engine extra that the engine installs itself on the first Claude call (`pm.ensure_import`), so a
+brand-new engine never has it; the check passed only on a Mac that had used Claude. Separately, the `smooth` check
+failed about 1 push to main in 3, each time one budget by a hair on its single try (keystroke p95 40.2-48.5 ms of 40,
+a bot's chat opening 127-137 ms of 120, hitches 8.2-9.7% of 8%), a different budget each time: runner noise.
+
+**Picked.**
+- The routine check boots onto the engine's committed dependency set the way the engine's own processes do
+  (`pm.environments.activate_dependencies`, as `hermes_bootstrap` and `cron/worker_bootstrap.py` do): on the newer
+  engine layout a python started directly has only the base venv (no ruamel.yaml). The Anthropic SDK the engine pins
+  (its pyproject's `anthropic` extra) goes in a throwaway folder, added with the engine's own uv when it is missing
+  and searched after the engine's own packages (the engine is never changed); then it runs with lazy installs off as
+  before. Tried first on the runner and dropped: the engine's own lazy install (refused from a python started
+  directly), `hermes pm install --extra anthropic` (stops on a test install without ffmpeg, node and ripgrep), and a
+  `uv pip install` into the venv (lands in the base venv the engine doesn't boot from).
+  It prints the import error if it still finds no python.
+- In fresh-install, every check after the install runs `if: !cancelled() && steps.install.outcome == 'success'`, so
+  each check reports on its own and the job still fails if any did. Nothing runs without an engine.
+- `smooth`: a measurement over budget is taken again, up to 3 tries, and fails only when every try is over. Budgets are
+  unchanged. A shared runner only adds time; a real slowdown is over on every try.
+
+**Rejected.** Raising the 120 ms / 40 ms budgets (the passing runs sit far under them: a bot's chat opens in 40-96 ms,
+keystroke p95 12-36 ms, so they're not wrong); preinstalling every engine extra in `--install-test` (a real person gets
+the SDK on first use, and the check should not hide a different install path); `continue-on-error` (it would turn a
+failed check green).
+
 ## The phone chat saves helper lines as written; a promise with no line gets one silent correction (0.9.149, Nov 28 2026)
 
 **Problem.** On Nov 28 the Telegram chat got five or more "Nothing started… Say go" notes in one morning, twice right

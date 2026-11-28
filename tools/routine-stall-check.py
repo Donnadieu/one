@@ -30,6 +30,19 @@ import threading
 import time
 
 ENGINE, WORK = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
+# Boot onto the dependency set the engine committed, the way the engine's own processes do (hermes_bootstrap,
+# cron/worker_bootstrap.py): a python started directly holds only the base venv, which on a fresh install has no
+# ruamel.yaml (fresh-install, Nov 28 2026). HERMES_HOME is still the engine's data root here (the .sh sets it).
+sys.path.insert(0, ENGINE)
+from pathlib import Path  # noqa: E402
+from pm.environments import activate_dependencies  # noqa: E402
+
+activate_dependencies(Path(ENGINE))
+if os.environ.get("ONE_CHECK_SDK"):  # the engine's pinned Anthropic SDK on a fresh engine, after the engine's own packages
+    sys.path.append(os.environ["ONE_CHECK_SDK"])
+if sys.argv[2] == "--probe":  # the .sh asks: does this python load what the check needs?
+    import anthropic, cron.scheduler, run_agent  # noqa: E401,F401
+    sys.exit(0)
 LIMIT = 3.0  # the routine idle limit under test (seconds)
 shutil.rmtree(WORK, ignore_errors=True)
 HOME = os.path.join(WORK, "home")
@@ -39,7 +52,6 @@ os.environ.update({
     "HERMES_HOME": HOME, "HOME": os.path.join(WORK, "user"), "ONE_ROUTINE_STALL_SECONDS": str(LIMIT),
     "ONE_ROUTINE_REACH_POLL_SECONDS": "0.5", "HERMES_CRON_TIMEOUT": "600",
 })
-sys.path.insert(0, ENGINE)
 fails = 0
 
 

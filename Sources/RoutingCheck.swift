@@ -64,7 +64,8 @@ enum RoutingCheck {
 
         print("rooms")
         check("Andela job → work", Router.room("Check my Andela PRs") == "work")
-        check("EK and the strategy canvas → Co-Founder", Router.room("Draft price options for EK's strategy canvas") == "cofounder")
+        check("EK and the offer → Co-Founder", Router.room("Draft price options for EK's offer") == "cofounder")
+        check("a business partner → Co-Founder", Router.room("Send my business partner the pricing notes") == "cofounder")
         check("two rooms named → no claim (ask, as today)", Router.room("Tell EK about my Andela job") == nil)
         check("Nyx is never routed into", Router.room("load nyx and talk about work at Andela") == nil)
         check("building One → no claim", Router.room("Fix a bug in Omar's One Mac app, bundle id ai.forjado.one") == nil)

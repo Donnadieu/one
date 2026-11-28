@@ -43,7 +43,9 @@ identity:         ## commits here are only Donnadieu <donnadieu.86@gmail.com>, s
 	tools/check-identity.sh
 	git fetch -q origin main 2>/dev/null || true
 	tools/check-identity.sh --range origin/main..HEAD
-check: identity format-check lint docdrift knowledgebase hooks-installed   ## the local gate: no tests here; preflight runs in CI on every push
+check: identity format-check lint docdrift knowledgebase hooks-installed brainstarter   ## the local gate: no tests here; preflight runs in CI on every push
+brainstarter:     ## the bundled brain starter never carries third-party kit material: the clean step and its check, on a poisoned stand-in (+ the built app's copy)
+	/usr/bin/python3 tools/brain-starter-bundle.py selftest
 preflight:        ## every end-to-end check; runs in CI on every pull request, refuses here
 	tools/preflight.sh
 full: check       ## the release gate: `make check`, then the CI checks that need what this Mac isn't

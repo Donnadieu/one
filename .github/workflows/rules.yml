@@ -102,6 +102,9 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
         run: tools/lint/check-baseline.sh --all "$BASE"
 
+      - name: The bundled brain starter never carries third-party kit material (the clean step and its check)
+        run: python3 tools/brain-starter-bundle.py selftest
+
       - name: The hook, make check and this workflow haven't drifted apart
         run: tools/hooks-check.sh --ci
 

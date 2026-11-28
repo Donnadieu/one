@@ -159,7 +159,7 @@ enum Router {
         ("work", #"\b(andela|constructease|construct ease|constructis|basecamp|ajax|work ?room|day ?jobs?|my job)\b"#),
         (
             "cofounder",
-            #"\b(co-?founder|argo|ek|ek's|erika|intakeedge|forjado ai|p0\d\d|strategy canvas|problem bank|business partner|vibe founding)\b"#
+            #"\b(co-?founder|argo|ek|ek's|erika|intakeedge|forjado ai|p0\d\d|business partner)\b"#
         ),
         ("personal", #"\b(personal room|hestia|my wife|my daughter|family|vacation|trip to|my health|doctor)\b"#),
     ]

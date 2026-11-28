@@ -121,9 +121,12 @@ echo "$HERMES_COMMIT" > "$APP/Contents/Resources/hermes-commit.txt"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/$HERMES_COMMIT/scripts/install.sh}"
 curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"
 # Memory templates (rooms). Point BRAIN_STARTER at a checkout of the brain starter.
+# Only the starter's own files: its third-party kit (templates/cofounder-room) is never bundled, and the build
+# fails if any kit file or word is left (tools/brain-starter-bundle.py; `make check` proves the check works).
 BRAIN_STARTER="${BRAIN_STARTER:-$HOME/Repos/brain-starter}"
 if [ -d "$BRAIN_STARTER/.git" ]; then
-  git -C "$BRAIN_STARTER" archive --prefix=brain-starter/ HEAD | tar -x -C "$APP/Contents/Resources"
+  /usr/bin/python3 tools/brain-starter-bundle.py bundle "$BRAIN_STARTER" "$APP/Contents/Resources" \
+    || { echo "error: the bundled brain starter still has third-party kit material (see above)" >&2; exit 1; }
 else
   echo "note: no brain starter at $BRAIN_STARTER; memory rooms will be unavailable in this build" >&2
 fi

@@ -76,9 +76,9 @@ enum PopupRender {
     }
 
     static func readerItem() -> ShelfItem {
-        let f = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Germán 1:1 prep pack.md")
+        let f = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("René 1:1 prep pack.md")
         let text = """
-            # Germán 1:1 prep pack
+            # René 1:1 prep pack
 
             ## Agenda
             1. **Where the scheduling screen stands**: shipped last week, two small bugs left.
@@ -95,7 +95,7 @@ enum PopupRender {
             """
         try? text.write(to: f, atomically: true, encoding: .utf8)
         return ShelfItem(
-            title: "Germán 1:1 prep pack", detail: "Agenda, notes and three questions to ask.", from: "MD · ready to share", path: f.path)
+            title: "René 1:1 prep pack", detail: "Agenda, notes and three questions to ask.", from: "MD · ready to share", path: f.path)
     }
 
     @MainActor static func routines() -> RoutinesSnapshot {

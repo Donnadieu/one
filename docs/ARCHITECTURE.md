@@ -227,6 +227,7 @@ the same change as the file.
 | RoomsPrivacyCheck.swift | dev only | `One --test-rooms-privacy` (preflight): share candidates, `Shared.make` refusing a private room, the engine's recipe list and switched-off starter skills, the per-prompt notes, the room.yaml migration, `assistant/` |
 | Guards.swift | service | safety rules enforced in code: shared-room leak hold, experimental connections off until tested, friction log (every correction, found by `Corrections`) |
 | GuardsCheck.swift | dev only | `One --test-guards`, run by preflight |
+| BrainKitCheck.swift | dev only | part of `One --test-guards`: a new co-founder room is a normal room (templates/room, no kit files) even from a starter that has the kit; an older co-founder room is left exactly as it was; the bundled starter has no kit material |
 | Improve.swift | service | "One gets better by itself", step 1 (look-only score): event, day and settings types, `improve/` paths, `Improve.collect`, once a day by itself (`Improve.tend`). See docs/design-docs/improve-score.md |
 | ImproveSignals.swift | service | the rules: `Corrections` (the correction finder, also FrictionLog's), `JobPlace` (main, helper, phone, routine), `StepCheck` (failed steps, walls, time limit), `ImprovePrivate` (Nyx, locked drawers, shared rooms) |
 | ImproveCollect.swift | service | `ReadOnlyDB` (state.db read-only, never written or checkpointed) and the collector: corrections, cut-offs, failed and repeated steps, walls, slow helpers, right the first time per day and job kind |

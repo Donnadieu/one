@@ -34,7 +34,7 @@ enum StarChatCheck {
         if !ok { fails += 1 }
     }
 
-    /// Five days of a bot's chat, a long report among short answers, "Germán" and "county" in a few of them.
+    /// Five days of a bot's chat, a long report among short answers, "René" and "county" in a few of them.
     static func history(days: Int = 5, perDay: Int = 6, now: Date = Date()) -> [StarLine] {
         let cal = Calendar.current
         var out: [StarLine] = []
@@ -45,7 +45,7 @@ enum StarChatCheck {
                 let me = i % 2 == 0
                 var text = me ? "Question \(d)-\(i) about the county plan" : "Answer \(d)-\(i): two posts drafted."
                 if !me && i == 3 { text = "**Report \(d)**\n\n" + (1...30).map { "- Line \($0) of the report" }.joined(separator: "\n") }
-                if d == 1 && i == 1 { text = "Germán sent the offer letter." }
+                if d == 1 && i == 1 { text = "René sent the offer letter." }
                 if d == 4 && i == 5 { text = "Mailed 200 letters to County homes." }
                 out.append(StarLine(id: "l-\(d)-\(i)", me: me, text: text, date: at))
             }
@@ -67,7 +67,7 @@ enum StarChatCheck {
             "a kept log splits into the person's ask and the answer", parsed.map(\.me) == [false, true, false] && parsed[1].text == "Write two posts")
         check("undated messages come first, as Earlier", StarPath.days(parsed + lines, now: now).first?.label == "Earlier")
         check("a 30-line report folds, a short answer doesn't", StarPath.folds(lines[3].text) && !StarPath.folds(lines[1].text))
-        check("search ignores case and accents", StarPath.matches(lines, "german") == ["l-1-1"])
+        check("search ignores case and accents", StarPath.matches(lines, "rene") == ["l-1-1"])
         let hits = StarPath.matches(lines, "COUNTY")
         check("every match is found", hits.count == 16)
         check("busier days get bigger dots", StarPath.dot(12, max: 12) > StarPath.dot(3, max: 12) && StarPath.dot(0, max: 0) == 5)
@@ -212,7 +212,7 @@ enum StarChatCheck {
         let hit = st.hit
         check("the next match opens its day and asks to scroll there", hit == "l-0-0" && st.target == hit && rows("me").contains { $0.id == hit })
         check("that message is lit", StarProbe.rows.first { $0.id == hit }?.halo == true)
-        st.query = "german"
+        st.query = "rene"
         st.step(1)
         settle(wb0)
         check("a match in a folded day is found too", st.hit == "l-1-1" && rows("them").contains { $0.id == "l-1-1" && $0.halo })

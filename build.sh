@@ -121,7 +121,7 @@ echo "$HERMES_COMMIT" > "$APP/Contents/Resources/hermes-commit.txt"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/$HERMES_COMMIT/scripts/install.sh}"
 curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors "$HERMES_INSTALL_URL" -o "$APP/Contents/Resources/hermes-install.sh"
 # Memory templates (rooms). Point BRAIN_STARTER at a checkout of the brain starter.
-# Only the starter's own files: its third-party kit (templates/cofounder-room) is never bundled, and the build
+# Only the files its author wrote: the third-party kit (templates/cofounder-room) is never bundled, and the build
 # fails if any kit file or word is left (tools/brain-starter-bundle.py; `make check` proves the check works).
 BRAIN_STARTER="${BRAIN_STARTER:-$HOME/Repos/brain-starter}"
 if [ -d "$BRAIN_STARTER/.git" ]; then
